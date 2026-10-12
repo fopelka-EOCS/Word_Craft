@@ -294,6 +294,7 @@ impl Reader<'_> {
                     }
                 }
                 "w:sdt" => self.read_block_sdt(sc, e, rels, out, depth),
+                "w:altChunk" => self.read_alt_chunk(sc, e, rels, out, depth),
                 "w:customXml" | "w:smartTag" | "w:ins" | "w:moveTo" => self.read_blocks(sc, e, rels, out, depth + 1),
                 // Math is allowed straight in a story (EG_BlockLevelElts takes EG_RunLevelElements,
                 // which takes EG_MathContent): it gets a paragraph of its own (#1273).
@@ -378,6 +379,21 @@ impl Reader<'_> {
         sc.pending.clear();
     }
 
+    /// Markers read before content placed whole (a chunk's `next`) stay before it: at the end of
+    /// the paragraph before, or after a table or with none, at the start of the content's first
+    /// paragraph, as a paragraph read there would take them (with a table first, the next
+    /// paragraph read takes them).
+    pub fn flush_pending_before(&mut self, sc: &mut StoryCtx, out: &mut Blocks, next: &mut [Block]) {
+        if out.last().is_some_and(|b| matches!(**b, Block::Para(_))) {
+            return self.flush_pending(sc, out);
+        }
+        if let Some(Block::Para(p)) = next.first_mut() {
+            for o in sc.pending.drain(..).rev() {
+                let _ = p.insert_object(0, o, &CharProps::default());
+            }
+        }
+    }
+
     fn marker(&mut self, e: &El) -> Option<InlineObject> {
         let id = e.attr("w:id").map(str::trim).unwrap_or("").to_string();
         match e.name.as_str() {
@@ -404,8 +420,15 @@ impl Reader<'_> {
                 if self.perms.len() >= 100_000 {
                     return None;
                 }
-                let n = self.perms.len() as u32;
-                let id = *self.perms.entry(id).or_insert(n);
+                let id = match self.perms.get(&id) {
+                    Some(n) => *n,
+                    None => {
+                        let n = self.next_perm;
+                        self.next_perm = n.saturating_add(1);
+                        self.perms.insert(id, n);
+                        n
+                    }
+                };
                 let text = |a: &str| e.attr(a).filter(|v| v.len() <= 256).unwrap_or("").to_string();
                 let (group, editor) = (text("w:edGrp"), text("w:ed"));
                 if group.is_empty() && editor.is_empty() {
@@ -1270,8 +1293,8 @@ impl Reader<'_> {
         if let Some(g) = self.graphics.get(&key) {
             return g.clone();
         }
-        let items = if self.graphic_budget == 0 { Vec::new() } else { self.graphic_items(kind, &key.1, w, h) };
-        self.graphic_budget = self.graphic_budget.saturating_sub(graphic_work(&items));
+        let items = if self.chunks.graphic == 0 { Vec::new() } else { self.graphic_items(kind, &key.1, w, h) };
+        self.chunks.graphic = self.chunks.graphic.saturating_sub(graphic_work(&items));
         // A chart or SmartArt that is exactly what WordCraft writes for its model can be edited
         // (and is written from the model); any other stays as it was read.
         let chart = match kind {
@@ -1583,7 +1606,7 @@ impl Reader<'_> {
         let mut blocks = Blocks::new();
         // Shapes in the text aren't members of a group the box may be in.
         let group = self.group_fill.take();
-        self.read_blocks(&mut inner, content, rels, &mut blocks, 0);
+        self.read_blocks(&mut inner, content, rels, &mut blocks, self.chunks.depth);
         self.group_fill = group;
         self.flush_pending(&mut inner, &mut blocks);
         self.doc.add_part(PartKind::TextBox, blocks)
