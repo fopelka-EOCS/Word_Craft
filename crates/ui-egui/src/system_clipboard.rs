@@ -71,6 +71,12 @@ pub(crate) fn fill(app: &mut WordApp, id: &str, params: &mut Value) -> Option<Re
 /// equations as MathML, #816; a lone equation in the MathML formats too, #1297) when the host can
 /// set it, else the text through egui. egui sets its text at the end of the frame, which would
 /// replace the HTML, so only one of them runs.
+///
+/// The text also goes on the primary selection where the platform has one (Linux), and only with
+/// "Use the middle mouse button to paste instead of autoscroll" on (#1934): a middle click then
+/// pastes a copy from here as it can from a browser. Without the option WordCraft never reads it,
+/// so it leaves the mouse selection other programs keep to them. It is plain text either way, and
+/// the ordinary clipboard is set whether or not this succeeds.
 pub(crate) fn put(app: &WordApp, ctx: &egui::Context, text: &str, html: &str, mathml: &str) {
     if text.is_empty() {
         // A copied picture or shape has no text, only HTML (#2276): empty the clipboard's text,
@@ -79,6 +85,9 @@ pub(crate) fn put(app: &WordApp, ctx: &egui::Context, text: &str, html: &str, ma
             ctx.copy_text(String::new());
         }
         return;
+    }
+    if app.session.prefs.middle_click_paste {
+        let _ = app.services.set_primary_text.as_ref().is_some_and(|f| f(text));
     }
     if !html.is_empty() && app.services.set_clipboard_html.as_ref().is_some_and(|f| f(html, text, mathml)) {
         return;
@@ -245,6 +254,67 @@ mod tests {
         };
         let e = app(unreadable).run("edit.paste", json!({})).unwrap_err();
         assert!(e.contains("couldn't be read") && e.contains("isn't supported"), "{e}");
+    }
+
+    #[test]
+    fn copying_also_puts_the_text_on_the_primary_selection() {
+        // #1934: a middle click pastes the primary selection, so a copy here has to land on it
+        // too — as it does from a browser — or copying inside WordCraft and pasting with the
+        // middle button would reach only what another program left there.
+        let primary = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+        let mut a = app(Services {
+            set_primary_text: Some(Box::new({
+                let s = primary.clone();
+                move |t: &str| {
+                    s.borrow_mut().push(t.to_string());
+                    true
+                }
+            })),
+            ..Default::default()
+        });
+        a.session.prefs.middle_click_paste = true;
+        a.run("document.setText", json!({"text": "Studio"})).unwrap();
+        let ctx = egui::Context::default();
+        a.run("select.all", json!({})).unwrap();
+        let r = a.run("edit.copy", json!({})).unwrap();
+        put_result(&a, &ctx, &r);
+        assert_eq!(primary.borrow().as_slice(), ["Studio"], "the copy reached the primary selection");
+
+        // It goes there whatever the ordinary clipboard does, HTML or not.
+        let mut a = app(Services {
+            set_primary_text: Some(Box::new({
+                let s = primary.clone();
+                move |t: &str| {
+                    s.borrow_mut().push(t.to_string());
+                    false
+                }
+            })),
+            set_clipboard_html: Some(Box::new(|_, _, _| true)),
+            ..Default::default()
+        });
+        a.session.prefs.middle_click_paste = true;
+        a.run("document.setText", json!({"text": "Studio"})).unwrap();
+        let r = a.run("select.all", json!({})).and_then(|_| a.run("edit.copy", json!({}))).unwrap();
+        put_result(&a, &ctx, &r);
+        assert_eq!(primary.borrow().last().map(String::as_str), Some("Studio"), "set even when the clipboard write failed");
+
+        // With the option off nothing reads the primary selection, so a copy leaves the mouse
+        // selection other programs keep alone.
+        let mut a = app(Services {
+            set_primary_text: Some(Box::new({
+                let s = primary.clone();
+                move |t: &str| {
+                    s.borrow_mut().push(t.to_string());
+                    true
+                }
+            })),
+            ..Default::default()
+        });
+        a.run("document.setText", json!({"text": "Studio"})).unwrap();
+        a.run("select.all", json!({})).unwrap();
+        let r = a.run("edit.copy", json!({})).unwrap();
+        put_result(&a, &ctx, &r);
+        assert_eq!(primary.borrow().len(), 2, "with the option off the copy left the primary selection alone");
     }
 
     #[test]
