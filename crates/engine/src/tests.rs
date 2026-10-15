@@ -1161,7 +1161,7 @@ fn replacing_a_symbol_with_text_gives_the_text_no_symbol_font() {
 }
 
 /// The body's equations: (linear text, display).
-fn equations(s: &Session) -> Vec<(String, bool)> {
+fn equations_display(s: &Session) -> Vec<(String, bool)> {
     let mut out = Vec::new();
     for path in s.doc.para_paths(StoryRef::Body) {
         let Some(p) = s.doc.para(StoryRef::Body, &path) else { continue };
@@ -1202,11 +1202,11 @@ fn pasting_an_equation_inserts_an_equation() {
         let depth = s.undo_depth();
         let r = run(&mut s, "edit.paste", json!({"text": clip}));
         assert_eq!((r["pasted"].as_str(), r["format"].as_str()), (Some("equation"), Some(format)), "{clip}");
-        assert_eq!(equations(&s), vec![(linear.to_string(), display)], "{clip}");
+        assert_eq!(equations_display(&s), vec![(linear.to_string(), display)], "{clip}");
         assert!(s.math.is_none(), "{clip}: the caret is after the equation, not in it");
         assert_eq!(s.undo_depth(), depth + 1, "{clip}: one undo step");
         run(&mut s, "edit.undo", json!({}));
-        assert!(equations(&s).is_empty(), "{clip}");
+        assert!(equations_display(&s).is_empty(), "{clip}");
         assert_eq!(text(&s), "Before ");
     }
 
@@ -1215,20 +1215,20 @@ fn pasting_an_equation_inserts_an_equation() {
         let mut s = s();
         let r = run(&mut s, "edit.paste", json!({"text": clip}));
         assert!(r.get("pasted").is_none(), "{clip}");
-        assert!(equations(&s).is_empty(), "{clip}");
+        assert!(equations_display(&s).is_empty(), "{clip}");
         assert_eq!(text(&s), clip);
     }
 
     // Keep Text Only pastes the LaTeX itself.
     let mut kept = s();
     run(&mut kept, "edit.pasteText", json!({"text": "$x^2$"}));
-    assert!(equations(&kept).is_empty());
+    assert!(equations_display(&kept).is_empty());
     assert_eq!(text(&kept), "$x^2$");
 
     // An equation that cannot be read pastes as its text, and the status bar says why.
     let mut bad = s();
     run(&mut bad, "edit.paste", json!({"text": "<m:oMath/>"}));
-    assert!(equations(&bad).is_empty());
+    assert!(equations_display(&bad).is_empty());
     assert_eq!(text(&bad), "<m:oMath/>");
     assert!(bad.status.contains("could not be read"), "{}", bad.status);
 }
