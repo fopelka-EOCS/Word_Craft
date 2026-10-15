@@ -501,6 +501,8 @@ struct El {
     page_break_after: bool,
     /// Li: a paragraph of this item was already emitted.
     used: bool,
+    /// Table: opened by rows with no table around them (#1938); see `end_implied_table`.
+    implied: bool,
 }
 
 struct TableB {
@@ -883,6 +885,9 @@ impl<'r> Builder<'r> {
         if inside_table_only && t.trim().is_empty() {
             return;
         }
+        if !t.trim().is_empty() {
+            self.end_implied_table();
+        }
         let code = self.stack.iter().any(|e| e.kind == ElKind::Pre);
         let f = self.fmt();
         if code {
@@ -1006,6 +1011,18 @@ impl<'r> Builder<'r> {
         }
     }
 
+    /// A table opened by rows with no table around them has no end tag to wait for: outside its
+    /// cells, the first text or element that adds something ends it, so what follows the rows
+    /// comes after the table, not before it. Inside a cell, content stays in the cell; the table
+    /// still ends with the element the rows sit in (`open_below_implied_table`), its row group's
+    /// end tag or `</table>`.
+    fn end_implied_table(&mut self) {
+        let Some(k) = self.stack.iter().rposition(|e| matches!(e.kind, ElKind::Table | ElKind::Cell)) else { return };
+        if self.stack.get(k).is_some_and(|e| e.kind == ElKind::Table && e.implied) {
+            self.pop_to(k);
+        }
+    }
+
     /// Index of the innermost open element named `name`, not looking past a table boundary
     /// unless `cross_tables`.
     fn find_open(&self, pred: impl Fn(&El) -> bool, stop: impl Fn(&El) -> bool) -> Option<usize> {
@@ -1051,8 +1068,34 @@ impl<'r> Builder<'r> {
             }
             _ => {}
         }
+        // What adds nothing (`<col>`, a hidden input, a link) doesn't end a table rows opened.
+        let adds_nothing = is_void(name) && !matches!(name, "br" | "hr" | "img" | "wbr");
+        if !adds_nothing && !matches!(name, "tr" | "td" | "th" | "thead" | "tbody" | "tfoot" | "colgroup") {
+            self.end_implied_table();
+        }
         let is_table_part = matches!(name, "tr" | "td" | "th");
+        // Rows with no table open were cut out of one: Excel's clipboard fragment starts inside
+        // its `<table>` (#1938). They open a table, as the one they came from. A lone cell (one
+        // copied cell) stays text.
+        if matches!(name, "tr" | "thead" | "tbody" | "tfoot") && self.tables.is_empty() {
+            // Counted in tables, not open elements: opening the table can close a `<p>` first.
+            let open = self.tables.len();
+            self.start("table", &[], false);
+            if self.tables.len() > open
+                && let Some(e) = self.stack.last_mut()
+                && e.kind == ElKind::Table
+            {
+                e.implied = true;
+            }
+        }
         let in_table = self.tables.len() < model::MAX_DEPTH;
+        // A row group starts at table level: it closes a cell, row or row group still open.
+        if in_table
+            && matches!(name, "thead" | "tbody" | "tfoot")
+            && let Some(t) = self.stack.iter().rposition(|e| e.kind == ElKind::Table)
+        {
+            self.pop_to(t + 1);
+        }
         // Implicit closes.
         if closes_p(name)
             && let Some(k) = self.find_open(|e| e.name == "p", |e| matches!(e.kind, ElKind::Cell | ElKind::Table | ElKind::Li | ElKind::Quote))
@@ -1271,7 +1314,7 @@ impl<'r> Builder<'r> {
             }
             _ => {}
         }
-        self.stack.push(El { name: name.to_string(), kind, fmt, align, preserve, page_break, page_break_after, used: false });
+        self.stack.push(El { name: name.to_string(), kind, fmt, align, preserve, page_break, page_break_after, used: false, implied: false });
     }
 
     fn end(&mut self, name: &str) {
@@ -1281,17 +1324,30 @@ impl<'r> Builder<'r> {
             }
             return;
         }
+        // An end tag closing nothing doesn't end a table rows opened; the element the rows sit
+        // in ending does (`open_below_implied_table`).
         let crosses = matches!(name, "table");
         let target = if matches!(name, "td" | "th") {
             self.find_open(|e| e.kind == ElKind::Cell, |e| e.kind == ElKind::Table)
         } else if name == "tr" {
             self.find_open(|e| e.kind == ElKind::Tr, |e| e.kind == ElKind::Table)
+        } else if matches!(name, "thead" | "tbody" | "tfoot") {
+            // Like `</tr>`, a row group's end closes a cell and row still open in it.
+            self.find_open(|e| e.name == name, |e| e.kind == ElKind::Table)
         } else {
             self.find_open(|e| e.name == name, |e| !crosses && matches!(e.kind, ElKind::Table | ElKind::Cell))
         };
-        if let Some(k) = target {
+        if let Some(k) = target.or_else(|| self.open_below_implied_table(name)) {
             self.pop_to(k);
         }
+    }
+
+    /// Index of the innermost open element named `name` around a table that rows opened
+    /// (#1938). That table has no edge of its own: the element the rows sit in ending ends it
+    /// too, even with one of its cells still open.
+    fn open_below_implied_table(&self, name: &str) -> Option<usize> {
+        let t = self.stack.iter().rposition(|e| e.kind == ElKind::Table && e.implied)?;
+        self.stack.get(..t)?.iter().rposition(|e| e.name == name)
     }
 
     fn finish(mut self) -> Flow {
@@ -1334,6 +1390,7 @@ pub fn parse_with(s: &str, images: ImageLoader) -> Flow {
                     if !b.in_head()
                         && let Some((linear, display)) = crate::mathml::read(&el)
                     {
+                        b.end_implied_table();
                         b.start_para().inlines.push(Inline::Equation { linear, display });
                     }
                     continue;
@@ -1858,6 +1915,78 @@ mod tests {
         );
         let FBlock::Para(p) = &f.blocks[1] else { panic!() };
         assert!(matches!(&p.inlines[1], Inline::Text(t, f) if t == "bold" && f.bold));
+    }
+
+    #[test]
+    fn rows_cut_out_of_a_table_still_form_one() {
+        // #1938: Excel's clipboard fragment starts inside its `<table>`; the rows still make one.
+        let f = parse(
+            "<!--StartFragment-->\r\n <col width=64 span=2>\r\n <tr height=20><td>a</td><td align=right>1</td></tr>\r\n <tr><td>b</td><td>2</td></tr>\r\n<!--EndFragment-->",
+        );
+        assert_eq!(texts(&f), vec!["table2x2"]);
+        let rows = cell_paras(&f);
+        assert_eq!(rows[0][1][0].align, Some(Align::Right), "a number Excel aligns right stays right");
+        // A copy can start before the table or end past it: the text around it stays outside.
+        let f = parse("<p>before<tr><td>x</td><th>y</th></tr></tbody></table><p>after</p>");
+        assert_eq!(texts(&f), vec!["NormalNone:before", "table1x2", "NormalNone:after"]);
+        // Rows after a table has ended start another.
+        let f = parse("<table><tr><td>in</td></tr></table><tr><td>out</td></tr>");
+        assert_eq!(texts(&f), vec!["table1x1", "table1x1"]);
+        // One copied cell comes without its row: it stays a paragraph.
+        let f = parse("<!--StartFragment-->\r\n  <td height=20 width=64>one</td>\r\n<!--EndFragment-->");
+        assert_eq!(texts(&f), vec!["NormalNone:one"]);
+        // With no room for another open element, the rows read as text, as before.
+        let f = parse(&format!("{}<tr><td>deep</td></tr>", "<div>".repeat(MAX_STACK + 4)));
+        assert_eq!(texts(&f), vec!["NormalNone:deep"]);
+    }
+
+    #[test]
+    fn rows_cut_out_of_a_table_end_before_what_follows() {
+        // #1938: a table the rows opened has no end tag to wait for; what follows them comes
+        // after it, in order.
+        for (html, want) in [
+            ("<tr><td>a</td></tr><p>after</p>", vec!["table1x1", "NormalNone:after"]),
+            ("<tr><td>a</td></tr>tail", vec!["table1x1", "NormalNone:tail"]),
+            // A row left open: what follows its last cell isn't part of the table either.
+            ("<tr><td>a</td><p>after</p>", vec!["table1x1", "NormalNone:after"]),
+            ("<tr><td>a</td><td>b</td>tail", vec!["table1x2", "NormalNone:tail"]),
+            ("<p>before<tr><td>x</td></tr><p>after</p>", vec!["NormalNone:before", "table1x1", "NormalNone:after"]),
+            ("<p><b>x<tr><td>y</td></tr>tail", vec!["NormalNone:x", "table1x1", "NormalNone:tail"]),
+            ("<div><tr><td>a</td></tr></div><p>b</p>", vec!["table1x1", "NormalNone:b"]),
+            ("<tbody><tr><td>a</td></tr></tbody><p>after</p>", vec!["table1x1", "NormalNone:after"]),
+            // A row group's end closes a cell left open in it.
+            ("<tbody><tr><td>a</tbody><p>after</p>", vec!["table1x1", "NormalNone:after"]),
+            ("<thead><tr><th>a</thead>tail", vec!["table1x1", "NormalNone:tail"]),
+            // The element the rows sit in ending ends the table, a cell still open or not.
+            ("<div><tr><td>a</div>after", vec!["table1x1", "NormalNone:after"]),
+            ("<ul><li>x<tr><td>y</li><li>z</ul>", vec!["NormalSome((false, 0)):x", "table1x1", "NormalSome((false, 0)):z"]),
+            // A row group starts at table level, closing a cell or row still open.
+            ("<tr><td>a<tbody><tr><td>b</tbody>after", vec!["table2x1", "NormalNone:after"]),
+            ("<thead><tr><th>H<tbody><tr><td>x</tbody><p>after</p>", vec!["table2x1", "NormalNone:after"]),
+            // What adds nothing between rows keeps them one table: an end tag closing nothing,
+            // `<col>`, comments, a hidden input; a no-break space counts as white space there,
+            // as between the rows of a `<table>`.
+            ("<tr><td>a</td></tr></span><tr><td>b</td></tr>", vec!["table2x1"]),
+            ("<tr><td>a</td></tr><!--x--><col><colgroup><col></colgroup><tr><td>b</td></tr>", vec!["table2x1"]),
+            ("<tr><td>a</td></tr><input type=hidden><tr><td>b</td></tr>", vec!["table2x1"]),
+            ("<tr><td>a</td></tr>&nbsp;<tr><td>b</td></tr>", vec!["table2x1"]),
+            ("<ul><li>x<tr><td>y</td></tr><li>z</ul>", vec!["NormalSome((false, 0)):x", "table1x1", "NormalSome((false, 0)):z"]),
+            // White space between rows and the end of the copy keep the table whole.
+            ("<tr><td>a</td></tr>\r\n <tr><td>b</td></tr>\r\n</body></html>", vec!["table2x1"]),
+            // Inside a cell, other elements and text belong to the cell.
+            ("<tr><td><p>a</p><b>b</b> c</td></tr><p>d</p>", vec!["table1x1", "NormalNone:d"]),
+        ] {
+            assert_eq!(texts(&parse(html)), want, "{html}");
+        }
+        // An equation after the rows too.
+        let f = parse("<tr><td>a</td></tr><math><mi>x</mi></math>");
+        assert!(matches!(f.blocks.as_slice(), [FBlock::Table(_), FBlock::Para(p)] if matches!(p.inlines.as_slice(), [Inline::Equation { .. }])));
+        let f = parse("<tr><td><p>a</p><b>b</b> c</td></tr>");
+        assert_eq!(cell_paras(&f)[0][0].len(), 2, "the cell keeps its two paragraphs");
+        // Row groups with no table around them belong to the table they open.
+        let f = parse("<thead><tr><th>H</th></tr></thead><tbody style=\"text-align:center\"><tr><td>x</td></tr></tbody>");
+        assert_eq!(texts(&f), vec!["table2x1"]);
+        assert_eq!(cell_paras(&f)[1][0][0].align, Some(Align::Center), "the row group's alignment reaches its cells");
     }
 
     #[test]
