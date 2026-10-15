@@ -850,9 +850,9 @@ name = "collabcraft-share"
 version = "0.1.0"
 source = "git+https://github.com/wdunn001/collabcraft?rev=80bfaec#80bfaec3e581213bb5bcfedc42079525aec5a1af"
 dependencies = [
- "craft-cloud 0.1.0 (git+https://github.com/storytold/craft-libs?rev=289d562cc6e8b567819aee51f759a78f41a65454)",
+ "craft-cloud",
  "craft-cloud-client",
- "craft-ui 0.1.0 (git+https://github.com/storytold/craft-libs?rev=289d562cc6e8b567819aee51f759a78f41a65454)",
+ "craft-ui",
  "wasm-bindgen-futures",
 ]
 
@@ -1005,20 +1005,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "craft-cloud"
-version = "0.1.0"
-source = "git+https://github.com/wdunn001/craft-libs?rev=289d562cc6e8b567819aee51f759a78f41a65454#289d562cc6e8b567819aee51f759a78f41a65454"
-dependencies = [
- "serde",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "craft-cloud-client"
 version = "0.1.0"
 source = "git+https://github.com/wdunn001/collabcraft?rev=80bfaec#80bfaec3e581213bb5bcfedc42079525aec5a1af"
 dependencies = [
- "craft-cloud 0.1.0 (git+https://github.com/storytold/craft-libs?rev=289d562cc6e8b567819aee51f759a78f41a65454)",
+ "craft-cloud",
  "craft-collab",
  "js-sys",
  "log",
@@ -1068,16 +1059,7 @@ name = "craft-ui"
 version = "0.1.0"
 source = "git+https://github.com/storytold/craft-libs?rev=289d562cc6e8b567819aee51f759a78f41a65454#289d562cc6e8b567819aee51f759a78f41a65454"
 dependencies = [
- "craft-cloud 0.1.0 (git+https://github.com/storytold/craft-libs?rev=289d562cc6e8b567819aee51f759a78f41a65454)",
- "egui",
-]
-
-[[package]]
-name = "craft-ui"
-version = "0.1.0"
-source = "git+https://github.com/wdunn001/craft-libs?rev=289d562cc6e8b567819aee51f759a78f41a65454#289d562cc6e8b567819aee51f759a78f41a65454"
-dependencies = [
- "craft-cloud 0.1.0 (git+https://github.com/wdunn001/craft-libs?rev=289d562cc6e8b567819aee51f759a78f41a65454)",
+ "craft-cloud",
  "egui",
  "serde_json",
 ]
@@ -6105,7 +6087,7 @@ dependencies = [
  "craft-cloud-client",
  "craft-collab",
  "craft-print",
- "craft-ui 0.1.0 (git+https://github.com/wdunn001/craft-libs?rev=289d562cc6e8b567819aee51f759a78f41a65454)",
+ "craft-ui",
  "dispatch2",
  "eframe",
  "egui",
@@ -6354,8 +6336,8 @@ name = "wordcraft-ui-egui"
 version = "0.8.0"
 dependencies = [
  "cfb",
- "craft-cloud 0.1.0 (git+https://github.com/wdunn001/craft-libs?rev=289d562cc6e8b567819aee51f759a78f41a65454)",
- "craft-ui 0.1.0 (git+https://github.com/wdunn001/craft-libs?rev=289d562cc6e8b567819aee51f759a78f41a65454)",
+ "craft-cloud",
+ "craft-ui",
  "egui",
  "egui_kittest",
  "image",
