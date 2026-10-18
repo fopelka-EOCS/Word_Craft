@@ -2764,3 +2764,7 @@
 	More tabs	Още раздели
 # #3013: Insert Table of Figures
 	Include label and number	Включване на етикета и номера
+# Table › Sort: Options (M3-COLL.6)
+	Case sensitive	Различаване на главни и малки букви
+	Column language	Език на колоната
+	Sorting language	Език на сортиране

@@ -1735,6 +1735,7 @@
 	German (Germany)	Tiếng Đức (Đức)
 	Greek	Tiếng Hy Lạp
 	Hebrew	Tiếng Do Thái
+	Vietnamese	Tiếng Việt
 	Hyphenate at:	Ngắt từ tại:
 	Hyphenate words in CAPS	Ngắt từ viết HOA
 	Hyphenation Options…	Tùy chọn ngắt từ…
@@ -2814,3 +2815,7 @@ template	Letter	Thư
 	More tabs	Các tab khác
 # #3013: Insert Table of Figures
 	Include label and number	Bao gồm nhãn và số
+# Table › Sort: Options (M3-COLL.6)
+	Case sensitive	Phân biệt chữ hoa/thường
+	Sorting language	Ngôn ngữ sắp xếp
+	Column language	Ngôn ngữ của cột

@@ -407,7 +407,7 @@ fn manual_ui(app: &mut WordApp, ui: &mut Ui, f: &mut ManualForm) -> bool {
 // Language
 
 /// Proofing languages offered, by BCP 47 tag, with their English names (translated for display).
-pub const LANGUAGES: [(&str, &str); 36] = [
+pub const LANGUAGES: [(&str, &str); 37] = [
     ("en-US", "English (United States)"),
     ("en-GB", "English (United Kingdom)"),
     ("en-AU", "English (Australia)"),
@@ -444,6 +444,7 @@ pub const LANGUAGES: [(&str, &str); 36] = [
     ("id-ID", "Indonesian"),
     ("ar-SA", "Arabic"),
     ("he-IL", "Hebrew"),
+    ("vi-VN", "Vietnamese"),
 ];
 
 /// The Language dialog's fields.
@@ -772,7 +773,8 @@ fn formula_ui(app: &mut WordApp, ui: &mut Ui, f: &mut FormulaForm) -> bool {
 
 /// The table Sort dialog's fields: the column to sort by, the order and whether the first row is
 /// a header (kept in place). `headers` is the first row's text, which names the columns when it
-/// is a header.
+/// is a header. `case_sensitive` puts lower case before upper case among otherwise equal texts;
+/// `lang` is the sorting language's BCP 47 tag, empty for the column's own language.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SortForm {
@@ -780,6 +782,8 @@ pub struct SortForm {
     pub descending: bool,
     pub header: bool,
     pub headers: Vec<String>,
+    pub case_sensitive: bool,
+    pub lang: String,
 }
 
 impl SortForm {
@@ -793,7 +797,7 @@ impl SortForm {
             .iter()
             .map(|c| c.blocks.iter().filter_map(|b| b.as_para()).map(|p| p.plain_text()).collect::<Vec<_>>().join(" ").trim().to_string())
             .collect();
-        Some(SortForm { column: 0, descending: false, header: first.props.header, headers })
+        Some(SortForm { column: 0, descending: false, header: first.props.header, headers, case_sensitive: false, lang: String::new() })
     }
 
     /// A column's name in Sort by: its header text, or `Column n`.
@@ -806,8 +810,27 @@ impl SortForm {
 
     /// `table.sort` parameters for OK.
     pub fn params(&self) -> Value {
-        json!({"column": self.column, "descending": self.descending, "header": self.header})
+        let mut p = json!({"column": self.column, "descending": self.descending, "header": self.header, "caseSensitive": self.case_sensitive});
+        if !self.lang.is_empty() {
+            p["lang"] = json!(self.lang);
+        }
+        p
     }
+}
+
+/// Sorting languages offered, as (tag, name): the column's own language first (empty tag), then
+/// the proofing languages of Review › Language, by name in the interface language.
+fn sort_language_choices() -> Vec<(String, String)> {
+    let mut list: Vec<(String, String)> = LANGUAGES.iter().map(|(t, _)| (t.to_string(), language_name(t))).collect();
+    list.sort_by_key(|a| a.1.to_lowercase());
+    list.insert(0, (String::new(), tl!("Column language").to_string()));
+    list
+}
+
+/// The Sorting language box's text for `tag`: Column language when empty, the language's name,
+/// else the tag as written.
+fn sort_language_label(tag: &str) -> String {
+    if tag.is_empty() { tl!("Column language").to_string() } else { language_name(tag) }
 }
 
 fn sort_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SortForm) -> bool {
@@ -828,6 +851,16 @@ fn sort_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SortForm) -> bool {
     ui.horizontal(|ui| {
         ui.radio_value(&mut f.header, true, tl!("Header row"));
         ui.radio_value(&mut f.header, false, tl!("No header row"));
+    });
+    heading(ui, "Options");
+    ui.checkbox(&mut f.case_sensitive, tl!("Case sensitive"));
+    ui.horizontal(|ui| {
+        ui.label(tl!("Sorting language"));
+        egui::ComboBox::from_id_salt("sort_language").selected_text(sort_language_label(&f.lang)).width(180.0).show_ui(ui, |ui| {
+            for (tag, name) in sort_language_choices() {
+                ui.selectable_value(&mut f.lang, tag, name);
+            }
+        });
     });
     let (ok, cancel) = buttons(ui, "OK", true);
     if ok {
@@ -1730,6 +1763,38 @@ mod tests {
         a.run("table.sort", f.params()).unwrap();
         assert_eq!(first_column(&a), ["Name", "Al", "Cy", "Bea"]);
         assert!(a.dialog.is_none());
+    }
+
+    /// M3-COLL.6: the Sort dialog offers Case sensitive and a Sorting language (Column language
+    /// first, then the proofing languages). OK passes both to `table.sort`: with Vietnamese the
+    /// `ă` follows `a` and `ab` sorts before `ăa`, and lower case comes before upper case.
+    #[test]
+    fn table_sort_dialog_offers_case_and_language() {
+        let cells = ["Ab", "ăa", "ab", "Ăa"];
+        let mut a = table_app(1, &cells);
+        a.run("table.sort", json!({})).unwrap();
+        let LayoutDialog::Sort(mut f) = form(&mut a) else { panic!("sort") };
+        assert!(!f.case_sensitive && f.lang.is_empty(), "defaults: not case sensitive, the column's language");
+        assert_eq!(f.params(), json!({"column": 0, "descending": false, "header": false, "caseSensitive": false}), "no lang unless chosen");
+        let choices = sort_language_choices();
+        assert_eq!(choices.first().map(|c| c.0.as_str()), Some(""), "Column language comes first");
+        assert!(choices.iter().any(|(tag, name)| tag == "vi-VN" && name == "Vietnamese"));
+        assert_eq!(sort_language_label(&f.lang), "Column language");
+        assert_eq!(sort_language_label("vi-VN"), "Vietnamese");
+        assert_eq!(sort_language_label("xx-YY"), "xx-YY", "an unlisted tag shows as written");
+        f.case_sensitive = true;
+        f.lang = "vi-VN".into();
+        assert_eq!(f.params(), json!({"column": 0, "descending": false, "header": false, "caseSensitive": true, "lang": "vi-VN"}));
+        a.run("table.sort", f.params()).unwrap();
+        assert_eq!(first_column(&a), ["ab", "Ab", "ăa", "Ăa"]);
+        assert!(a.dialog.is_none());
+
+        // The same column in the default (root) collation: `ă` is `a` with a mark, so `ăa` < `ab`.
+        let mut a = table_app(1, &cells);
+        a.run("table.sort", json!({})).unwrap();
+        let LayoutDialog::Sort(f) = form(&mut a) else { panic!("sort") };
+        a.run("table.sort", f.params()).unwrap();
+        assert_eq!(first_column(&a), ["ăa", "Ăa", "Ab", "ab"]);
     }
 
     fn table_shape(a: &WordApp) -> Vec<usize> {

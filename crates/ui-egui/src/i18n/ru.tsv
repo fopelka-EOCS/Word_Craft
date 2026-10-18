@@ -2773,3 +2773,7 @@ preview	Title	Пример
 	More tabs	Другие вкладки
 # #3013: Insert Table of Figures
 	Include label and number	Включить подпись и номер
+# Table › Sort: Options (M3-COLL.6)
+	Case sensitive	С учётом регистра
+	Column language	Язык столбца
+	Sorting language	Язык сортировки

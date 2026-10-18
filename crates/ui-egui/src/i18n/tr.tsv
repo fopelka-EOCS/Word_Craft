@@ -2772,3 +2772,7 @@ preview	Title	Örnek
 	More tabs	Diğer sekmeler
 # #3013: Insert Table of Figures
 	Include label and number	Etiketi ve numarayı ekle
+# Table › Sort: Options (M3-COLL.6)
+	Case sensitive	Büyük/küçük harfe duyarlı
+	Column language	Sütun dili
+	Sorting language	Sıralama dili

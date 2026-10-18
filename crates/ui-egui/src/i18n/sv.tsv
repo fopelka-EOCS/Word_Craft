@@ -2802,3 +2802,7 @@ template	Letter	Brev
 	More tabs	Fler flikar
 # #3013: Insert Table of Figures
 	Include label and number	Ta med etikett och nummer
+# Table › Sort: Options (M3-COLL.6)
+	Case sensitive	Skilj på versaler och gemener
+	Column language	Kolumnens språk
+	Sorting language	Sorteringsspråk

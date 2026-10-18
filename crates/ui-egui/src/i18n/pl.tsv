@@ -2795,3 +2795,7 @@ preview	Title	Tytuł
 	This document has no bookmarks.	This document has no bookmarks.
 	Type a page number, or +2 / -1.	Type a page number, or +2 / -1.
 	Wait for the print job to finish submitting before closing.	Wait for the print job to finish submitting before closing.
+# Table › Sort: Options (M3-COLL.6)
+	Case sensitive	Uwzględniaj wielkość liter
+	Column language	Język kolumny
+	Sorting language	Język sortowania

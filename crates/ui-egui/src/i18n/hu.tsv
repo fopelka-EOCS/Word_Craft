@@ -2770,3 +2770,7 @@
 	More tabs	További lapok
 # #3013: Insert Table of Figures
 	Include label and number	Címkével és számmal
+# Table › Sort: Options (M3-COLL.6)
+	Case sensitive	Kis- és nagybetű megkülönböztetése
+	Column language	Oszlop nyelve
+	Sorting language	Rendezési nyelv

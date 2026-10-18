@@ -2766,3 +2766,7 @@ preview	Title	Ukázka
 	More tabs	Další karty
 # #3013: Insert Table of Figures
 	Include label and number	Zahrnout popisek a číslo
+# Table › Sort: Options (M3-COLL.6)
+	Case sensitive	Rozlišovat malá a velká písmena
+	Column language	Jazyk sloupce
+	Sorting language	Jazyk řazení
