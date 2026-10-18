@@ -38,6 +38,8 @@ log = "0.4"
 # All date/time conversion goes through chrono (no hand-rolled calendar code beyond the 400-year range extension; AGENTS.md).
 chrono = { version = "0.4.45", default-features = false, features = ["std"] }
 proptest = "1"
+# Test-only oracle for the collation tables (crates/doc/src/collate_ucd.rs); never shipped.
+icu_normalizer = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
 rayon = "1"
 unicode-bidi = "0.3"
 unicode-segmentation = "1"

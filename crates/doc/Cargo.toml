@@ -18,3 +18,4 @@ unicode-segmentation = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+icu_normalizer = { workspace = true }

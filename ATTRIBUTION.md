@@ -6,6 +6,8 @@ Every non-code asset in this repository (fonts, icons, images, example documents
 
 Generated-in-code art is original and has no file to list: the UI icon set (`crates/ui-egui/src/icons.rs`), the sample documents and templates (`crates/engine/src/sample.rs`), the table and style previews, and theme colours (`crates/engine/src/cmd/design.rs`).
 
+`crates/doc/src/collate_ucd.rs` is source code, so it has no row in the table below, but it contains data derived from the Unicode Character Database (the canonical decompositions of the Latin letters in U+00C0–U+024F and U+1E00–U+1EFF and the combining classes of U+0300–U+036F), © Unicode, Inc., used under the Unicode License v3 (SPDX `Unicode-3.0`, https://www.unicode.org/license.txt). The copyright and permission notice is reproduced at the top of that file. The tables were generated once from ICU4X `icu_normalizer` (Unicode 17.0 data) and are checked against it by a test; `icu_normalizer` is a dev-dependency only and is not shipped.
+
 | Asset | Author | Source | Licence | Notes |
 |---|---|---|---|---|
 | `assets/hyphenation/en-us.pat` | DesignCraft contributors (generated) | trained from the Moby list by DesignCraft's patgen | Public Domain (CC0-1.0) | Our own Liang hyphenation patterns (no TeX patterns) |
