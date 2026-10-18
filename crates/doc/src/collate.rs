@@ -7,8 +7,36 @@
 //! Czech puts `ch` after `h`, Spanish `ñ` after `n`, Hungarian `cs`, `gy`, `sz`… after their
 //! first letter. The per-language tables follow the published alphabets of those languages.
 //! Text without diacritics sorts exactly as a case-insensitive code-point compare.
+//!
+//! How a key is built ([`sort_key`]):
+//! 1. The text is lowercased (`to_lowercase`, no full case folding) and put in canonical form
+//!    (`collate_ucd::canonical`: decomposed, marks in canonical order). So a letter typed
+//!    precomposed (`ậ`) and typed as base + marks in either order (`a` U+0302 U+0323) get one
+//!    key. (Lowercasing comes first so a character whose lowercase is a precomposed letter, such
+//!    as the Angstrom sign, is decomposed too; the result is the same canonical lowercase text.)
+//! 2. Each cluster is a base character and the combining marks (U+0300..=U+036F) after it. The
+//!    base is composed with the cluster's **first** mark when `COMPOSE` has the pair **and**
+//!    the composed letter means something to the key: it is in `DECOMP`, or a tailoring of
+//!    the language starts with it. Otherwise the base stands alone. The other marks follow.
+//! 3. Collation elements are read left to right: the longest tailoring sequence there, else
+//!    a `DECOMP` letter (its base letters), else the character itself. Each combining mark
+//!    after an element **appends** the code `32 + (cp - 0x300)` to the secondary list of the
+//!    element's last weight; a mark with no element before it is dropped from the weights.
+//! 4. There is one secondary list per primary weight: `[DECOMP mark or tailoring sec]` when that
+//!    is nonzero (on the element's first weight only), else empty; then the mark codes, in
+//!    canonical order. Distinct sets of marks therefore never share a secondary key (`ấ` is
+//!    `[3, 33]`, `ä` is `[4]`), and an accented letter sorts by its base letter (`Ánh` next to
+//!    `Anh`, not after `z`).
+//! 5. A key holds at most 16 384 primary weights; the rest of a longer text only takes
+//!    part through the `text` tie-break, which always holds the whole canonical lowercase text.
 
+use std::borrow::Cow;
 use std::cmp::Ordering;
+
+use crate::collate_ucd;
+
+/// Most primary weights a key holds (rule 5): a megabyte paste does not make a megabyte key.
+const MAX_PRIMARY: usize = 16_384;
 
 /// The diacritic of a precomposed lowercase Latin letter: `(base letters, mark)`. Marks: 1 acute,
 /// 2 grave, 3 circumflex, 4 diaeresis, 5 tilde, 6 ring, 7 caron, 8 cedilla, 9 ogonek, 10 dot,
@@ -336,20 +364,48 @@ const COMPOSE: &[(char, char, char)] = &[
     ('и', '\u{306}', 'й'),
 ];
 
-/// `s` lowercased, with each letter + combining mark that has a single-letter form composed.
-fn lower_composed(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.to_lowercase().chars() {
-        if let Some(prev) = out.chars().next_back()
-            && let Some((_, _, composed)) = COMPOSE.iter().find(|(b, m, _)| *b == prev && *m == c)
-        {
+/// Whether `c` is a combining mark the key attaches to the element before it.
+fn is_mark(c: char) -> bool {
+    ('\u{300}'..='\u{36f}').contains(&c)
+}
+
+/// `s` lowercased, in canonical form (rule 1): the `text` of its key. ASCII skips the tables.
+fn lower_canonical(s: &str) -> String {
+    if s.is_ascii() {
+        return s.to_ascii_lowercase();
+    }
+    collate_ucd::canonical(&s.to_lowercase())
+}
+
+/// The letter `base` + `mark` compose to, when the key reads that letter as one (rule 2): it is
+/// in `DECOMP` or a tailoring of the language starts with it.
+fn compose(base: char, mark: char, rules: &[Tailor]) -> Option<char> {
+    let (_, _, composed) = COMPOSE.iter().find(|(b, m, _)| *b == base && *m == mark)?;
+    let known = DECOMP.iter().any(|(x, _, _)| x == composed) || rules.iter().any(|r| r.seq.starts_with(*composed));
+    known.then_some(*composed)
+}
+
+/// `text` (lowercase, canonical) with each cluster's base composed with its first mark where
+/// rule 2 allows; the string collation elements are read from.
+fn compose_first_marks<'a>(text: &'a str, rules: &[Tailor]) -> Cow<'a, str> {
+    if text.is_ascii() {
+        return Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    // The base of the current cluster while no mark has followed it yet.
+    let mut base = None;
+    for c in text.chars() {
+        if !is_mark(c) {
+            out.push(c);
+            base = Some(c);
+        } else if let Some(composed) = base.take().and_then(|b| compose(b, c, rules)) {
             out.pop();
-            out.push(*composed);
+            out.push(composed);
         } else {
             out.push(c);
         }
     }
-    out
+    Cow::Owned(out)
 }
 
 fn weight(c: char, rank: u32) -> u32 {
@@ -377,43 +433,54 @@ fn next_elem<'a>(rest: &'a str, rules: &[Tailor]) -> Option<(Elem<'a>, usize)> {
     if let Some((_, base, mark)) = DECOMP.iter().find(|(x, _, _)| *x == c) {
         return Some((Elem { primary: base.chars().map(|b| weight(b, 0)).collect(), sec: *mark, text, own: false }, n));
     }
-    // A combining mark adds a secondary difference to the letter before it.
-    if ('\u{300}'..='\u{36f}').contains(&c) {
-        return Some((Elem { primary: Vec::new(), sec: 32 + (c as u32 - 0x300) as u16, text, own: false }, n));
+    // A combining mark adds a secondary difference to the letter before it (rule 3).
+    if is_mark(c) {
+        let code = (c as u32).saturating_sub(0x300).saturating_add(32);
+        return Some((Elem { primary: Vec::new(), sec: u16::try_from(code).unwrap_or(u16::MAX), text, own: false }, n));
     }
     Some((Elem { primary: vec![weight(c, 0)], sec: 0, text, own: false }, n))
 }
 
 /// A sort key: compare keys to sort strings in a language's order. Equal keys mean the strings
-/// differ at most in letter case.
+/// differ at most in letter case and in how they are encoded (precomposed or decomposed, marks
+/// in either canonical order).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct SortKey {
     primary: Vec<u32>,
-    secondary: Vec<u16>,
+    /// One list per primary weight: the letter's diacritic code, then its combining marks.
+    secondary: Vec<Vec<u16>>,
+    /// The canonical lowercase text, whole even past the primary cap.
     text: String,
 }
 
 /// The sort key of `s` for language `lang` (a BCP 47 tag such as `pl-PL`; `None` sorts like
 /// English).
 pub fn sort_key(s: &str, lang: Option<&str>) -> SortKey {
-    let text = lower_composed(s);
+    let text = lower_canonical(s);
     let rules = tailoring(lang);
+    let composed = compose_first_marks(&text, rules);
     let mut key = SortKey::default();
-    let mut i = 0;
-    while let Some(rest) = text.get(i..).filter(|r| !r.is_empty()) {
+    let mut i: usize = 0;
+    while key.primary.len() < MAX_PRIMARY
+        && let Some(rest) = composed.get(i..).filter(|r| !r.is_empty())
+    {
         let Some((e, n)) = next_elem(rest, rules) else { break };
-        i += n.max(1);
+        i = i.saturating_add(n.max(1));
         if e.primary.is_empty() {
             if let Some(last) = key.secondary.last_mut() {
-                *last = last.saturating_add(e.sec);
+                last.push(e.sec);
             }
             continue;
         }
         for (k, w) in e.primary.iter().enumerate() {
+            if key.primary.len() >= MAX_PRIMARY {
+                break;
+            }
             key.primary.push(*w);
-            key.secondary.push(if k == 0 { e.sec } else { 0 });
+            key.secondary.push(if k == 0 && e.sec != 0 { vec![e.sec] } else { Vec::new() });
         }
     }
+    drop(composed); // it may borrow `text`
     key.text = text;
     key
 }
@@ -426,8 +493,10 @@ pub fn collate(a: &str, b: &str, lang: Option<&str>) -> Ordering {
 /// The index heading letter `s` files under in language `lang`: `Ł` for `Łódź` in Polish, `L`
 /// in English; `Ch` for `chata` in Czech; `A` for `Äpfel` in German, `Ä` in Swedish.
 pub fn heading_letter(s: &str, lang: Option<&str>) -> Option<String> {
-    let low = lower_composed(s.trim_start());
-    let (e, _) = next_elem(&low, tailoring(lang))?;
+    let rules = tailoring(lang);
+    let low = lower_canonical(s.trim_start());
+    let composed = compose_first_marks(&low, rules);
+    let (e, _) = next_elem(&composed, rules)?;
     let shown = if e.own || e.sec == 0 {
         e.text.to_string()
     } else {
@@ -530,6 +599,104 @@ mod tests {
         assert_eq!(heading_letter("Äpfel", Some("de")).as_deref(), Some("A"));
         assert_eq!(heading_letter("Äpple", Some("sv")).as_deref(), Some("Ä"));
         assert_eq!(heading_letter("", Some("sv")), None);
+    }
+
+    #[test]
+    fn layer1_vietnamese_letters_sort_next_to_their_base_letter() {
+        // ICU `en`: Ánh next to Anh, no longer after Z.
+        // Primary first: "an" is a prefix of "anh", so Ấn sorts before Anh (as in ICU `en`).
+        assert_eq!(sorted(&["Zambia", "Ấn", "Ánh", "Anh", "Bình"], "en-US"), ["Ấn", "Anh", "Ánh", "Bình", "Zambia"]);
+        assert_eq!(sorted(&["Huỳnh", "Hoàng", "Hồ"], "en"), ["Hồ", "Hoàng", "Huỳnh"]);
+        assert_eq!(collate("ấ", "ä", None), Ordering::Less); // vectors.json collisions.en_less
+        assert_eq!(sorted(&["ơn", "zebra", "ox", "ôm"], "en"), ["ôm", "ơn", "ox", "zebra"]);
+    }
+
+    #[test]
+    fn layer1_canonical_equivalents_compare_equal() {
+        // Every canonical_equal pair of vectors.json, with no language and with `en`.
+        for (a, b) in [
+            ("ậ", "a\u{302}\u{323}"),
+            ("ặ", "a\u{306}\u{323}"),
+            ("ệ", "e\u{302}\u{323}"),
+            ("ộ", "o\u{302}\u{323}"),
+            ("ợ", "o\u{323}\u{31b}"),
+            ("ự", "u\u{323}\u{31b}"),
+            ("Nguyễn", "Nguye\u{302}\u{303}n"),
+            ("Ánh", "A\u{301}nh"),
+        ] {
+            for l in [None, Some("en")] {
+                assert_eq!(collate(a, b, l), Ordering::Equal, "{a} {l:?}");
+                assert_eq!(sort_key(a, l), sort_key(b, l), "{a} {l:?}");
+            }
+        }
+        // canonical_not_equal: tilde and circumflex share a combining class, so their order counts.
+        assert_ne!(collate("ễ", "e\u{303}\u{302}", None), Ordering::Equal);
+    }
+
+    #[test]
+    fn layer1_distinct_mark_sets_never_collide() {
+        // vectors.json collisions.all_distinct_vi: the primary and secondary weights alone (not
+        // the `text` tie-break) tell all 23 strings apart.
+        let words = ["a", "à", "ả", "ã", "á", "ạ", "ă", "ằ", "ẳ", "ẵ", "ắ", "ặ", "â", "ầ", "ẩ", "ẫ", "ấ", "ậ", "ä", "å", "ā", "ą", "ǎ"];
+        assert_eq!(words.len(), 23);
+        let weights: std::collections::HashSet<_> = words
+            .iter()
+            .map(|w| {
+                let k = sort_key(w, None);
+                (k.primary, k.secondary)
+            })
+            .collect();
+        assert_eq!(weights.len(), words.len());
+        // Typed decomposed, each gets the same weights as typed precomposed.
+        for w in words {
+            let (a, b) = (sort_key(w, None), sort_key(&crate::collate_ucd::canonical(w), None));
+            assert_eq!((a.primary, a.secondary), (b.primary, b.secondary), "{w}");
+        }
+        // And each of them still sorts with `a`: between "a" and "b".
+        for w in words {
+            assert_ne!(collate(w, "a", None), Ordering::Less, "{w}");
+            assert_eq!(collate(w, "b", None), Ordering::Less, "{w}");
+        }
+    }
+
+    #[test]
+    fn decomposed_letters_recompose_to_the_letters_the_tables_name() {
+        // Rule 2 must rebuild every precomposed letter `DECOMP` and the tailorings name, or a
+        // tailoring would silently stop matching once the text is in canonical (decomposed) form.
+        for (x, _, _) in DECOMP {
+            let s = x.to_string();
+            assert_eq!(compose_first_marks(&lower_canonical(&s), &[]), s, "U+{:04X}", *x as u32);
+        }
+        for rules in [PL, CS, SK, HU, SV, DA, ES, TR, HR, RO, ET, LT, LV, IS] {
+            for r in rules {
+                assert_eq!(compose_first_marks(&lower_canonical(r.seq), rules), r.seq);
+            }
+        }
+    }
+
+    #[test]
+    fn hostile_marks_and_huge_strings_never_panic() {
+        let marks = "a".to_string() + &"\u{323}\u{302}".repeat(5_000);
+        assert_eq!(marks.chars().count(), 10_001);
+        let unit = "Nguye\u{302}\u{303}n Va\u{306}n Thi\u{323} A\u{301}nh ";
+        let big = unit.repeat(1_000_000 / unit.len() + 1);
+        assert!(big.len() >= 1_000_000);
+        let cases = ["", "\u{301}", "a\u{301}\u{301}\u{301}", "dzs", "\u{10FFFF}", "ẞ", "İstanbul", "\u{301}a", &marks, &big];
+        for s in cases {
+            for l in [None, Some("vi"), Some("pl"), Some("hu"), Some(""), Some("-"), Some("tr-TR")] {
+                let k = sort_key(s, l);
+                assert!(k.primary.len() <= 16_384);
+                assert_eq!(k.primary.len(), k.secondary.len());
+                let _ = heading_letter(s, l);
+            }
+        }
+        let k = sort_key(&big, None);
+        assert_eq!(k.primary.len(), 16_384);
+        assert!(k.text.len() >= 1_000_000, "text keeps the whole string");
+        // A mark with nothing before it has nothing to attach to: it leaves the weights alone and
+        // stays in the text.
+        let k = sort_key("\u{301}a", None);
+        assert_eq!((k.primary, k.text.as_str()), (sort_key("a", None).primary, "\u{301}a"));
     }
 
     #[test]

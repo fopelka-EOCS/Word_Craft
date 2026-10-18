@@ -62,9 +62,6 @@
 //! Nothing here panics: lookups use `get` and binary search, and the work is linear in the input
 //! except for the sort of a mark run, which is capped at 32 marks.
 
-// The collation key (the next task) is the only caller; remove this allow when it lands.
-#![allow(dead_code)]
-
 /// Longest run of combining marks that is reordered. A longer run is returned in input order:
 /// it is not text, and sorting it would let one hostile string cost quadratic time.
 const MAX_RUN: usize = 32;
