@@ -601,6 +601,31 @@ pub fn search_text(s: &str) -> String {
     lower_canonical(s)
 }
 
+/// Whether `haystack` contains `needle`: canonical-equivalent, case-insensitive substring match
+/// at letter boundaries. Both sides compare as [`search_text`], and a match counts only when no
+/// combining mark follows it, so `e` does not find the `e` of `ễ` and `ê` does not find `ễ`
+/// (`ễ` itself does). A needle starting with a mark is matched as given. The empty needle is in
+/// every text.
+pub fn contains_text(haystack: &str, needle: &str) -> bool {
+    let (hay, needle) = (search_text(haystack), search_text(needle));
+    if needle.is_empty() {
+        return true;
+    }
+    // Try every occurrence, overlapping ones too, so a rejected one never hides a later match.
+    let mut start = 0;
+    while let Some(rest) = hay.get(start..) {
+        let Some(at) = rest.find(&needle) else { return false };
+        let at = start.saturating_add(at);
+        let end = at.saturating_add(needle.len());
+        if !hay.get(end..).and_then(|t| t.chars().next()).is_some_and(is_mark) {
+            return true;
+        }
+        // Resume one character after this occurrence's start.
+        start = at.saturating_add(hay.get(at..).and_then(|t| t.chars().next()).map_or(1, char::len_utf8));
+    }
+    false
+}
+
 /// Compare two strings in the order of language `lang`, ignoring case.
 pub fn collate(a: &str, b: &str, lang: Option<&str>) -> Ordering {
     sort_key(a, lang).cmp(&sort_key(b, lang))
@@ -889,6 +914,33 @@ mod tests {
         assert_eq!(search_text("Ánh"), sort_key("A\u{301}nh", Some("vi")).text);
         assert!(search_text("Ông NGUYỄN Văn An").contains(&search_text("nguyễn")));
         assert_eq!(search_text("Mail@X.org"), "mail@x.org");
+    }
+
+    #[test]
+    fn contains_text_matches_whole_letters() {
+        // A base letter or a letter with fewer marks never matches inside a marked letter.
+        assert!(!contains_text("Nguyễn", "e"));
+        assert!(contains_text("Nguyễn", "ễ"));
+        assert!(contains_text("Nguye\u{302}\u{303}n", "nguyễn"));
+        assert!(contains_text("NGUYE\u{302}\u{303}N", "Nguyễn"));
+        assert!(!contains_text("Ánh", "a"));
+        assert!(contains_text("Ánh", "á"));
+        assert!(!contains_text("ế", "é"));
+        assert!(!contains_text("ễ", "ê"));
+        assert!(contains_text("Hà Nội và Hà Giang", "giang"));
+        assert!(contains_text("abc", ""));
+        assert!(contains_text("", ""));
+        // A rejected occurrence does not hide a later whole-letter one.
+        assert!(contains_text("ễ e", "e"));
+        assert!(contains_text("Ánh Anh", "anh"));
+        // A needle that starts with a mark is taken as given.
+        assert!(contains_text("ễ", "\u{303}"));
+        assert!(!contains_text("abc", "abcd"));
+        // An overlapping later occurrence is found after a rejected one.
+        assert!(contains_text("e\u{302}e\u{302}e", "e\u{302}e"));
+        for (h, n) in [("\u{301}", "\u{301}"), ("a\u{301}\u{301}", "\u{301}"), ("\u{10FFFF}", "a"), ("İstanbul", "i"), ("ẞ", "ss")] {
+            let _ = contains_text(h, n);
+        }
     }
 
     #[test]

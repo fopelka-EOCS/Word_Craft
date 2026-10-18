@@ -2,7 +2,7 @@
 //! filtered and sorted; merge fields, preview, finish), envelopes and labels.
 
 use serde_json::{Value, json};
-use wordcraft_doc::collate::{self, search_text, sort_key};
+use wordcraft_doc::collate::{self, sort_key};
 use wordcraft_doc::para::InlineObject;
 use wordcraft_doc::props::{Align, CharProps};
 use wordcraft_doc::section::{SectionProps, SectionStart};
@@ -179,8 +179,6 @@ fn compare_keys(a: &(Option<f64>, collate::SortKey), b: &(Option<f64>, collate::
 fn rule_holds(r: &FilterRule, cell: &str, lang: Option<&str>) -> bool {
     use std::cmp::Ordering::{Equal, Greater, Less};
     let ord = || compare_cells(cell, &r.value, lang);
-    // Case- and encoding-blind text for Contains (`nguyễn` finds a decomposed `NGUYỄN`).
-    let search = || (search_text(cell), search_text(r.value.trim()));
     match r.op {
         FilterOp::Equal => ord() == Equal,
         FilterOp::NotEqual => ord() != Equal,
@@ -190,14 +188,10 @@ fn rule_holds(r: &FilterRule, cell: &str, lang: Option<&str>) -> bool {
         FilterOp::GreaterOrEqual => ord() != Less,
         FilterOp::Blank => cell.trim().is_empty(),
         FilterOp::NotBlank => !cell.trim().is_empty(),
-        FilterOp::Contains => {
-            let (c, v) = search();
-            c.contains(&v)
-        }
-        FilterOp::NotContains => {
-            let (c, v) = search();
-            !c.contains(&v)
-        }
+        // Case- and encoding-blind, whole letters only (`nguyễn` finds a decomposed `NGUYỄN`;
+        // `e` does not find the `e` inside `ễ`).
+        FilterOp::Contains => collate::contains_text(cell, r.value.trim()),
+        FilterOp::NotContains => !collate::contains_text(cell, r.value.trim()),
     }
 }
 
@@ -1909,6 +1903,13 @@ mod tests {
         assert_eq!(ids(&s), ["1", "2", "3"]);
         filter(&mut s, json!([{"field": "Họ", "op": "notContains", "value": "NGUYỄN"}]));
         assert_eq!(ids(&s), ["4", "5"]);
+        // Contains matches whole letters: `e` is not the `e` inside `ễ`.
+        filter(&mut s, json!([{"field": "Họ", "op": "contains", "value": "e"}]));
+        assert_eq!(ids(&s), ["4"]);
+        filter(&mut s, json!([{"field": "Họ", "op": "notContains", "value": "e"}]));
+        assert_eq!(ids(&s), ["1", "2", "3", "5"]);
+        filter(&mut s, json!([{"field": "Họ", "op": "contains", "value": "nguyễn"}]));
+        assert_eq!(ids(&s), ["1", "2", "3"]);
         // `less` in the Vietnamese order: `Nguyen` < `Nguyễn` < `Trần`.
         filter(&mut s, json!([{"field": "Họ", "op": "less", "value": "Nguyễn"}]));
         assert_eq!(ids(&s), ["4"]);
