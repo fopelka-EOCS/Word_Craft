@@ -10,9 +10,11 @@
 //!
 //! How a key is built ([`sort_key`]):
 //! 1. The text is lowercased (`to_lowercase`, no full case folding) and put in canonical form
-//!    (`collate_ucd::canonical`: decomposed, marks in canonical order). So a letter typed
-//!    precomposed (`ậ`) and typed as base + marks in either order (`a` U+0302 U+0323) get one
-//!    key. (Lowercasing comes first so a character whose lowercase is a precomposed letter, such
+//!    (`collate_ucd::canonical`: decomposed, marks in canonical order). So a Latin letter typed
+//!    precomposed (`ậ`) and typed as base + marks (`a` U+0302 U+0323 or `a` U+0323 U+0302;
+//!    marks of different combining classes match in either order) get one key. This covers the
+//!    Latin letters U+00C0..=U+024F and U+1E00..=U+1EFF with marks U+0300..=U+036F; other
+//!    scripts (Cyrillic й, Greek ά) are not unified. (Lowercasing comes first so a character whose lowercase is a precomposed letter, such
 //!    as the Angstrom sign, is decomposed too; the result is the same canonical lowercase text.)
 //! 2. Each cluster is a base character and the combining marks (U+0300..=U+036F) after it. The
 //!    base is composed with the cluster's **first** mark when `COMPOSE` has the pair **and**
@@ -546,8 +548,9 @@ fn vi_weights(text: &str, key: &mut SortKey) {
 }
 
 /// A sort key: compare keys to sort strings in a language's order. Equal keys mean the strings
-/// differ at most in letter case and in how they are encoded (precomposed or decomposed, marks
-/// in either canonical order).
+/// differ at most in letter case and in how they are encoded (precomposed or decomposed Latin
+/// letters, marks of different combining classes in either order; see the module docs for the
+/// covered range).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct SortKey {
     primary: Vec<u32>,
@@ -597,13 +600,13 @@ pub fn sort_key(s: &str, lang: Option<&str>) -> SortKey {
 /// `s` lowercased and in canonical form: the text a key compares last ([`SortKey`]'s `text`).
 /// Search one `search_text` in another to find text whatever its case and however it is encoded
 /// (`nguyễn` typed precomposed finds `NGUYỄN` typed as base letters and marks).
-pub fn search_text(s: &str) -> String {
+fn search_text(s: &str) -> String {
     lower_canonical(s)
 }
 
 /// Whether `haystack` contains `needle`: canonical-equivalent, case-insensitive substring match
 /// at letter boundaries. Both sides compare as [`search_text`], and a match counts only when no
-/// combining mark follows it, so `e` does not find the `e` of `ễ` and `ê` does not find `ễ`
+/// mark in U+0300–U+036F follows it, so `e` does not find the `e` of `ễ` and `ê` does not find `ễ`
 /// (`ễ` itself does). A needle starting with a mark is matched as given. The empty needle is in
 /// every text.
 pub fn contains_text(haystack: &str, needle: &str) -> bool {

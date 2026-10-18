@@ -144,20 +144,19 @@ fn cell_number(s: &str) -> Option<f64> {
 /// Orders two cells: numbers (compared numerically) before text (compared in the order of
 /// language `lang`, ignoring case; a precomposed and a decomposed spelling are equal). This is
 /// a total order, so `sort_by` stays consistent (and can't panic) on columns that mix numbers
-/// and text, such as `9`, `10`, `1A`.
+/// and text, such as `9`, `10`, `1A`. It is [`compare_keys`] on the cells' keys: the one place
+/// that holds the rule. (Tests compare cells with it; the code compares keys it computed once.)
+#[cfg(test)]
 fn compare_cells(a: &str, b: &str, lang: Option<&str>) -> std::cmp::Ordering {
-    use std::cmp::Ordering::{Greater, Less};
-    let (a, b) = (a.trim(), b.trim());
-    match (cell_number(a), cell_number(b)) {
-        (Some(x), Some(y)) => x.total_cmp(&y),
-        (Some(_), None) => Less,
-        (None, Some(_)) => Greater,
-        (None, None) => collate::collate(a, b, lang),
-    }
+    compare_keys(&cell_key(a, lang), &cell_key(b, lang))
 }
 
-/// A cell's sort key for [`compare_cells`]' order, computed once per record and sort column.
-fn cell_key(cell: &str, lang: Option<&str>) -> (Option<f64>, collate::SortKey) {
+/// A cell read for comparison: its number, if it is one, and its collation key.
+type CellKey = (Option<f64>, collate::SortKey);
+
+/// A cell's sort key, computed once per record and sort column (and once per filter rule for
+/// its value); [`compare_keys`] orders keys.
+fn cell_key(cell: &str, lang: Option<&str>) -> CellKey {
     let cell = cell.trim();
     match cell_number(cell) {
         Some(x) => (Some(x), collate::SortKey::default()),
@@ -165,8 +164,8 @@ fn cell_key(cell: &str, lang: Option<&str>) -> (Option<f64>, collate::SortKey) {
     }
 }
 
-/// [`compare_cells`] on keys from [`cell_key`].
-fn compare_keys(a: &(Option<f64>, collate::SortKey), b: &(Option<f64>, collate::SortKey)) -> std::cmp::Ordering {
+/// Orders two keys from [`cell_key`]: numbers numerically before text, text by collation.
+fn compare_keys(a: &CellKey, b: &CellKey) -> std::cmp::Ordering {
     use std::cmp::Ordering::{Greater, Less};
     match (a.0, b.0) {
         (Some(x), Some(y)) => x.total_cmp(&y),
@@ -176,9 +175,10 @@ fn compare_keys(a: &(Option<f64>, collate::SortKey), b: &(Option<f64>, collate::
     }
 }
 
-fn rule_holds(r: &FilterRule, cell: &str, lang: Option<&str>) -> bool {
+/// Whether `r` keeps `cell`; `value` is `r.value`'s key (from [`cell_key`], computed once per rule).
+fn rule_holds(r: &FilterRule, value: &CellKey, cell: &str, lang: Option<&str>) -> bool {
     use std::cmp::Ordering::{Equal, Greater, Less};
-    let ord = || compare_cells(cell, &r.value, lang);
+    let ord = || compare_keys(&cell_key(cell, lang), value);
     match r.op {
         FilterOp::Equal => ord() == Equal,
         FilterOp::NotEqual => ord() != Equal,
@@ -200,7 +200,8 @@ fn rule_holds(r: &FilterRule, cell: &str, lang: Option<&str>) -> bool {
 /// Rules and keys naming a field that isn't in `headers` are ignored.
 pub fn select_records(headers: &[String], rows: &[Vec<String>], filter: &[FilterRule], sort: &[SortKey], lang: Option<&str>) -> Vec<usize> {
     let col = |f: &str| headers.iter().position(|h| h.eq_ignore_ascii_case(f.trim()));
-    let rules: Vec<(Option<usize>, &FilterRule)> = filter.iter().map(|r| (col(&r.field), r)).filter(|(c, _)| c.is_some()).collect();
+    let rules: Vec<(Option<usize>, &FilterRule, CellKey)> =
+        filter.iter().map(|r| (col(&r.field), r, cell_key(&r.value, lang))).filter(|(c, _, _)| c.is_some()).collect();
     let keep = |row: &Vec<String>| {
         if rules.is_empty() {
             return true;
@@ -208,13 +209,13 @@ pub fn select_records(headers: &[String], rows: &[Vec<String>], filter: &[Filter
         // Or-groups of And-ed rules.
         let mut any = false;
         let mut all = true;
-        for (k, (c, r)) in rules.iter().enumerate() {
+        for (k, (c, r, value)) in rules.iter().enumerate() {
             if k > 0 && r.or {
                 any |= all;
                 all = true;
             }
             let cell = c.and_then(|c| row.get(c)).map(String::as_str).unwrap_or("");
-            all = all && rule_holds(r, cell, lang);
+            all = all && rule_holds(r, value, cell, lang);
         }
         any || all
     };
@@ -224,7 +225,7 @@ pub fn select_records(headers: &[String], rows: &[Vec<String>], filter: &[Filter
         return out;
     }
     // Each record's key per sort column, computed once; then a stable sort.
-    let mut keyed: Vec<(Vec<(Option<f64>, collate::SortKey)>, usize)> = out
+    let mut keyed: Vec<(Vec<CellKey>, usize)> = out
         .into_iter()
         .map(|i| {
             let row = rows.get(i);

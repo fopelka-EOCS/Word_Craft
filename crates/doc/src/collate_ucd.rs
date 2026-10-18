@@ -43,8 +43,9 @@
 //! Canonical decomposition and combining classes for collation.
 //!
 //! The collation key (`collate`) must give the same order to a letter typed precomposed (`ế`,
-//! U+1EBF) and typed as base + marks (`e` U+0302 U+0301), and to marks typed in either order
-//! (`a` U+0302 U+0323 and `a` U+0323 U+0302). [`canonical`] turns text into the one form the
+//! U+1EBF) and typed as base + marks (`e` U+0302 U+0301), and to marks of different combining classes
+//! typed in either order (`a` U+0302 U+0323 and `a` U+0323 U+0302). Only the Latin letters
+//! U+00C0..=U+024F and U+1E00..=U+1EFF and the marks U+0300..=U+036F are covered. [`canonical`] turns text into the one form the
 //! key builder reads: fully decomposed (canonical decomposition, flattened) and with each run of
 //! combining marks put in canonical order (UAX #15 canonical ordering).
 //!
