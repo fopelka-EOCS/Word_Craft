@@ -2,7 +2,7 @@
 
 use super::table_formula::parse_number;
 use serde_json::{Value, json};
-use wordcraft_doc::collate::{SortKey, sort_key};
+use wordcraft_doc::collate::{CaseKey, SortKey, case_key, sort_key};
 use wordcraft_doc::props::{Align, Border, BorderStyle, Borders, HeightRule, Rgb, TextDirection, VAlign};
 use wordcraft_doc::{Block, Document, Paragraph, Path, Pos, RevisionKind, StoryRef, Table, para_block};
 
@@ -170,7 +170,7 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .params(r#"{"text"?: string, "title"?: string} (empty clears)"#)),
         t(CommandSpec::new("table.sort", "Sort", "Table Layout › Data", sort_table)
-            .params(r#"{"column"?: n, "descending"?: bool, "header"?: bool}"#)),
+            .params(r#"{"column"?: n, "descending"?: bool, "header"?: bool, "caseSensitive"?: bool (lowercase first; default: case-only differences keep their order), "lang"?: string (BCP 47 sorting language for the whole column; default: the first tagged cell's, else the document's)}"#)),
         t(CommandSpec::new("table.toText", "Convert to Text", "Table Layout › Data", to_text).params(r#"{"separator"?: "tab|comma|paragraph"}"#)),
         t(CommandSpec::new("table.formula", "Formula", "Table Layout › Data", formula).params(r#"{"formula"?: "=SUM(ABOVE)"}"#)),
         t(CommandSpec::new("table.selectTable", "Select Table", "Table Layout › Table › Select", |s, _| {
@@ -906,23 +906,33 @@ fn cell_lang(doc: &wordcraft_doc::Document, c: &wordcraft_doc::Cell) -> Option<S
 }
 
 /// Sort the table's rows by a column. Numbers are read in each cell's language (`1,5` is one and
-/// a half in Polish) and sort first, numerically; other text sorts in the column's language.
+/// a half in Polish) and sort first, numerically; other text sorts in one language for the whole
+/// column: `lang`, else the first tagged cell's, else the document's. `caseSensitive` breaks ties
+/// between texts that differ only in case, lowercase first. Equal rows keep their order, also
+/// when descending.
 fn sort_table(s: &mut Session, v: &Value) -> CmdResult {
     let col = p::u64(v, "column").unwrap_or(0) as usize;
     let desc = p::bool(v, "descending").unwrap_or(false);
+    let case_sensitive = p::bool(v, "caseSensitive").unwrap_or(false);
     let header = p::bool(v, "header");
     let (tp, _, _) = cell(s)?;
     let t = s.doc.table(s.sel.focus.story, &tp).ok_or_else(|| CmdError::Failed("no table".into()))?;
     let skip = usize::from(header.unwrap_or(t.rows.first().is_some_and(|r| r.props.header))).min(t.rows.len());
     let column = || t.rows.iter().skip(skip).map(|r| r.cells.get(col));
     let lang = column().flatten().find_map(|c| cell_lang(&s.doc, c)).or_else(|| super::default_lang(s));
-    // A total order (numbers, then text), so sorting never sees inconsistent comparisons.
-    let keys: Vec<(Option<f64>, SortKey)> = column()
+    let sort_lang = super::sort_lang_param(v).or_else(|| lang.clone());
+    // Keys computed once per row; a total order (numbers, then text), so sorting never sees
+    // inconsistent comparisons.
+    let keys: Vec<(Option<f64>, SortKey, CaseKey)> = column()
         .map(|c| {
             let text = c.map(cell_text).unwrap_or_default();
+            let text = text.trim();
             let num_lang = c.and_then(|c| cell_lang(&s.doc, c)).or_else(|| lang.clone());
-            let num = parse_number(text.trim(), num_lang.as_deref()).filter(|x| x.is_finite());
-            (num, if num.is_some() { SortKey::default() } else { sort_key(text.trim(), lang.as_deref()) })
+            let num = parse_number(text, num_lang.as_deref()).filter(|x| x.is_finite());
+            match num {
+                Some(_) => (num, SortKey::default(), CaseKey::default()),
+                None => (num, sort_key(text, sort_lang.as_deref()), if case_sensitive { case_key(text) } else { CaseKey::default() }),
+            }
         })
         .collect();
     with_table(s, move |t| {
@@ -930,13 +940,13 @@ fn sort_table(s: &mut Session, v: &Value) -> CmdResult {
             return;
         }
         let body = t.rows.split_off(skip);
-        let mut rows: Vec<_> = keys.iter().cloned().zip(body).collect();
-        rows.sort_by(|((a, ka), _), ((b, kb), _)| {
+        let mut rows: Vec<_> = keys.iter().zip(body).collect();
+        rows.sort_by(|((a, ka, ca), _), ((b, kb, cb), _)| {
             let o = match (a, b) {
                 (Some(x), Some(y)) => x.total_cmp(y),
                 (Some(_), None) => std::cmp::Ordering::Less,
                 (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => ka.cmp(kb),
+                (None, None) => ka.cmp(kb).then_with(|| ca.cmp(cb)),
             };
             if desc { o.reverse() } else { o }
         });

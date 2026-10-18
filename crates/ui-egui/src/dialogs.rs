@@ -815,8 +815,8 @@ impl RecipientFilter {
     }
 
     /// Each record's place in the merge (None: filtered out), from the cache when the list,
-    /// filter and sort haven't changed.
-    fn order(&mut self, fields: &[String], rows: &[Vec<String>]) -> &[Option<usize>] {
+    /// filter, sort and sorting language `lang` (the document's) haven't changed.
+    fn order(&mut self, fields: &[String], rows: &[Vec<String>], lang: Option<&str>) -> &[Option<usize>] {
         use std::hash::{Hash, Hasher};
         let (rules, sort) = self.engine(fields);
         let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -828,10 +828,11 @@ impl RecipientFilter {
         for k in &sort {
             (&k.field, k.descending).hash(&mut h);
         }
+        lang.hash(&mut h);
         let key = h.finish();
         if self.order_cache.as_ref().is_none_or(|(k, _)| *k != key) {
             let mut order = vec![None; rows.len()];
-            for (n, i) in wordcraft_engine::cmd::mailings::select_records(fields, rows, &rules, &sort).into_iter().enumerate() {
+            for (n, i) in wordcraft_engine::cmd::mailings::select_records(fields, rows, &rules, &sort, lang).into_iter().enumerate() {
                 if let Some(slot) = order.get_mut(i) {
                     *slot = Some(n + 1);
                 }
@@ -855,13 +856,14 @@ impl RecipientFilter {
     }
 }
 
-/// Each record's place in the merge (None: filtered out), when `filter` filters or sorts.
+/// Each record's place in the merge (None: filtered out), when `filter` filters or sorts (text
+/// compared in the English order).
 #[cfg(test)]
 pub(crate) fn merge_order(fields: &[String], rows: &[Vec<String>], filter: &RecipientFilter) -> Option<Vec<Option<usize>>> {
     (!filter.is_empty()).then(|| {
         let (rules, sort) = filter.engine(fields);
         let mut order = vec![None; rows.len()];
-        for (k, i) in wordcraft_engine::cmd::mailings::select_records(fields, rows, &rules, &sort).into_iter().enumerate() {
+        for (k, i) in wordcraft_engine::cmd::mailings::select_records(fields, rows, &rules, &sort, None).into_iter().enumerate() {
             if let Some(slot) = order.get_mut(i) {
                 *slot = Some(k + 1);
             }
@@ -3065,7 +3067,9 @@ pub(crate) fn recipient_list(
     const ROW_H: f32 = 24.0;
     const NUM_W: f32 = 34.0;
     // Each record's place in the merge (None: filtered out), when there is a filter or sort.
-    let order: Option<Vec<Option<usize>>> = (!filter.is_empty()).then(|| filter.order(fields, rows).to_vec());
+    // Text compares in the document's language, as `mailings.filterRecipients` does.
+    let lang = wordcraft_engine::cmd::default_lang(&app.session);
+    let order: Option<Vec<Option<usize>>> = (!filter.is_empty()).then(|| filter.order(fields, rows, lang.as_deref()).to_vec());
     // Wide enough for every field (up to a limit; more scroll sideways).
     let gap = ui.spacing().item_spacing.x;
     // Plus the rows' scroll bar, so each row's remove button stays in view (#1576).

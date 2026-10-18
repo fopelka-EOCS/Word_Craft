@@ -594,6 +594,13 @@ pub fn sort_key(s: &str, lang: Option<&str>) -> SortKey {
     key
 }
 
+/// `s` lowercased and in canonical form: the text a key compares last ([`SortKey`]'s `text`).
+/// Search one `search_text` in another to find text whatever its case and however it is encoded
+/// (`nguyễn` typed precomposed finds `NGUYỄN` typed as base letters and marks).
+pub fn search_text(s: &str) -> String {
+    lower_canonical(s)
+}
+
 /// Compare two strings in the order of language `lang`, ignoring case.
 pub fn collate(a: &str, b: &str, lang: Option<&str>) -> Ordering {
     sort_key(a, lang).cmp(&sort_key(b, lang))
@@ -874,6 +881,14 @@ mod tests {
         let (merged, blocked) = (sort_key("ễ", Some("vi")), sort_key("e\u{303}\u{302}", Some("vi")));
         assert_ne!(merged.primary, blocked.primary);
         assert_eq!(blocked.primary, sort_key("e", Some("vi")).primary);
+    }
+
+    #[test]
+    fn search_text_matches_across_case_and_encoding() {
+        assert_eq!(search_text("NGUYỄN"), search_text("nguye\u{302}\u{303}n"));
+        assert_eq!(search_text("Ánh"), sort_key("A\u{301}nh", Some("vi")).text);
+        assert!(search_text("Ông NGUYỄN Văn An").contains(&search_text("nguyễn")));
+        assert_eq!(search_text("Mail@X.org"), "mail@x.org");
     }
 
     #[test]

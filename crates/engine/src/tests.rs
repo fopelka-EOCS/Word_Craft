@@ -7788,6 +7788,299 @@ fn index_sorts_polish_entries_and_headings() {
     assert!(pos("Kraków") < pos("Łódź") && pos("Łódź") < pos("Zakopane"), "{lines:?}");
 }
 
+/// Vietnamese sort vectors (CLDR `vi` standard, checked against ICU; the same literals as
+/// `crates/doc/tests/collate_vi.rs`).
+const VI_V1_INPUT: &[&str] = &[
+    "Yến", "Ưng", "Uyên", "Út", "Phan", "Phạm", "Ơn", "Ông", "Oanh", "Nguyễn", "Ngô", "Huỳnh", "Hồ", "Hoàng", "Ê-đê", "Em", "Đỗ", "Đinh", "Đặng",
+    "Đào", "Dương", "Duy", "Dũng", "Bùi", "Bình", "Âu", "Ấn", "Ân", "Ăn", "Ắc", "Ánh", "Ảnh", "Anh", "An",
+];
+const VI_V1_EXPECTED: &[&str] = &[
+    "An", "Anh", "Ảnh", "Ánh", "Ắc", "Ăn", "Ân", "Ấn", "Âu", "Bình", "Bùi", "Dũng", "Duy", "Dương", "Đào", "Đặng", "Đinh", "Đỗ", "Em", "Ê-đê",
+    "Hoàng", "Hồ", "Huỳnh", "Ngô", "Nguyễn", "Oanh", "Ông", "Ơn", "Phạm", "Phan", "Út", "Uyên", "Ưng", "Yến",
+];
+const VI_V3_INPUT: &[&str] = &[
+    "Nguyễn Văn Ấn",
+    "Nguyen Thi Ngoc Anh",
+    "Nguyễn Thị Ngọc Ánh",
+    "Nguyễn Thị Ngọc Anh",
+    "Nguyễn Văn An",
+    "Ngô Bảo Châu",
+    "Nguyễn Thị Ngọc Ảnh",
+    "Nguyễn Văn Ân",
+    "Đắk Lắk",
+    "Đà Nẵng",
+    "Hà Nội",
+    "Hải Phòng",
+    "Huế",
+    "Hà Giang",
+    "Hòa Bình",
+    "Hoà Bình",
+    "Cần Thơ",
+    "Bà Rịa Vũng Tàu",
+];
+const VI_V3_EXPECTED: &[&str] = &[
+    "Bà Rịa Vũng Tàu",
+    "Cần Thơ",
+    "Đà Nẵng",
+    "Đắk Lắk",
+    "Hà Giang",
+    "Hà Nội",
+    "Hải Phòng",
+    "Hoà Bình",
+    "Hòa Bình",
+    "Huế",
+    "Ngô Bảo Châu",
+    "Nguyen Thi Ngoc Anh",
+    "Nguyễn Thị Ngọc Anh",
+    "Nguyễn Thị Ngọc Ảnh",
+    "Nguyễn Thị Ngọc Ánh",
+    "Nguyễn Văn An",
+    "Nguyễn Văn Ân",
+    "Nguyễn Văn Ấn",
+];
+
+/// `s` decomposed by hand for the Vietnamese letters these tests use (base + quality mark +
+/// tone, in canonical order), so the tests don't depend on the code under test to make NFD.
+fn vi_nfd(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            'Á' => "A\u{301}".to_string(),
+            'á' => "a\u{301}".to_string(),
+            'ễ' => "e\u{302}\u{303}".to_string(),
+            'Ễ' => "E\u{302}\u{303}".to_string(),
+            'ậ' => "a\u{323}\u{302}".to_string(),
+            'ệ' => "e\u{323}\u{302}".to_string(),
+            'ì' => "i\u{300}".to_string(),
+            'ơ' => "o\u{31b}".to_string(),
+            'ư' => "u\u{31b}".to_string(),
+            'ờ' => "o\u{31b}\u{300}".to_string(),
+            'ứ' => "u\u{31b}\u{301}".to_string(),
+            'ạ' => "a\u{323}".to_string(),
+            _ => c.to_string(),
+        })
+        .collect()
+}
+
+fn combining_marks(s: &str) -> usize {
+    s.chars().filter(|c| ('\u{300}'..='\u{36f}').contains(c)).count()
+}
+
+/// A one-column table (no header row) whose cells carry the given languages (`""`: the
+/// document's default, `default`); the caret ends in the last cell.
+fn tagged_column(default: &str, cells: &[(&str, &str)]) -> Session {
+    let mut s = s();
+    run(&mut s, "review.language", json!({"lang": default, "default": true}));
+    run(&mut s, "insert.table", json!({"rows": cells.len(), "cols": 1}));
+    for (k, (lang, c)) in cells.iter().enumerate() {
+        if k > 0 {
+            run(&mut s, "text.tab", json!({}));
+        }
+        run(&mut s, "text.insert", json!({"text": c}));
+        if !lang.is_empty() {
+            run(&mut s, "caret.home", json!({"extend": true}));
+            run(&mut s, "review.language", json!({"lang": lang}));
+        }
+    }
+    s
+}
+
+/// The language each cell's text resolves to.
+fn column_langs(s: &Session) -> Vec<Option<String>> {
+    let t = s.doc.body.iter().find_map(|b| b.as_table()).unwrap();
+    t.rows.iter().map(|r| r.cells[0].blocks.iter().find_map(|b| b.as_para()).and_then(|p| cmd::para_lang(&s.doc, p))).collect()
+}
+
+/// M3-COLL.5: a Vietnamese column sorts in the Vietnamese alphabet (`ă â` after `a`, `đ` after
+/// `d`, tones as a secondary difference), not with accented letters after `z`.
+#[test]
+fn table_sort_vietnamese_column() {
+    let mut s = column_table("vi-VN", VI_V1_INPUT);
+    run(&mut s, "table.sort", json!({"column": 0, "header": false}));
+    assert_eq!(column_texts(&s), VI_V1_EXPECTED);
+    run(&mut s, "table.sort", json!({}));
+    assert_eq!(column_texts(&s), VI_V1_EXPECTED, "no params: same as column 0, no header row");
+}
+
+/// M3-COLL.5: `lang` sorts the column in that language whatever its cells are tagged; without
+/// it, the cells' language decides (English puts `Đ` with `D`, so `Đào` < `Dũng`).
+#[test]
+fn table_sort_lang_param_overrides_cells() {
+    let mut s = column_table("en-US", VI_V1_INPUT);
+    run(&mut s, "table.sort", json!({"lang": "vi"}));
+    assert_eq!(column_texts(&s), VI_V1_EXPECTED);
+    run(&mut s, "table.sort", json!({}));
+    let en = column_texts(&s);
+    let pos = |w: &str| en.iter().position(|x| x == w).unwrap();
+    assert!(pos("Đào") < pos("Dũng"), "{en:?}");
+    // A blank `lang` is no `lang`; other tags are read as BCP 47 (`VI_vn` is Vietnamese).
+    run(&mut s, "table.sort", json!({"lang": "  "}));
+    assert_eq!(column_texts(&s), en);
+    run(&mut s, "table.sort", json!({"lang": " VI_vn "}));
+    assert_eq!(column_texts(&s), VI_V1_EXPECTED);
+}
+
+/// M3-COLL.5 (review focus 1): a column mixing languages sorts in one order, that of its first
+/// tagged cell, never switching collation part way.
+#[test]
+fn table_sort_mixed_languages_uses_one_order() {
+    let mut cells: Vec<(&str, &str)> = VI_V1_INPUT.iter().map(|c| ("", *c)).collect();
+    // The middle cells are English; the first is Vietnamese (the document's default).
+    for c in cells.iter_mut().skip(10).take(14) {
+        c.0 = "en-US";
+    }
+    let mut s = tagged_column("vi-VN", &cells);
+    let langs = column_langs(&s);
+    assert_eq!(langs.first().cloned().flatten().as_deref(), Some("vi-VN"));
+    assert_eq!(langs.get(15).cloned().flatten().as_deref(), Some("en-US"), "{langs:?}");
+    run(&mut s, "table.sort", json!({}));
+    assert_eq!(column_texts(&s), VI_V1_EXPECTED);
+    // The other way round: an English first cell sorts the whole column as English, Vietnamese
+    // cells included.
+    let mut cells: Vec<(&str, &str)> = VI_V1_INPUT.iter().map(|c| ("", *c)).collect();
+    if let Some(c) = cells.first_mut() {
+        c.0 = "en-US";
+    }
+    let mut s = tagged_column("vi-VN", &cells);
+    run(&mut s, "table.sort", json!({}));
+    let en = column_texts(&s);
+    let pos = |w: &str| en.iter().position(|x| x == w).unwrap();
+    assert!(pos("Đào") < pos("Dũng") && pos("Ăn") < pos("Anh"), "{en:?}");
+}
+
+/// M3-COLL.5: Sort Options › Case sensitive: lowercase first; off, case-only differences keep
+/// their order (stable), ascending and descending.
+#[test]
+fn table_sort_case_sensitive() {
+    let mut s = column_table("en-US", &["AN", "an", "An"]);
+    run(&mut s, "table.sort", json!({}));
+    assert_eq!(column_texts(&s), ["AN", "an", "An"]);
+    run(&mut s, "table.sort", json!({"descending": true}));
+    assert_eq!(column_texts(&s), ["AN", "an", "An"]);
+    run(&mut s, "table.sort", json!({"caseSensitive": true}));
+    assert_eq!(column_texts(&s), ["an", "An", "AN"]);
+    run(&mut s, "table.sort", json!({"caseSensitive": true, "descending": true}));
+    assert_eq!(column_texts(&s), ["AN", "An", "an"]);
+    // Vietnamese, precomposed and decomposed alike.
+    let nfd_upper = vi_nfd("ÁNH");
+    let mut s = column_table("vi-VN", &[&nfd_upper, "Ánh", "ánh", "Bình"]);
+    run(&mut s, "table.sort", json!({"caseSensitive": true}));
+    assert_eq!(column_texts(&s), ["ánh", "Ánh", nfd_upper.as_str(), "Bình"]);
+    // Numbers still sort first, numerically.
+    let mut s = column_table("en-US", &["b", "10", "B", "9"]);
+    run(&mut s, "table.sort", json!({"caseSensitive": true}));
+    assert_eq!(column_texts(&s), ["9", "10", "b", "B"]);
+}
+
+/// M3-COLL.5 (review focus 2): Home › Sort sorts Vietnamese paragraphs; descending keeps equal
+/// paragraphs (NFC and NFD spellings) in input order; nothing is normalised.
+#[test]
+fn para_sort_vietnamese_and_stable_descending() {
+    let mut s = Session::new(wordcraft_doc::Document::from_text(&VI_V3_INPUT.join("\n")));
+    run(&mut s, "review.language", json!({"lang": "vi-VN", "default": true}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "para.sort", json!({}));
+    assert_eq!(text(&s), VI_V3_EXPECTED.join("\n"));
+
+    let nfd = vi_nfd("Ánh");
+    assert_ne!(nfd, "Ánh");
+    let input = ["Ánh", nfd.as_str(), "Bình"].join("\n");
+    let mut s = Session::new(wordcraft_doc::Document::from_text(&input));
+    run(&mut s, "review.language", json!({"lang": "vi-VN", "default": true}));
+    let marks = combining_marks(&text(&s));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "para.sort", json!({"descending": true}));
+    assert_eq!(text(&s), ["Bình", "Ánh", nfd.as_str()].join("\n"));
+    assert_eq!(combining_marks(&text(&s)), marks, "sorting moves paragraphs, it never re-encodes them");
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "para.sort", json!({}));
+    assert_eq!(text(&s), ["Ánh", nfd.as_str(), "Bình"].join("\n"));
+    // Case sensitive: lowercase first; `lang` overrides the paragraphs' language.
+    let mut s = Session::new(wordcraft_doc::Document::from_text("ĐÀO\nđào\nĐào\nDũng"));
+    run(&mut s, "review.language", json!({"lang": "en-US", "default": true}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "para.sort", json!({"lang": "vi-VN", "caseSensitive": true}));
+    assert_eq!(text(&s), "Dũng\nđào\nĐào\nĐÀO");
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "para.sort", json!({}));
+    assert_eq!(text(&s), "đào\nĐào\nĐÀO\nDũng", "English: Đ sorts with D, case-only ties keep their order");
+}
+
+/// M3-COLL.5 (review focus 5): a megabyte of decomposed Vietnamese and a 10 000-mark cluster
+/// (mixed combining classes, a mark first) sort without panicking, in test time.
+#[test]
+fn para_sort_huge_paragraph_never_panics() {
+    let word = vi_nfd("Nguyễn Văn Ánh ");
+    let mut big = String::from("\u{301}");
+    while big.len() < 1 << 20 {
+        big.push_str(&word);
+    }
+    big.push('a');
+    for k in 0..10_000 {
+        big.push(['\u{301}', '\u{323}', '\u{31b}', '\u{302}'][k % 4]);
+    }
+    let input = format!("{big}\nAn");
+    let mut s = Session::new(wordcraft_doc::Document::from_text(&input));
+    run(&mut s, "review.language", json!({"lang": "vi-VN", "default": true}));
+    let marks = combining_marks(&text(&s));
+    let started = std::time::Instant::now();
+    for params in [json!({}), json!({"descending": true, "caseSensitive": true}), json!({"lang": "vi"})] {
+        run(&mut s, "select.all", json!({}));
+        run(&mut s, "para.sort", params);
+    }
+    assert!(started.elapsed() < std::time::Duration::from_secs(60), "{:?}", started.elapsed());
+    let t = text(&s);
+    assert_eq!(combining_marks(&t), marks);
+    assert_eq!(t.len(), input.len());
+    assert!(t.starts_with("An\n"), "ascending last: `An` before `Nguyễn…`");
+    // The same text in a table column.
+    let mut s = column_table("vi-VN", &[&big, "An"]);
+    run(&mut s, "table.sort", json!({"caseSensitive": true}));
+    assert_eq!(column_texts(&s).last().map(String::len), Some(big.len()));
+}
+
+/// M3-COLL.5: hostile `lang` / `caseSensitive` values are ignored or read as a language, never
+/// a panic.
+#[test]
+fn sort_language_params_are_hostile_safe() {
+    for params in [
+        json!({"lang": 5, "caseSensitive": "yes"}),
+        json!({"lang": "", "caseSensitive": null}),
+        json!({"lang": "-", "descending": 1}),
+        json!({"lang": "zz-ZZ-x-private-use-only", "caseSensitive": true}),
+        json!({"lang": "\u{301}\u{0}\u{10ffff}", "column": 1e9}),
+        json!({"lang": "x".repeat(100_000)}),
+    ] {
+        let mut s = column_table("vi-VN", &["b", "Ánh", "a"]);
+        let _ = s.run("table.sort", &params);
+        let mut p = Session::new(wordcraft_doc::Document::from_text("b\nÁnh\na"));
+        run(&mut p, "select.all", json!({}));
+        let _ = p.run("para.sort", &params);
+    }
+}
+
+/// M3-COLL.5: index entries marked as `Nguyễn` precomposed and decomposed are one entry.
+#[test]
+fn index_groups_nfc_and_nfd_entries() {
+    let nfd = vi_nfd("Nguyễn");
+    assert_ne!(nfd, "Nguyễn");
+    let mut s = Session::new(wordcraft_doc::Document::from_text("Nguyễn đi.\nRồi về."));
+    run(&mut s, "review.language", json!({"lang": "vi-VN", "default": true}));
+    run(&mut s, "caret.docStart", json!({}));
+    run(&mut s, "references.markEntry", json!({"entry": "Nguyễn"}));
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "references.markEntry", json!({"entry": nfd}));
+    run(&mut s, "references.markEntry", json!({"entry": "NGUYỄN"}));
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "text.newParagraph", json!({}));
+    run(&mut s, "references.index", json!({}));
+    let lines: Vec<String> =
+        s.doc.body.iter().filter_map(|b| b.as_para()).filter(|p| p.props.style.as_deref() == Some("ListEntry")).map(|p| p.plain_text()).collect();
+    // One entry line (any spelling, any case), listing its page once; the `N` heading aside.
+    let entries: Vec<&String> = lines.iter().filter(|l| l.to_lowercase().starts_with("nguy")).collect();
+    assert_eq!(entries.len(), 1, "{lines:?}");
+    assert_eq!(entries[0].as_str(), "Nguyễn, 1", "{lines:?}");
+}
+
 /// Review of #844: a numbered column (`1.`, `2.`, `10.`) sorts as numbers; text with no language
 /// at all follows the editing language (a Polish interface reads `3,50` as 3.5).
 #[test]

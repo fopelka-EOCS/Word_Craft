@@ -2,6 +2,7 @@
 //! filtered and sorted; merge fields, preview, finish), envelopes and labels.
 
 use serde_json::{Value, json};
+use wordcraft_doc::collate::{self, search_text, sort_key};
 use wordcraft_doc::para::InlineObject;
 use wordcraft_doc::props::{Align, CharProps};
 use wordcraft_doc::section::{SectionProps, SectionStart};
@@ -135,26 +136,51 @@ pub struct SortKey {
 const MAX_RULES: usize = 64;
 const MAX_SORT_KEYS: usize = 8;
 
-/// Two cell values compared: as numbers when both are numbers, else as text ignoring case.
-/// Orders two cells: numbers (compared numerically) before text (compared
-/// case-insensitively). This is a total order, so `sort_by` stays consistent
-/// (and can't panic) on columns that mix numbers and text, such as `9`, `10`, `1A`.
-fn compare_cells(a: &str, b: &str) -> std::cmp::Ordering {
+/// A cell read as a number, as Filter and Sort Recipients compare it.
+fn cell_number(s: &str) -> Option<f64> {
+    s.parse::<f64>().ok().filter(|x| x.is_finite())
+}
+
+/// Orders two cells: numbers (compared numerically) before text (compared in the order of
+/// language `lang`, ignoring case; a precomposed and a decomposed spelling are equal). This is
+/// a total order, so `sort_by` stays consistent (and can't panic) on columns that mix numbers
+/// and text, such as `9`, `10`, `1A`.
+fn compare_cells(a: &str, b: &str, lang: Option<&str>) -> std::cmp::Ordering {
     use std::cmp::Ordering::{Greater, Less};
-    let number = |s: &str| s.parse::<f64>().ok().filter(|x| x.is_finite());
     let (a, b) = (a.trim(), b.trim());
-    match (number(a), number(b)) {
+    match (cell_number(a), cell_number(b)) {
         (Some(x), Some(y)) => x.total_cmp(&y),
         (Some(_), None) => Less,
         (None, Some(_)) => Greater,
-        (None, None) => a.to_lowercase().cmp(&b.to_lowercase()),
+        (None, None) => collate::collate(a, b, lang),
     }
 }
 
-fn rule_holds(r: &FilterRule, cell: &str) -> bool {
+/// A cell's sort key for [`compare_cells`]' order, computed once per record and sort column.
+fn cell_key(cell: &str, lang: Option<&str>) -> (Option<f64>, collate::SortKey) {
+    let cell = cell.trim();
+    match cell_number(cell) {
+        Some(x) => (Some(x), collate::SortKey::default()),
+        None => (None, sort_key(cell, lang)),
+    }
+}
+
+/// [`compare_cells`] on keys from [`cell_key`].
+fn compare_keys(a: &(Option<f64>, collate::SortKey), b: &(Option<f64>, collate::SortKey)) -> std::cmp::Ordering {
+    use std::cmp::Ordering::{Greater, Less};
+    match (a.0, b.0) {
+        (Some(x), Some(y)) => x.total_cmp(&y),
+        (Some(_), None) => Less,
+        (None, Some(_)) => Greater,
+        (None, None) => a.1.cmp(&b.1),
+    }
+}
+
+fn rule_holds(r: &FilterRule, cell: &str, lang: Option<&str>) -> bool {
     use std::cmp::Ordering::{Equal, Greater, Less};
-    let ord = || compare_cells(cell, &r.value);
-    let lower = || (cell.to_lowercase(), r.value.trim().to_lowercase());
+    let ord = || compare_cells(cell, &r.value, lang);
+    // Case- and encoding-blind text for Contains (`nguyễn` finds a decomposed `NGUYỄN`).
+    let search = || (search_text(cell), search_text(r.value.trim()));
     match r.op {
         FilterOp::Equal => ord() == Equal,
         FilterOp::NotEqual => ord() != Equal,
@@ -165,19 +191,20 @@ fn rule_holds(r: &FilterRule, cell: &str) -> bool {
         FilterOp::Blank => cell.trim().is_empty(),
         FilterOp::NotBlank => !cell.trim().is_empty(),
         FilterOp::Contains => {
-            let (c, v) = lower();
+            let (c, v) = search();
             c.contains(&v)
         }
         FilterOp::NotContains => {
-            let (c, v) = lower();
+            let (c, v) = search();
             !c.contains(&v)
         }
     }
 }
 
 /// The records (indices into `rows`) that `filter` keeps, in `sort` order (stable: ties keep the
-/// list's order). Rules and keys naming a field that isn't in `headers` are ignored.
-pub fn select_records(headers: &[String], rows: &[Vec<String>], filter: &[FilterRule], sort: &[SortKey]) -> Vec<usize> {
+/// list's order). Text compares in the order of language `lang` (a BCP 47 tag; none: English).
+/// Rules and keys naming a field that isn't in `headers` are ignored.
+pub fn select_records(headers: &[String], rows: &[Vec<String>], filter: &[FilterRule], sort: &[SortKey], lang: Option<&str>) -> Vec<usize> {
     let col = |f: &str| headers.iter().position(|h| h.eq_ignore_ascii_case(f.trim()));
     let rules: Vec<(Option<usize>, &FilterRule)> = filter.iter().map(|r| (col(&r.field), r)).filter(|(c, _)| c.is_some()).collect();
     let keep = |row: &Vec<String>| {
@@ -193,35 +220,47 @@ pub fn select_records(headers: &[String], rows: &[Vec<String>], filter: &[Filter
                 all = true;
             }
             let cell = c.and_then(|c| row.get(c)).map(String::as_str).unwrap_or("");
-            all = all && rule_holds(r, cell);
+            all = all && rule_holds(r, cell, lang);
         }
         any || all
     };
-    let mut out: Vec<usize> = rows.iter().enumerate().filter(|(_, r)| keep(r)).map(|(i, _)| i).collect();
+    let out: Vec<usize> = rows.iter().enumerate().filter(|(_, r)| keep(r)).map(|(i, _)| i).collect();
     let keys: Vec<(usize, bool)> = sort.iter().filter_map(|k| col(&k.field).map(|c| (c, k.descending))).collect();
-    if !keys.is_empty() {
-        out.sort_by(|a, b| {
-            for (c, desc) in &keys {
-                let get = |i: &usize| rows.get(*i).and_then(|r| r.get(*c)).map(String::as_str).unwrap_or("");
-                let o = compare_cells(get(a), get(b));
-                let o = if *desc { o.reverse() } else { o };
-                if o != std::cmp::Ordering::Equal {
-                    return o;
-                }
-            }
-            std::cmp::Ordering::Equal
-        });
+    if keys.is_empty() {
+        return out;
     }
-    out
+    // Each record's key per sort column, computed once; then a stable sort.
+    let mut keyed: Vec<(Vec<(Option<f64>, collate::SortKey)>, usize)> = out
+        .into_iter()
+        .map(|i| {
+            let row = rows.get(i);
+            let k = keys.iter().map(|(c, _)| cell_key(row.and_then(|r| r.get(*c)).map(String::as_str).unwrap_or(""), lang)).collect();
+            (k, i)
+        })
+        .collect();
+    keyed.sort_by(|(a, _), (b, _)| {
+        for ((x, y), (_, desc)) in a.iter().zip(b).zip(&keys) {
+            let o = compare_keys(x, y);
+            let o = if *desc { o.reverse() } else { o };
+            if o != std::cmp::Ordering::Equal {
+                return o;
+            }
+        }
+        std::cmp::Ordering::Equal
+    });
+    keyed.into_iter().map(|(_, i)| i).collect()
 }
 
-/// Recompute the merged records from the list, its filter and its sort; back to the first.
+/// Recompute the merged records from the list, its filter and its sort, comparing text in the
+/// document's language; back to the first.
 fn apply_filter(s: &mut Session) {
+    let lang = super::default_lang(s);
     let m = &mut s.merge;
     let headers = &m.headers;
     m.filter.retain(|r| headers.iter().any(|h| h.eq_ignore_ascii_case(r.field.trim())));
     m.sort.retain(|k| headers.iter().any(|h| h.eq_ignore_ascii_case(k.field.trim())));
-    m.rows = select_records(&m.headers, &m.source, &m.filter, &m.sort).into_iter().filter_map(|i| m.source.get(i).cloned()).collect();
+    m.rows =
+        select_records(&m.headers, &m.source, &m.filter, &m.sort, lang.as_deref()).into_iter().filter_map(|i| m.source.get(i).cloned()).collect();
     m.record = 0;
     if m.rows.is_empty() {
         m.preview = false;
@@ -1835,6 +1874,55 @@ mod tests {
         assert_eq!(names(&s), ["X", "Y"]);
     }
 
+    /// M3-COLL.5: Sort and Filter Recipients compare text in the document's language: a
+    /// Vietnamese list sorts in the Vietnamese alphabet, and `equal` / `contains` find a name
+    /// whatever its case and however it is encoded (precomposed or decomposed).
+    #[test]
+    fn mailings_sort_and_filter_vietnamese() {
+        const V1_INPUT: &[&str] = &[
+            "Yến", "Ưng", "Uyên", "Út", "Phan", "Phạm", "Ơn", "Ông", "Oanh", "Nguyễn", "Ngô", "Huỳnh", "Hồ", "Hoàng", "Ê-đê", "Em", "Đỗ", "Đinh",
+            "Đặng", "Đào", "Dương", "Duy", "Dũng", "Bùi", "Bình", "Âu", "Ấn", "Ân", "Ăn", "Ắc", "Ánh", "Ảnh", "Anh", "An",
+        ];
+        const V1_EXPECTED: &[&str] = &[
+            "An", "Anh", "Ảnh", "Ánh", "Ắc", "Ăn", "Ân", "Ấn", "Âu", "Bình", "Bùi", "Dũng", "Duy", "Dương", "Đào", "Đặng", "Đinh", "Đỗ", "Em",
+            "Ê-đê", "Hoàng", "Hồ", "Huỳnh", "Ngô", "Nguyễn", "Oanh", "Ông", "Ơn", "Phạm", "Phan", "Út", "Uyên", "Ưng", "Yến",
+        ];
+        let mut s = Session::new(Document::new());
+        s.run("review.language", &json!({"lang": "vi-VN", "default": true})).unwrap();
+        let rows: Vec<Value> = V1_INPUT.iter().map(|n| json!([n])).collect();
+        s.run("mailings.recipients", &json!({"fields": ["Họ"], "rows": rows})).unwrap();
+        s.run("mailings.sortRecipients", &json!({"field": "Họ"})).unwrap();
+        assert_eq!(names(&s), V1_EXPECTED);
+        s.run("mailings.sortRecipients", &json!({"field": "Họ", "descending": true})).unwrap();
+        assert_eq!(names(&s), V1_EXPECTED.iter().rev().copied().collect::<Vec<_>>());
+
+        // `Nguyễn` precomposed, decomposed, decomposed in capitals, and without diacritics.
+        let (nfd, nfd_upper) = ("Nguye\u{302}\u{303}n", "NGUYE\u{302}\u{303}N");
+        let rows = json!([["Nguyễn", "1"], [nfd, "2"], [nfd_upper, "3"], ["Nguyen", "4"], ["Trần", "5"]]);
+        s.run("mailings.recipients", &json!({"fields": ["Họ", "Id"], "rows": rows})).unwrap();
+        let ids = |s: &Session| s.merge.rows.iter().map(|r| r[1].clone()).collect::<Vec<_>>();
+        filter(&mut s, json!([{"field": "Họ", "op": "equal", "value": "Nguyễn"}]));
+        assert_eq!(ids(&s), ["1", "2", "3"]);
+        filter(&mut s, json!([{"field": "Họ", "op": "notEqual", "value": nfd}]));
+        assert_eq!(ids(&s), ["4", "5"]);
+        filter(&mut s, json!([{"field": "Họ", "op": "contains", "value": "nguyễn"}]));
+        assert_eq!(ids(&s), ["1", "2", "3"]);
+        filter(&mut s, json!([{"field": "Họ", "op": "notContains", "value": "NGUYỄN"}]));
+        assert_eq!(ids(&s), ["4", "5"]);
+        // `less` in the Vietnamese order: `Nguyen` < `Nguyễn` < `Trần`.
+        filter(&mut s, json!([{"field": "Họ", "op": "less", "value": "Nguyễn"}]));
+        assert_eq!(ids(&s), ["4"]);
+        // Several keys: Họ ascending, then Id descending (numbers as numbers); ties stay stable.
+        s.run("mailings.filterRecipients", &json!({"rules": [], "sort": [{"field": "Họ"}, {"field": "Id", "descending": true}]})).unwrap();
+        assert_eq!(ids(&s), ["4", "3", "2", "1", "5"]);
+        // select_records takes the language: none sorts as English (Đ with D).
+        let headers = vec!["Họ".to_string()];
+        let rows: Vec<Vec<String>> = ["Dũng", "Đào"].iter().map(|n| vec![n.to_string()]).collect();
+        let sort = [SortKey { field: "Họ".into(), descending: false }];
+        assert_eq!(select_records(&headers, &rows, &[], &sort, Some("vi")), [0, 1]);
+        assert_eq!(select_records(&headers, &rows, &[], &sort, None), [1, 0]);
+    }
+
     /// #1287: an Edit Recipient List that fails to load keeps the list's filter and sort.
     #[test]
     fn failed_edit_recipients_keeps_filter_and_sort() {
@@ -1857,7 +1945,7 @@ mod tests {
         let headers = vec!["Id".to_string()];
         let rows = |vals: &[&str]| vals.iter().map(|v| vec![v.to_string()]).collect::<Vec<_>>();
         let sorted = |rows: &[Vec<String>], desc: bool| {
-            let order = select_records(&headers, rows, &[], &[SortKey { field: "Id".into(), descending: desc }]);
+            let order = select_records(&headers, rows, &[], &[SortKey { field: "Id".into(), descending: desc }], None);
             order.iter().map(|&i| rows[i][0].clone()).collect::<Vec<_>>()
         };
         let r = rows(&["1a", "9", "10", "b", "2"]);
@@ -1877,7 +1965,7 @@ mod tests {
             .collect();
         let r: Vec<Vec<String>> = vals.iter().map(|v| vec![v.clone()]).collect();
         let out = sorted(&r, false);
-        assert!(out.windows(2).all(|w| compare_cells(&w[0], &w[1]) != std::cmp::Ordering::Greater));
+        assert!(out.windows(2).all(|w| compare_cells(&w[0], &w[1], None) != std::cmp::Ordering::Greater));
     }
 
     /// #778: preview, Finish & Merge and labels use only the filtered records, in sort order; a
