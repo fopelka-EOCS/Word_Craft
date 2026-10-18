@@ -29,6 +29,23 @@
 //!    `Anh`, not after `z`).
 //! 5. A key holds at most 16 384 primary weights; the rest of a longer text only takes
 //!    part through the `text` tie-break, which always holds the whole canonical lowercase text.
+//!
+//! Vietnamese (`vi`, `vi-VN`…; rule V, the CLDR `vi` standard order) replaces rules 2–4:
+//! - V1. In each cluster a quality mark merges with the base into a letter of its own (`ă â ê ô
+//!   ơ ư`; `đ` has no mark) wherever it stands in the cluster, unless it is blocked: an earlier
+//!   mark that did not merge has a combining class >= its own. Canonical order puts the dot below
+//!   before the circumflex (`ậ` is `a` U+0323 U+0302), so composing the first mark (rule 2) would
+//!   miss these letters.
+//! - V2. The letters sort `a ă â b c d đ e ê … o ô ơ … u ư …` (primary weights after their base
+//!   letter, `VI`).
+//! - V3. Each element's secondary list starts with its tone: 0 none, 1 huyền, 2 hỏi, 3 ngã,
+//!   4 sắc, 5 nặng (the first tone mark of the cluster); then the `DECOMP` mark of a letter
+//!   such as `ø` when nonzero; then the codes of the other marks (rule 3), leaving out every
+//!   repeat of the tone mark. So tones are a secondary difference (`ma < mà < mả < mã < má < mạ`)
+//!   and `Hoà` (tone on `a`) sorts before `Hòa` (tone on `o`).
+//!
+//! The key ignores case. [`sort_order`] adds the case level ([`case_key`]: lowercase first) to
+//! break ties when asked to.
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -200,9 +217,27 @@ const IS: &[Tailor] = &[
     t("ö", 'z', 3),
 ];
 
+/// Vietnamese (CLDR `vi` standard): the letters with a "quality" mark are letters of their own,
+/// `a ă â b c d đ e ê … o ô ơ … u ư …`. Tones are not: they are a secondary difference
+/// ([`QUALITY`], [`TONES`], rule V).
+const VI: &[Tailor] = &[t("ă", 'a', 1), t("â", 'a', 2), t("đ", 'd', 1), t("ê", 'e', 1), t("ô", 'o', 1), t("ơ", 'o', 2), t("ư", 'u', 1)];
+
+/// A base letter and the mark that make a Vietnamese letter of their own (rule V1).
+const QUALITY: &[(char, char, char)] =
+    &[('a', '\u{306}', 'ă'), ('a', '\u{302}', 'â'), ('e', '\u{302}', 'ê'), ('o', '\u{302}', 'ô'), ('o', '\u{31b}', 'ơ'), ('u', '\u{31b}', 'ư')];
+
+/// The Vietnamese tone marks and their secondary weights, in `vi` order: (no tone 0), huyền,
+/// hỏi, ngã, sắc, nặng.
+const TONES: &[(char, u16)] = &[('\u{300}', 1), ('\u{309}', 2), ('\u{303}', 3), ('\u{301}', 4), ('\u{323}', 5)];
+
 /// The primary language subtag of a BCP 47 tag (`pl-PL` → `pl`), lowercased.
 pub fn language(lang: Option<&str>) -> String {
     lang.and_then(|l| l.split(['-', '_']).next()).unwrap_or("").trim().to_ascii_lowercase()
+}
+
+/// Whether `lang` selects the Vietnamese order (`vi`, `vi-VN`, `VI_vn`…).
+fn is_vi(lang: Option<&str>) -> bool {
+    language(lang) == "vi"
 }
 
 fn tailoring(lang: Option<&str>) -> &'static [Tailor] {
@@ -408,6 +443,11 @@ fn compose_first_marks<'a>(text: &'a str, rules: &[Tailor]) -> Cow<'a, str> {
     Cow::Owned(out)
 }
 
+/// The secondary code of combining mark `c` (rule 3): `32 + (cp - 0x300)`.
+fn mark_code(c: char) -> u16 {
+    u16::try_from((c as u32).saturating_sub(0x300).saturating_add(32)).unwrap_or(u16::MAX)
+}
+
 fn weight(c: char, rank: u32) -> u32 {
     ((c as u32) << 4).saturating_add(rank)
 }
@@ -435,10 +475,74 @@ fn next_elem<'a>(rest: &'a str, rules: &[Tailor]) -> Option<(Elem<'a>, usize)> {
     }
     // A combining mark adds a secondary difference to the letter before it (rule 3).
     if is_mark(c) {
-        let code = (c as u32).saturating_sub(0x300).saturating_add(32);
-        return Some((Elem { primary: Vec::new(), sec: u16::try_from(code).unwrap_or(u16::MAX), text, own: false }, n));
+        return Some((Elem { primary: Vec::new(), sec: mark_code(c), text, own: false }, n));
     }
     Some((Elem { primary: vec![weight(c, 0)], sec: 0, text, own: false }, n))
+}
+
+/// One Vietnamese cluster (rule V1): its base with the quality marks merged in, its tone and the
+/// codes of its other marks.
+struct ViCluster {
+    base: char,
+    tone: u16,
+    others: Vec<u16>,
+}
+
+/// The cluster of `base` (lowercase) and the marks after it (canonical order) in `vi` (rule V1).
+fn vi_cluster(base: char, marks: &[char]) -> ViCluster {
+    let mut base = base;
+    let mut rest: Vec<char> = Vec::new();
+    // The highest combining class among the marks kept so far: a quality mark merges only when
+    // no kept mark before it has a class >= its own (it is not blocked).
+    let mut top = 0u8;
+    for &m in marks {
+        let class = collate_ucd::ccc(m);
+        match QUALITY.iter().find(|(b, q, _)| *b == base && *q == m) {
+            Some((_, _, merged)) if top < class => base = *merged,
+            _ => {
+                rest.push(m);
+                top = top.max(class);
+            }
+        }
+    }
+    let tone_of = |m: char| TONES.iter().find(|(t, _)| *t == m).map_or(0, |(_, w)| *w);
+    let tone_mark = rest.iter().copied().find(|m| tone_of(*m) != 0);
+    let tone = tone_mark.map_or(0, tone_of);
+    let others = rest.iter().filter(|m| Some(**m) != tone_mark).map(|m| mark_code(*m)).collect();
+    ViCluster { base, tone, others }
+}
+
+/// The weights of `text` (lowercase, canonical) in `vi` (rule V), appended to `key`.
+fn vi_weights(text: &str, key: &mut SortKey) {
+    let mut chars = text.chars().peekable();
+    let mut marks = Vec::new();
+    while key.primary.len() < MAX_PRIMARY {
+        let Some(c) = chars.next() else { break };
+        if is_mark(c) {
+            continue; // a mark with no letter before it leaves the weights alone (rule 3)
+        }
+        marks.clear();
+        while let Some(m) = chars.next_if(|m| is_mark(*m)) {
+            marks.push(m);
+        }
+        let cluster = vi_cluster(c, &marks);
+        let mut buf = [0u8; 4];
+        let Some((e, _)) = next_elem(cluster.base.encode_utf8(&mut buf), VI) else { continue };
+        let mut sec = Vec::with_capacity(cluster.others.len().saturating_add(2));
+        sec.push(cluster.tone);
+        if e.sec != 0 {
+            sec.push(e.sec);
+        }
+        sec.extend(cluster.others);
+        let mut first = Some(sec);
+        for w in e.primary {
+            if key.primary.len() >= MAX_PRIMARY {
+                break;
+            }
+            key.primary.push(w);
+            key.secondary.push(first.take().unwrap_or_else(|| vec![0]));
+        }
+    }
 }
 
 /// A sort key: compare keys to sort strings in a language's order. Equal keys mean the strings
@@ -457,9 +561,14 @@ pub struct SortKey {
 /// English).
 pub fn sort_key(s: &str, lang: Option<&str>) -> SortKey {
     let text = lower_canonical(s);
+    let mut key = SortKey::default();
+    if is_vi(lang) {
+        vi_weights(&text, &mut key);
+        key.text = text;
+        return key;
+    }
     let rules = tailoring(lang);
     let composed = compose_first_marks(&text, rules);
-    let mut key = SortKey::default();
     let mut i: usize = 0;
     while key.primary.len() < MAX_PRIMARY
         && let Some(rest) = composed.get(i..).filter(|r| !r.is_empty())
@@ -490,13 +599,54 @@ pub fn collate(a: &str, b: &str, lang: Option<&str>) -> Ordering {
     sort_key(a, lang).cmp(&sort_key(b, lang))
 }
 
+/// The case level of a string: one flag per letter (each non-mark character of its canonical
+/// form, case kept), `true` for uppercase. Lowercase sorts before uppercase (`an` < `An` < `AN`).
+/// It only breaks ties between strings that [`collate`] finds equal.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct CaseKey(Vec<bool>);
+
+/// The case level of `s` ([`CaseKey`]): the same for a precomposed and a decomposed spelling.
+pub fn case_key(s: &str) -> CaseKey {
+    CaseKey(collate_ucd::canonical(s).chars().filter(|c| !is_mark(*c)).map(char::is_uppercase).collect())
+}
+
+/// Compare two strings in the order of language `lang`: [`collate`] (letters, then diacritics,
+/// ignoring case), then, only when `case_sensitive`, their [`case_key`]s, lowercase first.
+/// Strings it finds equal differ at most in encoding (and, ignoring case, in letter case); a
+/// stable sort keeps them in input order.
+pub fn sort_order(a: &str, b: &str, lang: Option<&str>, case_sensitive: bool) -> Ordering {
+    collate(a, b, lang).then_with(|| if case_sensitive { case_key(a).cmp(&case_key(b)) } else { Ordering::Equal })
+}
+
 /// The index heading letter `s` files under in language `lang`: `Ł` for `Łódź` in Polish, `L`
 /// in English; `Ch` for `chata` in Czech; `A` for `Äpfel` in German, `Ä` in Swedish.
 pub fn heading_letter(s: &str, lang: Option<&str>) -> Option<String> {
-    let rules = tailoring(lang);
     let low = lower_canonical(s.trim_start());
+    if is_vi(lang) {
+        return vi_heading_letter(&low);
+    }
+    let rules = tailoring(lang);
     let composed = compose_first_marks(&low, rules);
     let (e, _) = next_elem(&composed, rules)?;
+    shown_letter(&e)
+}
+
+/// The heading letter of `low` (lowercase, canonical) in `vi`: the first letter with its quality
+/// mark (`Â` for `Ấn`), tones dropped (`A` for `Ảnh`). Marks with no letter before them are
+/// skipped, as the key skips them.
+fn vi_heading_letter(low: &str) -> Option<String> {
+    let mut chars = low.chars().skip_while(|c| is_mark(*c));
+    let c = chars.next()?;
+    let marks: Vec<char> = chars.take_while(|m| is_mark(*m)).collect();
+    let base = vi_cluster(c, &marks).base;
+    let mut buf = [0u8; 4];
+    let (e, _) = next_elem(base.encode_utf8(&mut buf), VI)?;
+    shown_letter(&e)
+}
+
+/// How element `e` shows as a heading letter: a letter of its own as is, else its base letter,
+/// uppercased.
+fn shown_letter(e: &Elem<'_>) -> Option<String> {
     let shown = if e.own || e.sec == 0 {
         e.text.to_string()
     } else {
@@ -697,6 +847,33 @@ mod tests {
         // stays in the text.
         let k = sort_key("\u{301}a", None);
         assert_eq!((k.primary, k.text.as_str()), (sort_key("a", None).primary, "\u{301}a"));
+    }
+
+    #[test]
+    fn vi_distinct_mark_sets_never_collide() {
+        // vectors.json collisions.all_distinct_vi in `vi`: the weights alone, without the `text`
+        // tie-break, tell them apart, and precomposed and decomposed spellings get one key.
+        let words = ["a", "à", "ả", "ã", "á", "ạ", "ă", "ằ", "ẳ", "ẵ", "ắ", "ặ", "â", "ầ", "ẩ", "ẫ", "ấ", "ậ", "ä", "å", "ā", "ą", "ǎ"];
+        let weights: std::collections::HashSet<_> = words
+            .iter()
+            .map(|w| {
+                let k = sort_key(w, Some("vi"));
+                (k.primary, k.secondary)
+            })
+            .collect();
+        assert_eq!(weights.len(), words.len());
+        for w in words {
+            assert_eq!(sort_key(w, Some("vi")), sort_key(&crate::collate_ucd::canonical(w), Some("vi")), "{w}");
+        }
+        // Every secondary list starts with the tone.
+        let k = sort_key("Nguyễn Thị Ánh", Some("vi"));
+        assert_eq!(k.primary.len(), k.secondary.len());
+        assert!(k.secondary.iter().all(|s| s.first().is_some_and(|t| *t <= 5)));
+        // A quality mark blocked by an earlier mark of the same class does not merge: e + tilde +
+        // circumflex stays e (with two marks), not ê.
+        let (merged, blocked) = (sort_key("ễ", Some("vi")), sort_key("e\u{303}\u{302}", Some("vi")));
+        assert_ne!(merged.primary, blocked.primary);
+        assert_eq!(blocked.primary, sort_key("e", Some("vi")).primary);
     }
 
     #[test]
