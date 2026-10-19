@@ -76,6 +76,40 @@ in [MCP server](mcp.md#character-and-paragraph-properties).
 
 Positions are `{"story": "body" | {"part": n}, "path": [block, row, cell, block, …], "off": byteOffset}`.
 
+### Cloud storage
+
+Everything reaches storage through the CollabCraft service, and every call to it blocks, so these
+commands start the work and return at once. Poll `cloud.status` for the answer. It reports the
+account, what the provider can do, the folder being listed, any transfer in flight, a refused save,
+and where the open document came from.
+
+| Command | Params | What it does |
+| --- | --- | --- |
+| `cloud.open` | `{}` | Opens File › Open and lists your cloud files |
+| `cloud.browse` | `{path?}` | Lists one folder (the root when empty) |
+| `cloud.shared` | `{}` | Lists what other people shared with you |
+| `cloud.openFile` | `{id}` or `{name}` | Opens something from the current listing |
+| `cloud.save` | `{}` | Writes back under the version the document was opened at |
+| `cloud.saveAs` | `{folder, name}` | Saves a new document. Without both, opens File › Save As on the cloud |
+| `cloud.reload` | `{}` | Replaces local edits with the stored copy |
+| `cloud.link` | `{}` | Starts linking a cloud account, which finishes in a browser |
+| `cloud.status` | `{}` | The whole cloud state as JSON |
+
+`Ctrl+S` and `file.save` need no cloud-specific call. A document opened from the cloud saves back
+to it. One with a file on this computer saves to that file. The name a save goes under decides the
+format its bytes are written in, so a document opened as `.odt` is written back as OpenDocument.
+
+Opening a cloud document over unsaved changes asks about them first (`ui.saveChanges`), as opening
+a local file does, and the open goes ahead once that is answered.
+
+A refused save is the case worth scripting against. `cloud.status` reports `conflict` when the
+stored copy moved on while the document was being edited, and nothing has been written at that
+point. `cloud.reload` takes the stored copy and discards the local edits. Nothing else does.
+
+Without a configured service (`WORDCRAFT_CLOUD_URL`), `cloud.open`, `cloud.browse`, `cloud.shared`,
+`cloud.link`, `cloud.saveAs` and `cloud.openFile` answer `no cloud service is configured`.
+`cloud.status` reports an empty state. The interface offers nothing cloud-shaped.
+
 ### Keyboard and text input
 
 `ui.key` and `ui.text` go to this window's focused widget even when another app is in front
