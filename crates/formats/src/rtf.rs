@@ -483,6 +483,8 @@ impl Writer {
             Some(Align::Right) => out.push_str("\\qr"),
             Some(Align::Justify) => out.push_str("\\qj"),
             Some(Align::Distribute) => out.push_str("\\qd"),
+            // Thai distributed; Khmer Justify has no RTF word of its own.
+            Some(Align::ThaiDistribute | Align::KhmerJustify) => out.push_str("\\qt"),
             _ => out.push_str("\\ql"),
         }
         if p.page_break {
@@ -2236,6 +2238,7 @@ impl Reader {
             "qr" => self.st.align = Some(Align::Right),
             "qj" => self.st.align = Some(Align::Justify),
             "qd" => self.st.align = Some(Align::Distribute),
+            "qt" => self.st.align = Some(Align::ThaiDistribute),
             "s" => self.st.style = pv,
             "outlinelevel" => self.st.outline = Some(pv.clamp(0, 9) as u8),
             "pagebb" => self.st.pagebb = on,
@@ -2446,6 +2449,7 @@ fn is_format_word(w: &str) -> bool {
             | "qr"
             | "qj"
             | "qd"
+            | "qt"
             | "s"
             | "outlinelevel"
             | "pagebb"
