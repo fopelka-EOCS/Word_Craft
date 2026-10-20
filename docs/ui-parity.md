@@ -74,7 +74,7 @@ Footnote and endnote editing keeps body and note text at normal opacity, on ligh
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-20 | trivial | Table Properties in Word's tabs: Table, Row, Column, Cell and Alt Text (title and description); the Row and Column tabs name the caret's row and column; Repeat as header row greyed under a non-header row; Measure in (unit or Percent), an automatic column, alignment, wrapping and cell alignment as picture choices; Text wrapping Around with the Table Positioning dialog; Cell Options (margins, Wrap text); Previous/Next Row and Column (#2428) |
+| 2026-10-20 | trivial | Table Properties in Word's tabs: Table, Row, Column, Cell and Alt Text (title and description); the Row and Column tabs name the caret's row and column; Repeat as header row greyed under a non-header row; Measure in (unit or Percent), an automatic column, alignment, wrapping and cell alignment as picture choices; Text wrapping Around with the Table Positioning dialog; Cell Options (margins, Wrap text); Previous/Next Row and Column, whose changes and OK go to the row, column and cell the dialog names; Enter clicks a focused button and makes a new line in Description, Escape closes an open list first (#2428) |
 | 2026-10-18 | trivial | Long navigation headings wrap onto further lines inside the pane instead of ending in an ellipsis; the row grows with the text and the pane still resizes (#759, #3015) |
 | 2026-10-18 | trivial | Font list starts at its first row after clearing a no-match query; recent heading remains visible (#2068) |
 | 2026-10-16 | trivial | Dragging the vertical scrollbar shows a tip beside the pointer with the page at the top of the window ("Page 7 of 10"); nothing said where the drag would land (#2551) |
