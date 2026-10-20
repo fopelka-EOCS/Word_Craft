@@ -131,7 +131,7 @@ fn special_menu(ui: &mut Ui, extra: &FindExtra) -> Option<&'static str> {
             (true, true) => [wild_replace, SPECIAL_REPLACE],
         };
         for (name, code) in lists.into_iter().flatten() {
-            if ui.button(format!("{}   {code}", tl!(name))).clicked() {
+            if ui.button(crate::i18n::line(format!("{}   {code}", crate::i18n::t_logical(name)))).clicked() {
                 picked = Some(*code);
                 ui.close();
             }
@@ -2340,8 +2340,8 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 egui::Frame::group(ui.style()).show(ui, |ui| {
                     egui::ScrollArea::vertical().max_height(220.0).min_scrolled_height(160.0).auto_shrink([false, true]).show(ui, |ui| {
                         let is = |pick: &Option<(Value, String)>, key: &str, val: &Value| pick.as_ref().is_some_and(|(v, _)| v.get(key) == Some(val));
-                        let top = tl!("Top of the Document").to_string();
-                        if ui.selectable_label(is(pick, "top", &json!(true)), &top).clicked() {
+                        let top = crate::i18n::t_logical("Top of the Document").to_string();
+                        if ui.selectable_label(is(pick, "top", &json!(true)), tl!("Top of the Document")).clicked() {
                             chosen = Some((json!({"top": true}), top));
                         }
                         let headings = targets.as_ref().and_then(|t| t.get("headings")).and_then(Value::as_array).cloned().unwrap_or_default();
@@ -2611,7 +2611,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             let mut run: Option<&str> = enter.then(|| hits.first().map(|c| c.id)).flatten();
             for c in &hits {
                 let sc = crate::widgets::shortcut_text(app, c.id);
-                let label = format!("{}   —   {}", tl!(c.label), crate::i18n::location(c.location));
+                let label = crate::i18n::line(format!("{}   —   {}", crate::i18n::t_logical(c.label), crate::i18n::location_logical(c.location)));
                 if ui.add(egui::Button::new(label).shortcut_text(sc).min_size(vec2(380.0, 0.0))).clicked() {
                     run = Some(c.id);
                 }

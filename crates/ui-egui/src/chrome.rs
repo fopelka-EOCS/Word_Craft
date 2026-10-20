@@ -369,7 +369,7 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                     }
                     let tip = match crate::widgets::shortcut_text(app, "tools.search") {
                         k if k.is_empty() => tl!("Search").to_string(),
-                        k => format!("{} ({k})", tl!("Search")),
+                        k => crate::i18n::line(format!("{} ({k})", crate::i18n::t_logical("Search"))),
                     };
                     if resp.on_hover_text(tip).clicked() {
                         let _ = app.run("tools.search", json!({}));
@@ -382,17 +382,17 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                 // No document open (#1129): the app's name alone.
                 "WordCraft".to_string()
             } else {
-                format!(
+                crate::i18n::line(format!(
                     "{} — {}",
                     app.title_stem(),
-                    if app.session.dirty {
-                        tl!("Edited")
+                    crate::i18n::t_logical(if app.session.dirty {
+                        "Edited"
                     } else if app.session.path.is_some() {
-                        tl!("Saved")
+                        "Saved"
                     } else {
-                        tl!("Not saved")
-                    }
-                )
+                        "Not saved"
+                    })
+                ))
             };
             let font = TypeRung::Chrome.semibold();
             let track = TypeRung::Chrome.tracking();

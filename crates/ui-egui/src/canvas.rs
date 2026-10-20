@@ -1823,7 +1823,11 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
     for (pos, author, props) in formats.into_iter().take(500) {
         let Some(c) = layout.caret_on(&pos, app.session.page_hint) else { continue };
         let what = crate::panes::describe_props(&props).join(", ");
-        let text = if what.is_empty() { tl!("Formatted").to_string() } else { format!("{}: {what}", tl!("Formatted")) };
+        let text = if what.is_empty() {
+            tl!("Formatted").to_string()
+        } else {
+            crate::i18n::line(format!("{}: {what}", crate::i18n::t_logical("Formatted")))
+        };
         by_page.entry(c.page).or_default().push((c.x, c.top + c.height, Balloon::Format(author, text), pos));
     }
     // Each end of a tracked move.
@@ -1837,7 +1841,7 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
     let deletions = if app.session.revisions_in_balloons() { wordcraft_engine::cmd::review::deletion_balloons(&app.session) } else { Vec::new() };
     for d in deletions {
         let Some(c) = layout.caret_on(&d.at, app.session.page_hint) else { continue };
-        let text = format!("{}: {}", tl!("Deleted"), d.text);
+        let text = crate::i18n::line(format!("{}: {}", crate::i18n::t_logical("Deleted"), d.text));
         by_page.entry(c.page).or_default().push((c.x, c.top + c.height, Balloon::Format(d.author, text), d.at));
     }
     let palette = t.author_colors;

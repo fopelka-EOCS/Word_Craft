@@ -925,9 +925,8 @@ impl WordApp {
         // No document open (#1129): only the commands that open or create one, Help, and the
         // settings work.
         if !self.has_document() && !works_without_document(id) {
-            let e = tl!("No document is open. Create a document or open one first.").to_string();
-            self.status(e.clone());
-            return Err(e);
+            self.status(tl!("No document is open. Create a document or open one first.").to_string());
+            return Err(crate::i18n::t_logical("No document is open. Create a document or open one first.").to_string());
         }
         if let Some(r) = self.ui_command(id, &params) {
             return r;
@@ -1913,10 +1912,10 @@ impl WordApp {
     /// named in the interface language, as `Document1` is in English.
     pub fn title_stem(&self) -> String {
         match &self.session.path {
-            Some(p) => p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| tl!("Document1").into()),
+            Some(p) => p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| crate::i18n::t_logical("Document1").into()),
             None => match &self.session.file_name {
                 Some(name) => name.clone(),
-                None if self.session.doc.core.title.is_empty() => tl!("Document1").into(),
+                None if self.session.doc.core.title.is_empty() => crate::i18n::t_logical("Document1").into(),
                 None => self.session.doc.core.title.clone(),
             },
         }

@@ -84,7 +84,7 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
             }
             ui.add_space(4.0);
             let what = match state {
-                State::Playing => format!("{} {} / {}", tl!("Sentence"), (index + 1).min(count), count),
+                State::Playing => crate::i18n::line(format!("{} {} / {}", crate::i18n::t_logical("Sentence"), (index + 1).min(count), count)),
                 State::Paused => tl!("Paused").to_string(),
                 State::Stopped if count > 0 && index >= count => tl!("Finished").to_string(),
                 State::Stopped => tl!("Stopped").to_string(),

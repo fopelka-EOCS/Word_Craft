@@ -389,9 +389,26 @@ pub fn has(lang: Lang, s: &str) -> bool {
     lang.catalog().plain(s).is_some()
 }
 
-/// `s` in the current language ([`tr`] with [`current`]).
+/// `s` in the current language as the interface draws it ([`tr`] with [`current`]). For a
+/// right-to-left language this is display order: use it only for text handed straight to egui.
 pub fn t(s: &str) -> &str {
     tr(current(), s)
+}
+
+/// `s` in the current language in reading (logical) order ([`tr_logical`] with [`current`]): for
+/// text that is stored, compared, put in an editable field, handed to the operating system
+/// (window title, file names), reported to automation, or assembled into a longer line (pass the
+/// line through [`line`] or [`fmt`] to draw it).
+pub fn t_logical(s: &str) -> &str {
+    tr_logical(current(), s)
+}
+
+/// A line the code assembled from logical pieces (translations from [`t_logical`], user text,
+/// numbers), put in display order for a right-to-left interface so egui draws it right. Left
+/// unchanged, without copying, for a left-to-right interface or a line with no right-to-left
+/// letters.
+pub fn line(text: String) -> String {
+    if current().is_rtl() && bidi::has_rtl(&text) { bidi::display(&text).into_owned() } else { text }
 }
 
 /// `s` in the current language as worded for `context` (one of `catalog::CONTEXTS`), falling
@@ -441,6 +458,10 @@ pub fn tr(lang: Lang, s: &str) -> &str {
 /// `s` in `lang` in reading (logical) order, for text that is compared or stored rather than
 /// drawn. The same as [`tr`] for left-to-right languages.
 pub fn tr_logical(lang: Lang, s: &str) -> &str {
+    #[cfg(test)]
+    if pseudo::on() {
+        return pseudo::mark(s);
+    }
     lang.catalog().plain(s).unwrap_or(s)
 }
 
@@ -469,15 +490,18 @@ pub fn builtin_style_name(name: &str) -> String {
     name.to_string()
 }
 
-/// A ribbon location (`Home › Font`) in the current language, segment by segment.
+/// A ribbon location (`Home › Font`) in the current language, segment by segment. Display
+/// text: a right-to-left interface reads it from the right, the separator pointing left.
 pub fn location(loc: &str) -> String {
     if current().is_rtl() {
-        // Read right to left: the first segment at the right, the separator pointing left.
-        let mut segments: Vec<&str> = loc.split(" › ").map(t).collect();
-        segments.reverse();
-        return segments.join(" ‹ ");
+        return line(location_logical(loc));
     }
     loc.split(" › ").map(t).collect::<Vec<_>>().join(" › ")
+}
+
+/// [`location`] in reading order, for a longer line the caller passes through [`line`].
+pub fn location_logical(loc: &str) -> String {
+    loc.split(" › ").map(t_logical).collect::<Vec<_>>().join(" › ")
 }
 
 /// A label with an action after a fixed English prefix, e.g. `Undo Typing`: both parts translated
@@ -486,43 +510,64 @@ pub fn prefixed(prefix: &str, rest: &str) -> String {
     if rest.is_empty() {
         return t(prefix).to_string();
     }
-    fmt(t(&format!("{prefix} {{action}}")), &[("action", t(rest))])
+    fmt(t(&format!("{prefix} {{action}}")), &[("action", t_logical(rest))])
 }
 
 /// Fill `{name}` placeholders in one pass. Unknown placeholders stay as written, and inserted
 /// values are never read as templates again, so a file name containing `{n}` stays intact.
 ///
-/// A right-to-left template (its translation has Arabic or Hebrew letters) comes back in display
-/// order ([`bidi::display_template`]): its own words are reordered, and each value moves as one
-/// piece, so numbers, paths and labels that are already in display order stay as they are.
+/// Values are logical text: numbers, paths, user text, and translations from [`t_logical`] (not
+/// [`t`], whose right-to-left output is already in display order). A template with right-to-left
+/// letters (a right-to-left language's translation; templates are kept as written) comes back in
+/// display order as a whole, values included, so a multi-word Arabic file or style name reads
+/// right too. Left-to-right templates take the straight path, as before.
 pub fn fmt(template: &str, args: &[(&str, &str)]) -> String {
-    // (is a filled value, text), in logical order.
-    let mut pieces: Vec<(bool, &str)> = Vec::new();
+    if bidi::has_rtl(template) {
+        return bidi::fmt_display(&fill(template, args));
+    }
+    // Left to right: one pass into one string, no pieces (this runs every frame in places).
+    let mut out = String::with_capacity(template.len());
     let mut rest = template;
-    let mut whole = true;
     while let Some((before, after_open)) = rest.split_once('{') {
-        pieces.push((false, before));
+        out.push_str(before);
         let Some((name, after_close)) = after_open.split_once('}') else {
-            pieces.push((false, "{"));
-            pieces.push((false, after_open));
-            rest = "";
-            whole = false;
-            break;
+            out.push('{');
+            out.push_str(after_open);
+            return out;
         };
         match args.iter().find(|(key, _)| *key == name) {
-            Some((_, value)) => pieces.push((true, value)),
-            // An unknown placeholder stays as written (`{name}`), moved as one piece.
-            None => pieces.push((true, rest.get(before.len()..before.len() + name.len() + 2).unwrap_or_default())),
+            Some((_, value)) => out.push_str(value),
+            None => {
+                out.push('{');
+                out.push_str(name);
+                out.push('}');
+            }
         }
         rest = after_close;
     }
-    if whole {
-        pieces.push((false, rest));
+    out.push_str(rest);
+    out
+}
+
+/// `template` cut into (is a filled value, text) pieces in logical order. An unknown placeholder
+/// stays as written, as literal text; an unclosed `{` and what follows it too.
+fn fill<'a>(template: &'a str, args: &[(&str, &'a str)]) -> Vec<(bool, &'a str)> {
+    let mut pieces = Vec::new();
+    let mut rest = template;
+    while let Some((before, after_open)) = rest.split_once('{') {
+        pieces.push((false, before));
+        let Some((name, after_close)) = after_open.split_once('}') else {
+            pieces.push((false, rest.get(before.len()..).unwrap_or_default()));
+            return pieces;
+        };
+        match args.iter().find(|(key, _)| *key == name) {
+            Some((_, value)) => pieces.push((true, *value)),
+            None => pieces.push((false, rest.get(before.len()..before.len() + name.len() + 2).unwrap_or_default())),
+        }
+        rest = after_close;
     }
-    if bidi::has_rtl(template) {
-        return bidi::display_template(&pieces);
-    }
-    pieces.iter().map(|(_, text)| *text).collect()
+    pieces.push((false, rest));
+    pieces
 }
 
 #[cfg(test)]

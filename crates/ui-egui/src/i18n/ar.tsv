@@ -111,7 +111,9 @@
 	Add\nNote	إضافة\nملاحظة
 	Add\nPen	إضافة\nقلم
 	Add\nShape	إضافة\nشكل
+	Added 1 font	أُضيف خط واحد
 	Added Fonts	الخطوط المضافة
+	Added {n} fonts	أُضيف {n} خط
 	Address	العنوان
 	Address Block	كتلة العنوان
 	Address labels	ملصقات العناوين
@@ -147,6 +149,7 @@
 	All caps	أحرف كبيرة بالكامل
 	All Commands	كل الأوامر
 	All files	كل الملفات
+	All Fonts	كل الخطوط
 	All Levels	كل المستويات
 	All Markup	كل العلامات
 	All pages	كل الصفحات
@@ -176,6 +179,7 @@
 	Another file	ملف آخر
 	Any Character	أي حرف
 	Any Digit	أي رقم
+	Any field	أي حقل
 	Any Letter	أي حرف أبجدي
 	Anyone can open this document. Encrypt it with a password to keep it private.	يمكن لأي شخص فتح هذا المستند. شفّره بكلمة مرور ليبقى خاصًا.
 	Anyone who opens the document will need this password.	كل من يفتح المستند سيحتاج إلى كلمة المرور هذه.
@@ -196,6 +200,7 @@
 	Arrange\nAll	ترتيب\nالكل
 	Arrow	سهم
 	Arrows	أسهم
+	Article I.	المادة I.
 	Artistic Effects	تأثيرات فنية
 	As Recommended	حسب التوصية
 	As you type	أثناء الكتابة
@@ -216,8 +221,11 @@
 	AutoCorrect	التصحيح التلقائي
 	AutoCorrect Options	خيارات التصحيح التلقائي
 	AutoFit	احتواء تلقائي
+	AutoFit behavior	سلوك الاحتواء التلقائي
 	AutoFit Column by Double-Clicking	احتواء العمود تلقائيًا بالنقر المزدوج
 	AutoFit Contents	احتواء تلقائي للمحتوى
+	AutoFit to contents	احتواء تلقائي للمحتوى
+	AutoFit to window	احتواء تلقائي للنافذة
 	AutoFit Window	احتواء تلقائي للنافذة
 	AutoFormat As You Type	التنسيق التلقائي أثناء الكتابة
 	Automatic	تلقائي
@@ -382,6 +390,7 @@
 	Change\nColors	تغيير\nالألوان
 	Changed lines:	الأسطر المتغيرة:
 	Changes	التغييرات
+	Chapter 1	الفصل 1
 	Chapter in a book	فصل في كتاب
 	Chapters begin at:	تبدأ الفصول عند:
 	Character	الحرف
@@ -481,6 +490,7 @@
 	Combo Box Content Control	عنصر تحكم محتوى مربع تحرير وسرد
 	Commands	الأوامر
 	Commands:	الأوامر:
+	Commas	الفواصل
 	Comment	تعليق
 	Comments	التعليقات
 	Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text.	التعليقات بجانب كل صفحة والتغييرات المتعقَّبة في ملفات PDF والطباعة والصور؛ وقائمة تعليقات في نهاية صفحات الويب وMarkdown والنص.
@@ -685,6 +695,8 @@
 	Display for Review	العرض للمراجعة
 	Display name	الاسم المعروض
 	Display text	النص المعروض
+	Distance from text	المسافة من النص
+	Distance from text:	المسافة من النص:
 	Distribute Columns	توزيع الأعمدة
 	Distribute letters	توزيع الأحرف
 	Distribute Rows	توزيع الصفوف
@@ -757,7 +769,9 @@
 	Drawing\nCanvas	لوحة\nالرسم
 	Drop Cap	حرف استهلالي
 	Drop cap	حرف استهلالي
+	Drop Cap Options…	خيارات الحرف الاستهلالي…
 	Drop-Down List Content Control	عنصر تحكم محتوى قائمة منسدلة
+	Dropped	منسدل
 	Drops all formatting and pastes plain text.	يتجاهل كل التنسيق ويلصق نصًا عاديًا.
 	Dutch	الهولندية
 	E-mail Messages	رسائل البريد الإلكتروني
@@ -888,6 +902,7 @@
 	Filter Recipients	تصفية المستلمين
 	Find	بحث
 	Find and Replace	البحث والاستبدال
+	Find in list:	البحث في القائمة:
 	Find Next	البحث عن التالي
 	Find Next Editable Region	البحث عن المنطقة القابلة للتحرير التالية
 	Find Previous	البحث عن السابق
@@ -1030,6 +1045,7 @@
 	Hide Codes	إخفاء الرموز
 	Hide from style lists	إخفاء من قوائم الأنماط
 	Hide Ink	إخفاء الحبر
+	Hide Quick Access Toolbar	إخفاء شريط أدوات الوصول السريع
 	Hide White Space	إخفاء المسافة البيضاء
 	Hide\nInk	إخفاء\nالحبر
 	Hierarchy	تسلسل هرمي
@@ -1082,10 +1098,12 @@
 	Immersive	غامر
 	Immersive Reader	القارئ الغامر
 	Immersive\nReader	القارئ\nالغامر
+	Import…	استيراد…
 	In Default apps, choose WordCraft for the document types you want it to open.	في «التطبيقات الافتراضية»، اختر WordCraft لأنواع المستندات التي تريد أن يفتحها.
 	In equations, typing a name after a backslash replaces it with its symbol.	في المعادلات، كتابة اسم بعد شرطة مائلة عكسية تستبدله برمزه.
 	In Front of Text	أمام النص
 	In Line with Text	على سطر واحد مع النص
+	In margin	في الهامش
 	In the margin	في الهامش
 	Inches	بوصات
 	Include level number from:	تضمين رقم المستوى من:
@@ -1102,8 +1120,10 @@
 	Index and Tables	الفهرس والجداول
 	Index Heading	عنوان الفهرس
 	Index {n}	الفهرس {n}
+	Indonesian	الإندونيسية
 	Inflate	انتفاخ
 	Info	معلومات
+	Initial column width:	عرض العمود الأولي:
 	Initials:	الأحرف الأولى:
 	Ink	الحبر
 	Ink Replay	إعادة تشغيل الحبر
@@ -1141,6 +1161,7 @@
 	Insert Rows Below	إدراج صفوف أسفل
 	Insert Shapes	إدراج أشكال
 	Insert SmartArt	إدراج SmartArt
+	Insert Spike	إدراج حافظة التجميع
 	Insert Structure	إدراج بنية
 	Insert Symbol	إدراج رمز
 	Insert Table	إدراج جدول
@@ -1218,6 +1239,7 @@
 	Keep with Next	الربط مع التالي
 	Keep with next	الربط مع التالي
 	Keeps the fonts and formatting of the copied text.	يحتفظ بخطوط النص المنسوخ وتنسيقه.
+	Kerning for fonts:	ضبط المسافات بين الأحرف للخطوط:
 	Keyboard shortcuts:	اختصارات لوحة المفاتيح:
 	Keys for this command:	مفاتيح هذا الأمر:
 	Keywords	الكلمات المفتاحية
@@ -1320,6 +1342,7 @@
 	Lines deleted	الأسطر المحذوفة
 	Lines only	الأسطر فقط
 	Lines per page:	عدد الأسطر في الصفحة:
+	Lines to drop:	عدد أسطر الانسدال:
 	Link	ارتباط
 	Link entries to their headings	ربط الإدخالات بعناوينها
 	Link level to style:	ربط المستوى بالنمط:
@@ -1343,6 +1366,7 @@
 	Local font access was denied.	تم رفض الوصول إلى الخطوط المحلية.
 	Location	الموقع
 	Location: {path}	الموقع: {path}
+	Lock aspect ratio	تأمين نسبة العرض إلى الارتفاع
 	Lock Fields	تأمين الحقول
 	Log	لوغاريتم
 	Logarithm	اللوغاريتم
@@ -1387,6 +1411,7 @@
 	Match Fields	مطابقة الحقول
 	Match prefix	مطابقة البادئة
 	Match suffix	مطابقة اللاحقة
+	Matches: {count}	التطابقات: {count}
 	Math AutoCorrect	التصحيح التلقائي للرياضيات
 	Matrices with Brackets	مصفوفات بأقواس
 	Matrix	مصفوفة
@@ -1397,6 +1422,7 @@
 	Medium	متوسط
 	Merge	دمج
 	Merge Cells	دمج الخلايا
+	Merge cells before split	دمج الخلايا قبل التقسيم
 	Merge Formatting	دمج التنسيق
 	Merge Record #	رقم سجل الدمج
 	Merged PRs	طلبات الدمج المقبولة
@@ -1439,10 +1465,13 @@
 	Move Up	نقل للأعلى
 	Move with Text	التحرك مع النص
 	Moved from	نُقل من
+	Moved from:	نُقل من:
 	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	تلتصق الكائنات المنقولة بحواف الصفحة ووسطها والهوامش والكائنات الأخرى. اضغط Alt للتحريك بحرية.
 	Moved to	نُقل إلى
+	Moved to:	نُقل إلى:
 	Moves	عمليات النقل
 	Multilevel List	قائمة متعددة المستويات
+	Multilevel List Library	مكتبة القوائم متعددة المستويات
 	Multiple Pages	صفحات متعددة
 	My list has	قائمتي تحتوي على
 	Name	الاسم
@@ -1501,6 +1530,7 @@
 	No grid	بلا شبكة
 	No header row	بلا صف رأس
 	No icons match your search.	لا توجد أيقونات تطابق بحثك.
+	No items to show.	لا توجد عناصر لعرضها.
 	No limit	بلا حد
 	No Markup	بلا علامات
 	No model credits were built into this copy.	لم تُضمَّن بيانات النماذج في هذه النسخة.
@@ -1543,6 +1573,7 @@
 	Not {name}	ليس {name}
 	Nothing	لا شيء
 	Nothing collected yet. Items you copy or cut appear here.	لم يُجمع شيء بعد. تظهر هنا العناصر التي تنسخها أو تقصها.
+	nothing is selected	لم يُحدَّد شيء
 	Now used by {command}	يستخدمه الآن {command}
 	Nudge	دفع بسيط
 	Num Occurrences	عدد التكرارات
@@ -1617,9 +1648,11 @@
 	Organizer…	المنظِّم…
 	Orientation	الاتجاه
 	Original document	المستند الأصلي
+	Original size	الحجم الأصلي
 	Other	أخرى
 	Other Large Operators	عوامل كبيرة أخرى
 	Other styles and their TOC level:	الأنماط الأخرى ومستواها في جدول المحتويات:
+	Other:	أخرى:
 	Otherwise insert:	وإلا أدرج:
 	Outline	المخطط التفصيلي
 	Outline Level	مستوى المخطط التفصيلي
@@ -1730,6 +1763,7 @@
 	Play/Pause	تشغيل/إيقاف مؤقت
 	Plus Equal	زائد يساوي
 	Points	نقاط
+	Points and above	نقطة فأكثر
 	Polish	البولندية
 	Portrait	عمودي
 	Portuguese (Brazil)	البرتغالية (البرازيل)
@@ -1823,6 +1857,7 @@
 	Recent	الأخيرة
 	Recent Colors	الألوان الأخيرة
 	Recent documents to show:	عدد المستندات الأخيرة المعروضة:
+	Recently Used Fonts	الخطوط المستخدمة مؤخرًا
 	Recently used symbols:	الرموز المستخدمة مؤخرًا:
 	Recipient List	قائمة المستلمين
 	Recipient lists	قوائم المستلمين
@@ -1849,6 +1884,7 @@
 	Reject All Changes	رفض كل التغييرات
 	Reject Change	رفض التغيير
 	Relationship	العلاقة
+	Relative to original picture size	نسبةً إلى حجم الصورة الأصلي
 	Relaxed	مريح
 	Remove	إزالة
 	Remove Added Font	إزالة الخط المضاف
@@ -1993,6 +2029,7 @@
 	Search icons	البحث عن أيقونات
 	Search Options	خيارات البحث
 	Secant Function	دالة القاطع
+	Section 1.01	القسم 1.01
 	Section Break	فاصل قسم
 	Section Breaks	فواصل الأقسام
 	Section Character	حرف القسم
@@ -2002,6 +2039,7 @@
 	Sections	الأقسام
 	See	انظر
 	Select	تحديد
+	select a picture or shape first	حدد صورة أو شكلًا أولًا
 	Select a picture, shape, chart or table to describe it.	حدد صورة أو شكلًا أو مخططًا أو جدولًا لوصفه.
 	Select a printer	اختر طابعة
 	Select All	تحديد الكل
@@ -2013,6 +2051,7 @@
 	Select Paragraph	تحديد الفقرة
 	Select Range	تحديد نطاق
 	Select Recipients	تحديد المستلمين
+	select recipients first	حدد المستلمين أولًا
 	Select recipients first to choose from their fields.	حدد المستلمين أولًا لتختار من حقولهم.
 	Select recipients first to match their fields.	حدد المستلمين أولًا لمطابقة حقولهم.
 	Select Row	تحديد الصف
@@ -2023,16 +2062,19 @@
 	Select Text with Similar Formatting	تحديد نص بتنسيق مشابه
 	Select text, then tick who can still edit it.	حدد نصًا، ثم أشّر على من يستطيع تحريره.
 	select two or more cells to merge	حدد خليتين أو أكثر للدمج
+	select two or more pictures or shapes first (Shift+click)	حدد صورتين أو شكلين أو أكثر أولًا (Shift+نقر)
 	Select Word	تحديد الكلمة
 	Select\nRecipients	تحديد\nالمستلمين
 	Selected Fields	الحقول المحددة
 	Selected pages	الصفحات المحددة
+	Selected text	النص المحدد
 	Selection	التحديد
 	Selection Pane	جزء التحديد
 	Send Backward	إرسال للخلف
 	Send the document straight to the system print dialog, or save a copy in another format below.	أرسل المستند مباشرة إلى نافذة طباعة النظام، أو احفظ نسخة بتنسيق آخر أدناه.
 	Sentence	جملة
 	Sentence case.	حالة الجملة.
+	Separate text at	فصل النص عند
 	Separator:	الفاصل:
 	Sequence name:	اسم التسلسل:
 	Serbian (Cyrillic)	الصربية (السيريلية)
@@ -2093,7 +2135,9 @@
 	Show Markup	إظهار العلامات
 	Show Notes	إظهار الحواشي
 	Show only comments and formatting in balloons	إظهار التعليقات والتنسيق فقط في البالونات
+	Show only records that will be merged	إظهار السجلات التي ستُدمج فقط
 	Show or Hide Style	إظهار النمط أو إخفاؤه
+	Show Quick Access Toolbar	إظهار شريط أدوات الوصول السريع
 	Show revisions in balloons	إظهار المراجعات في البالونات
 	Show rulers	إظهار المساطر
 	Show Text Formatting	إظهار تنسيق النص
@@ -2194,6 +2238,7 @@
 	Spelling &\nGrammar	الإملاء\nوالقواعد
 	Spelling and grammar are checked in English (United States).	يُدقَّق الإملاء والقواعد بالإنجليزية (الولايات المتحدة).
 	Spelling Suggestions	اقتراحات الإملاء
+	Spike	حافظة التجميع
 	Split	تقسيم
 	Split Cells	تقسيم الخلايا
 	Split Table	تقسيم الجدول
@@ -2304,6 +2349,7 @@
 	Table Properties	خصائص الجدول
 	Table Properties…	خصائص الجدول…
 	Table Row Height	ارتفاع صف الجدول
+	Table size	حجم الجدول
 	Table style	نمط الجدول
 	Table Style Options	خيارات نمط الجدول
 	Table Styles	أنماط الجدول
@@ -2323,6 +2369,7 @@
 	Text	النص
 	Text Box	مربع نص
 	Text boxes	مربعات النص
+	text boxes can't go inside a text box	لا يمكن وضع مربع نص داخل مربع نص
 	Text Direction	اتجاه النص
 	Text Effects	تأثيرات النص
 	Text Effects and Typography	تأثيرات النص والطباعة
@@ -2345,13 +2392,18 @@
 	That format doesn't keep everything, so the document is still open. Save it as a Word document (.docx) to go on.	هذا التنسيق لا يحتفظ بكل شيء، لذا ما زال المستند مفتوحًا. احفظه كمستند Word (.docx) للمتابعة.
 	That password isn't right. Check it (passwords are case-sensitive) and try again.	كلمة المرور غير صحيحة. تحقق منها (كلمات المرور تميّز حالة الأحرف) ثم حاول مجددًا.
 	The clipboard is empty.	الحافظة فارغة.
+	the cursor isn't in a table	المؤشر ليس داخل جدول
 	The date it is today	تاريخ اليوم
 	The document has no bookmarks yet.	لا يحتوي المستند على إشارات مرجعية بعد.
 	The document is read only, except for regions marked editable.	المستند للقراءة فقط، باستثناء المناطق المعلَّمة كقابلة للتحرير.
 	The document will be saved with a password. Save it to protect it.	سيُحفظ المستند بكلمة مرور. احفظه لحمايته.
 	The document you are editing keeps the names and dates; only the saved file leaves them out.	المستند الذي تحرره يحتفظ بالأسماء والتواريخ؛ الملف المحفوظ وحده يحذفها.
 	The margins don't fit on a page this size; make the margins smaller first.	الهوامش لا تتسع في صفحة بهذا الحجم؛ صغّر الهوامش أولًا.
+	The measurement must be between {min} and {max}.	يجب أن يكون القياس بين {min} و{max}.
 	The new style takes the formatting of the current paragraph.	يأخذ النمط الجديد تنسيق الفقرة الحالية.
+	The number must be between 1 and {max}.	يجب أن يكون الرقم بين 1 و{max}.
+	the paragraph is empty	الفقرة فارغة
+	the paragraph starts with a space	الفقرة تبدأ بمسافة
 	The password is optional; without it anyone can stop the protection.	كلمة المرور اختيارية؛ بدونها يستطيع أي شخص إيقاف الحماية.
 	The password is removed. Save the document to keep the change.	أُزيلت كلمة المرور. احفظ المستند للإبقاء على التغيير.
 	The passwords don't match.	كلمتا المرور غير متطابقتين.
@@ -2449,6 +2501,7 @@
 	Type a command, e.g. "insert table"	اكتب أمرًا، مثل «إدراج جدول»
 	Type a New List…	كتابة قائمة جديدة…
 	Type a page number, or +2 / -1.	اكتب رقم صفحة، أو +2 / -1.
+	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	اكتب الحجم بأي وحدة، مثل 5 cm أو 300 px. يتبعه الضلع الآخر، فتحتفظ الصورة بتناسبها.
 	Type at least one recipient.	اكتب مستلمًا واحدًا على الأقل.
 	Type Character Code	كتابة رمز الحرف
 	Type equations in LaTeX	كتابة المعادلات بصيغة LaTeX
@@ -2602,6 +2655,8 @@
 	Zotero	Zotero
 	Zotero: cancelled	Zotero: أُلغي
 	Zotero: done	Zotero: تم
+	{added}; {count} couldn't be read: {names}	{added}؛ تعذّرت قراءة {count}: {names}
+	{added}; {n} skipped (limit {max})	{added}؛ تُخطّي {n} (الحد {max})
 	{cols}×{rows} Table	جدول {cols}×{rows}
 	{contributors} contributors · {commits} commits	{contributors} مساهمًا · {commits} إيداعًا
 	{count} items highlighted	تم تمييز {count} عنصر
@@ -2614,10 +2669,12 @@
 	{language} is now the document's default language.	أصبحت {language} اللغة الافتراضية للمستند.
 	{language}: no dictionary found	{language}: لم يُعثر على قاموس
 	{language}: {file}	{language}: {file}
+	{names} and {n} more	{names} و{n} غيرها
 	{name}   {height} × {width} in	{name}   {height} × {width} بوصة
 	{name}   {height} × {width} mm	{name}   {height} × {width} مم
 	{name} already exists. Choose Save again to replace it.	{name} موجود بالفعل. اختر «حفظ» مرة أخرى لاستبداله.
 	{name} is protected with a password.	{name} محمي بكلمة مرور.
+	{name} options	خيارات {name}
 	{name} wasn't found.	لم يُعثر على {name}.
 	{n} entries marked.	تم تعليم {n} إدخال.
 	{n} lines	{n} سطر
@@ -2625,6 +2682,7 @@
 	{selected} of {words} words	{selected} من {words} كلمة
 	{size} pt	{size} نقطة
 	{width} × {height} mm	{width} × {height} مم
+	{width} × {height} pixels	{width} × {height} بكسل
 	{words} words	{words} كلمة
 	“{text}” ({row}, {series}) isn't a number.	«{text}» ({row}، {series}) ليس رقمًا.
 	✓ None	✓ بلا

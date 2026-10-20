@@ -620,7 +620,7 @@ impl MarkForm {
             entry: app.session.selected_text().trim().to_string(),
             subentry: String::new(),
             option: "page".into(),
-            see: format!("{} ", tl!("See")),
+            see: format!("{} ", crate::i18n::t_logical("See")),
             bookmark: bookmarks.first().cloned().unwrap_or_default(),
             bookmarks,
             bold: false,
@@ -1056,7 +1056,7 @@ fn source_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SourceForm) -> Next {
         ui.end_row();
         let edit = f.edit;
         for (key, label) in f.fields() {
-            ui.label(format!("{}:", tl!(label)));
+            ui.label(crate::i18n::line(format!("{}:", crate::i18n::t_logical(label))));
             if let Some(v) = field_mut(&mut f.source, key) {
                 let hint = match key {
                     "author" => tl!("Last, First; Last, First"),

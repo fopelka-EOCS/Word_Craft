@@ -128,35 +128,27 @@ fn mirror(c: char) -> char {
     }
 }
 
-/// A placeholder stand-in for [`display_template`]: a private-use character, which the bidi
-/// algorithm treats as one left-to-right letter, so an inserted value moves as a unit.
-fn sentinel(i: usize) -> Option<char> {
-    char::from_u32(0xF0000 + u32::try_from(i).ok()?)
-}
+/// First Strong Isolate and Pop Directional Isolate: [`fmt_display`] wraps each value in them so
+/// the bidi algorithm orders a value by its own first strong letter (an Arabic file name right to
+/// left, a path or number left to right) and keeps it whole, then takes them out again (egui has
+/// no glyph for them).
+const FSI: char = '\u{2068}';
+const PDI: char = '\u{2069}';
 
-/// `pieces` (literal text and filled values, in logical order) in display order: the literal text
-/// is reordered and each value is kept whole where its placeholder lands. Values are either
-/// left-to-right (numbers, paths, names) or already in display order (translated labels).
-pub fn display_template(pieces: &[(bool, &str)]) -> String {
+/// A filled template in display order: `pieces` are (is a value, text) in logical order. Literal
+/// text and values are all logical; each value is isolated so it keeps its own direction.
+pub fn fmt_display(pieces: &[(bool, &str)]) -> String {
     let mut marked = String::new();
-    let mut values = Vec::new();
     for (is_value, text) in pieces {
-        if *is_value && let Some(s) = sentinel(values.len()) {
-            marked.push(s);
-            values.push(*text);
+        if *is_value {
+            marked.push(FSI);
+            marked.push_str(text);
+            marked.push(PDI);
         } else {
             marked.push_str(text);
         }
     }
-    let shown = display(&marked);
-    let mut out = String::with_capacity(shown.len());
-    for c in shown.chars() {
-        match (c as u32).checked_sub(0xF0000).and_then(|i| values.get(i as usize)) {
-            Some(v) => out.push_str(v),
-            None => out.push(c),
-        }
-    }
-    out
+    display(&marked).chars().filter(|c| !matches!(*c, FSI | PDI)).collect()
 }
 
 #[cfg(test)]
@@ -198,12 +190,14 @@ mod tests {
     }
 
     #[test]
-    fn values_stay_whole_where_their_placeholder_lands() {
+    fn values_keep_their_own_direction_where_their_placeholder_lands() {
         // "{n} سطر": the number reads first, at the right.
-        assert_eq!(display_template(&[(true, "12"), (false, " سطر")]), "سطر 12");
-        // A value that is itself a display-order Arabic label is not reordered again.
-        let label = display("إدراج جدول");
-        assert_eq!(display_template(&[(false, "يستخدمه الآن "), (true, &label)]), format!("{label} الآن يستخدمه"));
-        assert_eq!(display_template(&[(false, "الصفحة "), (true, "2"), (false, " من "), (true, "10")]), "10 من 2 الصفحة");
+        assert_eq!(fmt_display(&[(true, "12"), (false, " سطر")]), "سطر 12");
+        assert_eq!(fmt_display(&[(false, "الصفحة "), (true, "2"), (false, " من "), (true, "10")]), "10 من 2 الصفحة");
+        // A path stays whole and left to right, its leading slash included.
+        assert_eq!(fmt_display(&[(false, "تم التصدير إلى "), (true, "/home/saleh/a b.docx")]), "/home/saleh/a b.docx إلى التصدير تم");
+        // A multi-word Arabic value (a file or style name) reads right to left like the rest.
+        assert_eq!(fmt_display(&[(false, "تعذّر فتح "), (true, "سجل الحضور")]), "الحضور سجل فتح تعذّر");
+        assert!(!fmt_display(&[(true, "x")]).contains([FSI, PDI]));
     }
 }

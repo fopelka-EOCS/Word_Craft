@@ -50,7 +50,7 @@ shared items below.
 | Simplified Chinese (Mandarin) | zh-hans | 929 entries; 98% of extracted, ~95% of visible | most; newer panes English | CJK ✅, IME ✅; Windows UI font fixed (#248); interface font chain covers every catalog character, installed CJK font after the embedded ones when it doesn't, PingFang found on macOS 12 (#486); font list by Chinese names (宋体, 微软雅黑, #505); no vertical text | no | partial | 3–5 |
 | Spanish | es | ~930; 98% / ~95% | most | Latin ✅ | no | partial | 1–2 |
 | Hindi | hi | 0 | ❌ | Devanagari shaping via HarfRust, untested; no hyphenation | no | none | 4–6 |
-| Arabic | ar | 2,616 entries (every key of every catalog; [localization-ar](localization-ar.md)) | most; text the code assembles itself stays in logical order | shaping, joining, lam-alef, bidi ✅ (#207); interface Arabic font fallback; labels drawn in display order (`i18n::bidi`); no kashida; **no mirrored UI** | no (pending) | partial | 2–3 + mirroring |
+| Arabic | ar | 2,674 entries (every key of every catalog; [localization-ar](localization-ar.md)) | all; assembled lines through `i18n::line` | shaping, joining, lam-alef, bidi ✅ (#207); interface Arabic font fallback; labels drawn in display order (`i18n::bidi`); no kashida; **no mirrored UI** | no (pending) | partial | 2–3 + mirroring |
 | French | fr | 2,615 entries (complete catalog) | all | Latin ✅ | no | partial (no proofing) | 1–2 (proofing) |
 | Portuguese | pt-br (pt-PT none) | ~930; 98% / ~95% (pt-BR) | most | Latin ✅ | no | partial | 2–4 (pt-BR finish + pt-PT) |
 | Indonesian | id | 0 | ❌ | Latin ✅ | no | none | 3–4 |

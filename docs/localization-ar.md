@@ -1,6 +1,6 @@
 # Arabic interface
 
-> **Last reviewed:** 2026-10-17 · **Last updated:** 2026-10-17 · **Change:** minor (Arabic interface catalog, Arabic interface font fallback) · **Target:** WordCraft main (2026-10-15)
+> **Last reviewed:** 2026-10-17 · **Last updated:** 2026-10-20 · **Change:** minor (review of #2677: reading order for stored, OS-facing and automation text; `fmt` values logical with isolates; assembled lines through `i18n::line`; 58 newer keys; previously minor: Arabic interface catalog, Arabic interface font fallback) · **Target:** WordCraft main (2026-10-20)
 
 Choose **File › Options › Interface language › العربية**, or follow an Arabic system display
 language (`ar`, `ar-SA`, `ar-EG`, `ar_SA.UTF-8` and the other regions). The catalog code is `ar`;
@@ -8,7 +8,7 @@ language (`ar`, `ar-SA`, `ar-EG`, `ar_SA.UTF-8` and the other regions). The cata
 same for a headless screenshot or a launch while the preference is `auto`. Document text, command
 ids, CLI/MCP/control responses and file paths do not change.
 
-`crates/ui-egui/src/i18n/ar.tsv` has 2,616 entries: the union of every key in every other catalog
+`crates/ui-egui/src/i18n/ar.tsv` has 2,674 entries: the union of every key in every other catalog
 (built-in style names, equation gallery labels, paper sizes, watermarks and citation styles
 included). It is written from the meaning of the English labels in ordinary Arabic computing
 vocabulary; no other product's Arabic interface, string table or terminology database was
@@ -35,21 +35,45 @@ now appends, after the CJK faces:
 
 egui 0.36 joins letters within a word but lays a line's words out left to right (no bidi), so
 `الحفظ التلقائي` drew as `التلقائي الحفظ`. `i18n::bidi` (ported from PhotoCraft's `bidi_text`)
-puts each translation into display order with the Unicode Bidirectional Algorithm, paragraph
-direction right to left: words reversed, Latin names and numbers kept in order, punctuation and
-ellipses moved to the left end, brackets mirrored, `\n` lines kept.
+puts text into display order with the Unicode Bidirectional Algorithm, paragraph direction right
+to left: words reversed, Latin names and numbers kept in order, punctuation and ellipses moved to
+the left end, brackets mirrored, `\n` lines kept. Display order is only for egui to draw; it is
+never stored, compared, typed over, handed to the operating system or reported to automation.
 
-- `tr`/`t`/`tl!` return the display form for a right-to-left language, built once per catalog.
-  `tr_logical` and `has` keep the reading order for text that is compared or stored.
-- `fmt` fills a right-to-left template in display order: its own words are reordered and every
-  value moves as one piece, so numbers, paths and labels already in display order stay intact
-  (`الصفحة {page} من {pages}` → `10 من 2 الصفحة`, read from the right).
-- `location` reverses the segments and points the separator left (`الخط ‹ الرئيسية`).
+### Which variant to use
+
+| Text | Use | Why |
+|---|---|---|
+| A label handed straight to egui (`ui.label`, buttons, menus, tooltips) | `tl!` / `t` / `tr` | display order, built once per catalog |
+| Text stored or saved (file names, document text, form fields that are typed over or inserted into the document) | `t_logical` / `tr_logical` | `مستند1`, not `1مستند` |
+| Text compared with what the user typed | `t_logical` | the user types in reading order |
+| Window title and other OS-facing text (file dialog suggested names) | `t_logical` | the OS runs its own bidi |
+| Control channel, CLI, MCP, `Err` returned to automation | `t_logical` | scripts read reading order |
+| A value passed to `fmt` | `t_logical`, user text as typed, numbers | `fmt` orders the whole line |
+| A line the code assembles (`format!`, `join`) from translated pieces | build from `t_logical`, wrap in `i18n::line` | two display-ordered pieces in logical sequence read wrong |
+| A ribbon location | `location` to draw, `location_logical` inside a longer line | |
+
+- `fmt`: values are logical. A right-to-left template (templates are kept as written) is filled
+  and the whole line put in display order, each value wrapped in First Strong Isolate / Pop
+  Directional Isolate (stripped afterwards) so it keeps its own direction: a path or number stays
+  whole and left to right, a multi-word Arabic file or style name reads right to left with the
+  rest. Left-to-right templates take the original one-pass path (no extra allocation).
+- `title_stem()` (untitled: `t_logical("Document1")`) is reading order everywhere it goes: the
+  suggested Save As / Export names, the default `.docx` name, the Rename dialog's field, the
+  control channel's `title`, the native window title. The title bar egui draws composes it in
+  reading order and passes the line through `i18n::line`.
+- Assembled lines go through `i18n::line` (status, labels with a value after a colon, tab stop
+  tooltips, the command search results). Arrows, menu marks (`▾`, `◀`) and sample glyphs stay on
+  their physical side, since the interface isn't mirrored.
 - Command search matches word by word, so it still finds Arabic labels in display order.
+- Tests: `arabic_is_drawn_in_display_order_but_kept_in_reading_order`,
+  `arabic_untitled_name_is_saved_renamed_and_reported_in_reading_order` (suggested `.docx` and
+  `.pdf` names, the Rename field, the drawn title), and the `bidi` unit tests.
 
-Trade-off: the accessibility tree gets the display-order labels too, so a screen reader may read
-the words of a multi-word Arabic label in reverse. Fixing that needs the mirrored, bidi-aware
-layout below rather than reordered strings.
+Trade-offs: the accessibility tree gets the display-order labels too, so a screen reader may read
+the words of a multi-word Arabic label in reverse; DragValue suffixes (`نقطة`) stay after the number
+as egui composes them. Fixing those needs the mirrored, bidi-aware layout below rather than
+reordered strings.
 
 ## Conventions
 
@@ -112,8 +136,9 @@ layout below rather than reordered strings.
 
 ## Known gaps
 
-- **Text the code assembles itself** (`format!` of two translated parts, user file names inside
-  a label) is not reordered; only catalog lookups and `fmt` are.
+- **New assembled lines** must follow the table above; the sites found by grepping `format!` and
+  `join` over `tl!`/`t` in `ui-egui` were converted, but a later one written with `tl!` pieces
+  will read wrong in Arabic until it is.
 - **Interface mirroring.** The ribbon, panes, dialogs and rulers stay left to right (estimate in
   [target-app-parity › Localization](target-app-parity.md): 15–25 h). The open Hebrew PR (#20)
   covers the same work.
@@ -126,3 +151,4 @@ layout below rather than reordered strings.
 | Date | Change | Summary |
 |---|---|---|
 | 2026-10-17 | minor | Arabic catalog (2,616 entries), registry row, Arabic interface font fallback, labels in display order (`i18n::bidi`) |
+| 2026-10-20 | minor | Review of #2677: `t_logical`/`tr_logical` for stored, compared, OS-facing and automation text (untitled `مستند1`); `fmt` takes logical values and isolates them; assembled lines through `i18n::line`; 58 keys added upstream since |

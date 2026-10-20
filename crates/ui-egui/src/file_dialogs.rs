@@ -751,6 +751,31 @@ mod tests {
         assert_eq!(shown.borrow()[0].0, FileDialogRequest::Open { purpose: "document".into() });
     }
 
+    /// An untitled document in the Arabic interface (#2677 review): its name is stored, saved,
+    /// typed over and reported in reading order (`مستند1`), never in the display order the
+    /// interface draws (`1مستند`); only the title bar egui draws gets the display form.
+    #[test]
+    fn arabic_untitled_name_is_saved_renamed_and_reported_in_reading_order() {
+        let (mut a, shown) = async_app();
+        a.run("ui.language", json!({"value": "ar"})).unwrap();
+        crate::i18n::set_current(crate::i18n::Lang::from_code("ar").unwrap());
+        assert_eq!(a.title_stem(), "مستند1");
+        a.save_as_dialog();
+        assert_eq!(shown.borrow()[0].0, FileDialogRequest::Save { name: "مستند1.docx".into() });
+        answer(&shown, None);
+        a.poll_file_dialog();
+        a.export_dialog("pdf");
+        assert_eq!(shown.borrow()[0].0, FileDialogRequest::Save { name: "مستند1.pdf".into() });
+        match crate::dialogs::Dialog::open("renameDocument", &mut a) {
+            Some(crate::dialogs::Dialog::RenameDocument { name, .. }) => assert_eq!(name, "مستند1"),
+            other => panic!("Rename Document: {:?}", other.map(|d| d.name())),
+        }
+        // The title egui draws is a display-order line; the text itself is unchanged.
+        let drawn = crate::i18n::line(format!("{} — {}", a.title_stem(), crate::i18n::t_logical("Not saved")));
+        assert_eq!(drawn, "محفوظ غير — 1مستند");
+        crate::i18n::set_current(crate::i18n::Lang::EN);
+    }
+
     /// #2313: Export PDF from the command search (no path given) asks where to save it, as the
     /// Backstage's Export button does, instead of failing with "bad parameters: `path` (string)
     /// is required" on the status bar.

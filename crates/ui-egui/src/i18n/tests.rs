@@ -522,8 +522,11 @@ fn arabic_is_drawn_in_display_order_but_kept_in_reading_order() {
     assert_eq!(tr(ar, "{n} lines"), "{n} سطر");
     assert_eq!(fmt(tr(ar, "{n} lines"), &[("n", "12")]), "سطر 12");
     assert_eq!(fmt(tr(ar, "Page {page} of {pages}"), &[("page", "2"), ("pages", "10")]), "10 من 2 الصفحة");
-    let label = tr(ar, "Insert Table");
-    assert_eq!(fmt(tr(ar, "Now used by {command}"), &[("command", label)]), format!("{label} الآن يستخدمه"));
+    // Values are logical: a translated label goes in through `tr_logical`, a user's multi-word
+    // Arabic name as typed, and the whole line comes out in display order.
+    assert_eq!(fmt(tr(ar, "Now used by {command}"), &[("command", tr_logical(ar, "Insert Table"))]), "جدول إدراج الآن يستخدمه");
+    assert_eq!(fmt(tr(ar, "{name} wasn't found."), &[("name", "سجل الحضور")]), ".الحضور سجل على يُعثر لم");
+    assert_eq!(fmt(tr(ar, "Exported {path}"), &[("path", "/home/saleh/a.docx")]), "/home/saleh/a.docx إلى التصدير تم");
     // Left-to-right templates are filled exactly as before.
     assert_eq!(fmt("Page {page} of {pages}", &[("page", "2"), ("pages", "10")]), "Page 2 of 10");
     assert_eq!(fmt("{a} and {missing}", &[("a", "x")]), "x and {missing}");

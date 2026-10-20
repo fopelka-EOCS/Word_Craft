@@ -202,7 +202,7 @@ pub fn customize_keyboard(app: &mut WordApp, ui: &mut Ui, f: &mut KeyboardForm) 
             ui.add_space(4.0);
             if !f.pressed.is_empty() {
                 let owner = match app.session.keymap.resolve(&reg, &f.pressed) {
-                    Some(s) => crate::i18n::fmt(tl!("Now used by {command}"), &[("command", tl!(s.label))]),
+                    Some(s) => crate::i18n::fmt(tl!("Now used by {command}"), &[("command", crate::i18n::t_logical(s.label))]),
                     None => tl!("Not used by any command").to_string(),
                 };
                 ui.label(owner);
