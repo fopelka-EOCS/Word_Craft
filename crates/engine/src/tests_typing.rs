@@ -519,7 +519,7 @@ fn web_addresses_become_links() {
 #[test]
 fn dashes() {
     let s = typed("a -- b and c - d and e--f and café--g ");
-    assert_eq!(s.doc.plain_text(StoryRef::Body), "A – b and c – d and e—f and café—g ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "A – b and c - d and e—f and café—g ");
 }
 
 /// #2036: a dash AutoFormat makes right after a symbol is text, not the symbol's font.
@@ -534,11 +534,11 @@ fn a_dash_after_a_symbol_is_not_in_the_symbol_font() {
     assert_eq!(p.props_of_char(dash).sym_font, None);
 }
 
-/// #2036: the en dashes of "x -- y" and "x - y" after a symbol (and its symbol-font space) are
+/// #2036: the en dashes of "x -- y" after a symbol (and its symbol-font space) are
 /// text, not the symbol's font.
 #[test]
 fn en_dashes_after_a_symbol_are_not_in_the_symbol_font() {
-    for keys in ["-- f ", "- f "] {
+    for keys in ["-- f "] {
         let mut s = s();
         typ(&mut s, "e");
         run(&mut s, "insert.symbol", json!({"char": "\u{F0FC} ", "font": "Wingdings"}));

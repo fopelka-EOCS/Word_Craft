@@ -203,15 +203,6 @@ fn dash_autoformat(s: &mut Session) -> Result<(), CmdError> {
         p.insert_text(i + 1, "\u{2013}", &props)?;
         s.sel = Selection::caret(Pos { off: f.off + 1, ..f });
     } else if before.ends_with(' ')
-        && let Some(i) = before.trim_end().rfind(" - ")
-        && !before.trim_end()[i + 3..].contains(' ')
-    {
-        let p = s.doc.para_mut(f.story, &f.path)?;
-        let props = p.props_at(i + 1).clone().without_symbol();
-        p.delete(i + 1, i + 2)?;
-        p.insert_text(i + 1, "\u{2013}", &props)?;
-        s.sel = Selection::caret(Pos { off: f.off + 2, ..f });
-    } else if before.ends_with(' ')
         && let Some(i) = before.trim_end().rfind("--")
         && i > 0
         && before.trim_end()[..i].chars().next_back().is_some_and(|c| c != ' ')
