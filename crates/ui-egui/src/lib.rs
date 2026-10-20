@@ -1817,6 +1817,9 @@ impl WordApp {
             // Opens something already listed, by id or by name. The listing is what the user can
             // see, which keeps a scripted open and a clicked one on the same footing.
             "cloud.openFile" => {
+                if !cloud::available(self) {
+                    return Some(Err(cloud::UNAVAILABLE.to_owned()));
+                }
                 let id = s("id");
                 let name = s("name").unwrap_or("");
                 let found = self
