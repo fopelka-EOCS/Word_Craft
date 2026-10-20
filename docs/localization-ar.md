@@ -48,8 +48,8 @@ never stored, compared, typed over, handed to the operating system or reported t
 | Text stored or saved (file names, document text, form fields that are typed over or inserted into the document) | `t_logical` / `tr_logical` | `مستند1`, not `1مستند` |
 | Text compared with what the user typed | `t_logical` | the user types in reading order |
 | Window title and other OS-facing text (file dialog suggested names) | `t_logical` | the OS runs its own bidi |
-| Control channel, CLI, MCP, `Err` returned to automation | `t_logical` | scripts read reading order |
-| A value passed to `fmt` | `t_logical`, user text as typed, numbers | `fmt` orders the whole line |
+| Control channel, CLI, MCP, `Err` returned to automation | `t_logical`, `fmt_logical` | scripts read reading order; the status bar gets `i18n::line` of the same text |
+| A value passed to `fmt` | `t_logical`, user text as typed, numbers, or a `fmt_logical` result | `fmt` orders the whole line once |
 | A line the code assembles (`format!`, `join`) from translated pieces | build from `t_logical`, wrap in `i18n::line` | two display-ordered pieces in logical sequence read wrong |
 | A ribbon location | `location` to draw, `location_logical` inside a longer line | |
 
@@ -61,14 +61,20 @@ never stored, compared, typed over, handed to the operating system or reported t
 - `title_stem()` (untitled: `t_logical("Document1")`) is reading order everywhere it goes: the
   suggested Save As / Export names, the default `.docx` name, the Rename dialog's field, the
   control channel's `title`, the native window title. The title bar egui draws composes it in
-  reading order and passes the line through `i18n::line`.
+  reading order, shortens a long one in reading order (the name keeps its start, `…` at its
+  end), and passes only the painted text through `i18n::line`; its accessibility label stays in
+  reading order.
+- Errors returned to automation are in reading order: download failure, `file.autosave`'s refusal
+  (`AutoSaveBlock::reason_logical`; `reason` is its drawn form), the Save Changes prompt's failed
+  or cancelled save (the prompt and status bar draw it), `ui.crop`.
 - Assembled lines go through `i18n::line` (status, labels with a value after a colon, tab stop
   tooltips, the command search results). Arrows, menu marks (`▾`, `◀`) and sample glyphs stay on
   their physical side, since the interface isn't mirrored.
 - Command search matches word by word, so it still finds Arabic labels in display order.
 - Tests: `arabic_is_drawn_in_display_order_but_kept_in_reading_order`,
   `arabic_untitled_name_is_saved_renamed_and_reported_in_reading_order` (suggested `.docx` and
-  `.pdf` names, the Rename field, the drawn title), and the `bidi` unit tests.
+  `.pdf` names, the Rename field, `file.autosave`'s error, the drawn title), and the `bidi` unit
+  tests.
 
 Trade-offs: the accessibility tree gets the display-order labels too, so a screen reader may read
 the words of a multi-word Arabic label in reverse; DragValue suffixes (`نقطة`) stay after the number
@@ -151,4 +157,4 @@ reordered strings.
 | Date | Change | Summary |
 |---|---|---|
 | 2026-10-17 | minor | Arabic catalog (2,616 entries), registry row, Arabic interface font fallback, labels in display order (`i18n::bidi`) |
-| 2026-10-20 | minor | Review of #2677: `t_logical`/`tr_logical` for stored, compared, OS-facing and automation text (untitled `مستند1`); `fmt` takes logical values and isolates them; assembled lines through `i18n::line`; 58 keys added upstream since |
+| 2026-10-20 | minor | Review of #2677 (FredApps, CodeRabbit): `t_logical`/`tr_logical`/`fmt_logical` for stored, compared, OS-facing and automation text (untitled `مستند1`); `fmt` takes logical values and isolates them; assembled lines through `i18n::line`; 58 keys added upstream since |

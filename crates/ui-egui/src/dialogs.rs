@@ -2684,7 +2684,8 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 2 => crate::credits::models_ui(ui),
                 _ => {
                     ui.label(egui::RichText::new(tl!("WordCraft")).font(semibold(22.0)));
-                    let build = option_env!("WORDCRAFT_BUILD_SHA").map(|s| s.get(..8).unwrap_or(s)).unwrap_or(tl!("development build"));
+                    let build =
+                        option_env!("WORDCRAFT_BUILD_SHA").map(|s| s.get(..8).unwrap_or(s)).unwrap_or(crate::i18n::t_logical("development build"));
                     ui.label(crate::i18n::fmt(tl!("Version {version} ({build})"), &[("version", env!("CARGO_PKG_VERSION")), ("build", build)]));
                     ui.label(tl!(
                         "A free, open-source word processor written from scratch in Rust.\nPart of the Crafting Apps from the ArtCraft team."

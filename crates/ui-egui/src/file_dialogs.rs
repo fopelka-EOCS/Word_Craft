@@ -220,21 +220,27 @@ impl WordApp {
             }
         }
         let n = added.to_string();
-        let mut msg = if added == 1 { tl!("Added 1 font").to_string() } else { crate::i18n::fmt(tl!("Added {n} fonts"), &[("n", &n)]) };
+        // Assembled in reading order (each step is a value of the next), drawn once at the end.
+        let mut msg = if added == 1 {
+            crate::i18n::t_logical("Added 1 font").to_string()
+        } else {
+            crate::i18n::fmt_logical(tl!("Added {n} fonts"), &[("n", &n)])
+        };
         if !failed.is_empty() {
             let count = failed.len().to_string();
             let mut names = failed.iter().take(3).cloned().collect::<Vec<_>>().join(", ");
             if failed.len() > 3 {
                 let more = (failed.len() - 3).to_string();
-                names = crate::i18n::fmt(tl!("{names} and {n} more"), &[("names", &names), ("n", &more)]);
+                names = crate::i18n::fmt_logical(tl!("{names} and {n} more"), &[("names", &names), ("n", &more)]);
             }
-            msg = crate::i18n::fmt(tl!("{added}; {count} couldn't be read: {names}"), &[("added", &msg), ("count", &count), ("names", &names)]);
+            msg =
+                crate::i18n::fmt_logical(tl!("{added}; {count} couldn't be read: {names}"), &[("added", &msg), ("count", &count), ("names", &names)]);
         }
         if skipped > 0 {
             let (n, max) = (skipped.to_string(), MAX_FONTS_PER_PICK.to_string());
-            msg = crate::i18n::fmt(tl!("{added}; {n} skipped (limit {max})"), &[("added", &msg), ("n", &n), ("max", &max)]);
+            msg = crate::i18n::fmt_logical(tl!("{added}; {n} skipped (limit {max})"), &[("added", &msg), ("n", &n), ("max", &max)]);
         }
-        self.status(msg);
+        self.status(crate::i18n::line(msg));
         Ok(json!({"added": added, "failed": failed, "skipped": skipped}))
     }
 
@@ -770,6 +776,11 @@ mod tests {
             Some(crate::dialogs::Dialog::RenameDocument { name, .. }) => assert_eq!(name, "مستند1"),
             other => panic!("Rename Document: {:?}", other.map(|d| d.name())),
         }
+        // Scripts get errors in reading order; the status bar draws the display form.
+        let err = a.run("file.autosave", json!({"value": true})).unwrap_err();
+        let block = a.autosave_block().expect("an untitled document can't AutoSave");
+        assert_eq!(err, block.reason_logical());
+        assert_ne!(err, block.reason(), "a multi-word Arabic reason is drawn reordered");
         // The title egui draws is a display-order line; the text itself is unchanged.
         let drawn = crate::i18n::line(format!("{} — {}", a.title_stem(), crate::i18n::t_logical("Not saved")));
         assert_eq!(drawn, "محفوظ غير — 1مستند");

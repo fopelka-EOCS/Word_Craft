@@ -181,12 +181,13 @@ pub fn toggle(app: &mut WordApp) -> Result<Value, String> {
         return Ok(json!({"crop": false}));
     }
     let Some((_, InlineObject::Image { .. })) = crate::objects::selected(app) else {
-        return Err(tl!("select a picture first").to_string());
+        return Err(crate::i18n::t_logical("select a picture first").to_string());
     };
     let Some(Picture { pos, .. }) = picture(app) else {
-        let msg = tl!("Crop on the page works on unturned pictures: set Rotation to 0° first, or use the crop boxes").to_string();
-        app.status(msg.clone());
-        return Err(msg);
+        // `ui.crop` is a command: scripts get the reading order, the status bar the drawn form.
+        const MSG: &str = "Crop on the page works on unturned pictures: set Rotation to 0° first, or use the crop boxes";
+        app.status(tl!(MSG).to_string());
+        return Err(crate::i18n::t_logical(MSG).to_string());
     };
     app.canvas.crop = Some(pos);
     app.canvas.crop_drag = None;

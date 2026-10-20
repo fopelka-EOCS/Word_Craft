@@ -977,9 +977,9 @@ impl WordApp {
             if let Some(d) = &self.services.download
                 && let Err(e) = d(&name, &bytes)
             {
-                let msg = i18n::fmt(tl!("Couldn't download {name}: {error}"), &[("name", &name), ("error", &e)]);
+                let msg = i18n::fmt_logical(tl!("Couldn't download {name}: {error}"), &[("name", &name), ("error", &e)]);
                 log::error!("download of {name} failed: {e}");
-                self.status(msg.clone());
+                self.status(i18n::line(msg.clone()));
                 return Err(msg);
             }
             // An export is a copy, and so is a save in a format that doesn't keep everything (a
@@ -1203,18 +1203,22 @@ impl WordApp {
     /// the message, the prompt answer's error.
     pub(crate) fn save_failed(&mut self, error: &str, then: String, params: Value, document: u64) -> String {
         let name = self.prompt_name();
-        let message = i18n::fmt(tl!("Couldn't save {name}, so it is still open and nothing was lost: {error}"), &[("name", &name), ("error", error)]);
+        let message =
+            i18n::fmt_logical(tl!("Couldn't save {name}, so it is still open and nothing was lost: {error}"), &[("name", &name), ("error", error)]);
         log::error!("save from the Save Changes prompt failed: {error}");
         self.prompt_again(message, then, params, document)
     }
 
     /// The Save Changes prompt comes back with `message` (also on the status bar), the held-back
-    /// command still waiting, if the document is still the one it asked about. Returns `message`.
+    /// command still waiting, if the document is still the one it asked about. `message` is in
+    /// reading order and is returned that way (scripts get it as the error); the status bar and the
+    /// prompt draw its display form.
     fn prompt_again(&mut self, message: String, then: String, params: Value, document: u64) -> String {
-        self.status(message.clone());
+        let shown = i18n::line(message.clone());
+        self.status(shown.clone());
         if document == self.session.document_id() {
             let name = self.prompt_name();
-            self.dialog = Some(dialogs::Dialog::SaveChanges { name, then, params, document, message: message.clone() });
+            self.dialog = Some(dialogs::Dialog::SaveChanges { name, then, params, document, message: shown });
         }
         message
     }
@@ -1269,7 +1273,8 @@ impl WordApp {
                 }
                 async_saves::SaveOutcome::Cancelled => {
                     let name = self.prompt_name();
-                    let message = i18n::fmt(tl!("Saving {name} was cancelled, so it is still open and nothing was lost."), &[("name", &name)]);
+                    let message =
+                        i18n::fmt_logical(tl!("Saving {name} was cancelled, so it is still open and nothing was lost."), &[("name", &name)]);
                     self.prompt_again(message, wait.then, wait.params, wait.document);
                 }
                 async_saves::SaveOutcome::Failed(error) => {
@@ -2132,7 +2137,7 @@ impl WordApp {
     fn set_autosave(&mut self, params: &Value) -> Result<Value, String> {
         let on = params.get("value").and_then(Value::as_bool).unwrap_or(!self.autosaves());
         if on && let Some(block) = self.autosave_block() {
-            return Err(block.reason());
+            return Err(block.reason_logical());
         }
         self.autosave = on;
         self.session.autosave = on;
@@ -2457,17 +2462,22 @@ pub enum AutoSaveBlock {
 impl AutoSaveBlock {
     /// What the user (or a script) is told, in the interface language.
     pub fn reason(&self) -> String {
+        i18n::line(self.reason_logical())
+    }
+
+    /// [`AutoSaveBlock::reason`] in reading order, for the error `file.autosave` returns to scripts.
+    pub fn reason_logical(&self) -> String {
         match self {
             AutoSaveBlock::Browser => {
-                tl!("AutoSave isn't available in the browser: it can't write to your files. Save downloads a copy.").to_string()
+                i18n::t_logical("AutoSave isn't available in the browser: it can't write to your files. Save downloads a copy.").to_string()
             }
-            AutoSaveBlock::Unsaved => tl!("Save the document to turn on AutoSave").to_string(),
-            AutoSaveBlock::Format { name } => i18n::fmt(
+            AutoSaveBlock::Unsaved => i18n::t_logical("Save the document to turn on AutoSave").to_string(),
+            AutoSaveBlock::Format { name } => i18n::fmt_logical(
                 tl!("AutoSave only keeps .docx, .odt and .rtf files; {name} can't keep all formatting. Save as .docx to turn on AutoSave."),
                 &[("name", name)],
             ),
             AutoSaveBlock::NotSavedHere => {
-                tl!("Save the document to turn on AutoSave (a file you have only opened isn't rewritten until you save it)").to_string()
+                i18n::t_logical("Save the document to turn on AutoSave (a file you have only opened isn't rewritten until you save it)").to_string()
             }
         }
     }

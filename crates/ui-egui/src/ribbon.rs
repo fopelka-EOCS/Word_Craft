@@ -637,7 +637,7 @@ pub(crate) fn size_menu(ui: &mut Ui, app: &mut WordApp) {
         // Paper names are the industry's (Letter, A4, B5 (JIS)) and stay as they are; the
         // envelopes say what they are. Sizes in the measurement unit, written the region's
         // way (`21 cm × 29,7 cm`, #838).
-        let name = if n.starts_with("Envelope ") { tl!(n) } else { n };
+        let name = if n.starts_with("Envelope ") { crate::i18n::t_logical(n) } else { n };
         let (width, height) = (crate::options::length(*w), crate::options::length(*h));
         let label = crate::i18n::fmt(tl!("{paper}   {width} × {height}"), &[("paper", name), ("width", &width), ("height", &height)]);
         mi_check(ui, app, &label, current == Some(*n), "layout.size", json!({"name": n}));

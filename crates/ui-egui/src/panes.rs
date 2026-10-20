@@ -762,6 +762,7 @@ fn describe(prop: &str, v: &Value) -> String {
         "lang" => "Language",
         other => other,
     };
+    let logical = crate::i18n::t_logical(label);
     let label = tl!(label);
     let pt = |x: f64| crate::i18n::fmt(tl!("{n} pt"), &[("n", &trim_num(x))]);
     let hex = |c: &Value| -> Option<String> {
@@ -771,7 +772,7 @@ fn describe(prop: &str, v: &Value) -> String {
     };
     let value = match (prop, v) {
         (_, Value::Bool(true)) => return label.to_string(),
-        (_, Value::Bool(false)) => return crate::i18n::fmt(tl!("Not {name}"), &[("name", label)]),
+        (_, Value::Bool(false)) => return crate::i18n::fmt(tl!("Not {name}"), &[("name", logical)]),
         ("scale", Value::Number(n)) => format!("{}%", trim_num(n.as_f64().unwrap_or(100.0))),
         ("outlineLevel", Value::Number(n)) => match n.as_u64().unwrap_or(9) {
             l @ 0..=8 => crate::i18n::fmt(tl!("Level {n}"), &[("n", &(l + 1).to_string())]),

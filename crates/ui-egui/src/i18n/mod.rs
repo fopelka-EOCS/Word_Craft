@@ -525,6 +525,13 @@ pub fn fmt(template: &str, args: &[(&str, &str)]) -> String {
     if bidi::has_rtl(template) {
         return bidi::fmt_display(&fill(template, args));
     }
+    fmt_logical(template, args)
+}
+
+/// [`fmt`] in reading order: the template filled and nothing reordered, for a message that is
+/// reported to automation (an `Err` from a command) or assembled further; pass it through [`line`]
+/// to draw it.
+pub fn fmt_logical(template: &str, args: &[(&str, &str)]) -> String {
     // Left to right: one pass into one string, no pieces (this runs every frame in places).
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
