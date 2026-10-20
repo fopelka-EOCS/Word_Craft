@@ -504,7 +504,8 @@ fn properties(s: &mut Session, v: &Value) -> CmdResult {
                 t.props.float = Some(TableFloat {
                     h_rel: Anchor::Column,
                     v_rel: Anchor::Paragraph,
-                    h_align: Some(match t.props.align {
+                    // The alignment this call sets, if any: it's applied further down.
+                    h_align: Some(match align.or(t.props.align) {
                         Some(Align::Center) => FloatAlign::Center,
                         Some(Align::Right) => FloatAlign::End,
                         _ => FloatAlign::Start,
@@ -514,7 +515,10 @@ fn properties(s: &mut Session, v: &Value) -> CmdResult {
                 });
             }
         }
-        if let Some(pos) = &position {
+        // None keeps the table in line even with a position given.
+        if wrap != Some(false)
+            && let Some(pos) = &position
+        {
             let f = t.props.float.get_or_insert(TableFloat {
                 h_rel: Anchor::Column,
                 v_rel: Anchor::Paragraph,

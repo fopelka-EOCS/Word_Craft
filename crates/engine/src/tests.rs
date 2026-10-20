@@ -1961,6 +1961,14 @@ fn table_properties_set_percentages_cell_options_and_wrapping() {
     );
     run(&mut s, "table.properties", json!({"wrap": "none"}));
     assert!(table(&s).props.float.is_none());
+    // In one call, as the dialog's OK sends them: Around takes the alignment set with it,
+    // and None keeps the table in line even with a position.
+    for (align, side) in [("center", FloatAlign::Center), ("right", FloatAlign::End), ("left", FloatAlign::Start)] {
+        run(&mut s, "table.properties", json!({"align": align, "wrap": "around"}));
+        assert_eq!(table(&s).props.float.and_then(|f| f.h_align), Some(side), "{align}");
+        run(&mut s, "table.properties", json!({"wrap": "none", "position": {"x": 36.0, "hRel": "page"}}));
+        assert!(table(&s).props.float.is_none(), "None with a position, after {align}");
+    }
     for bad in [
         json!({"cellMargins": [1, 2]}),
         json!({"cellMargins": [1, "a", 2, 3]}),
