@@ -157,7 +157,7 @@ fn undo_list(ui: &mut Ui, app: &mut WordApp) {
     let footer = undo_list_footer(hovered.map_or(0, |h| h + 1));
     ui.vertical_centered(|ui| ui.label(egui::RichText::new(footer).font(regular(12.0)).color(t.text)));
     if let Some(i) = clicked {
-        let _ = app.run("edit.undoTo", json!({"count": i + 1}));
+        crate::widgets::run_from_ribbon(app, "edit.undoTo", json!({"count": i + 1}));
         ui.close();
     }
 }
@@ -618,5 +618,87 @@ mod tests {
         assert_eq!(MAC_CONTENT_LEFT - lights_end, margin);
         // `egui::Margin` is in `i8`.
         assert!(MAC_CONTENT_LEFT <= f32::from(i8::MAX));
+    }
+    #[test]
+    fn mac_title_bar_follows_the_measured_lights() {
+        // The standard lights give the standard bar.
+        let lights_end = MAC_LIGHTS_LEFT + 2.0 * MAC_LIGHT_PITCH + MAC_LIGHT;
+        assert_eq!(MacTitleBar::around_lights(lights_end, MAC_TITLE_BAR / 2.0, MAC_LIGHT), MacTitleBar::default());
+        // Larger, lower lights (macOS 26): a taller bar, and content clear of the green button.
+        let bar = MacTitleBar::around_lights(78.0, 18.0, 14.0);
+        assert_eq!(bar.height, 36.0);
+        assert_eq!(bar.content_left, 89.0);
+        // Never tighter than the standard layout.
+        assert_eq!(MacTitleBar::around_lights(40.0, 10.0, 12.0), MacTitleBar::default());
+    }
+
+    /// #1945: Hide Quick Access Toolbar, the last item of the toolbar's menu, takes the toolbar's
+    /// buttons and its … button out of the title bar, which keeps its title; the command brings
+    /// them back.
+    #[test]
+    fn hide_quick_access_toolbar_takes_the_toolbar_out_of_the_title_bar() {
+        use egui_kittest::kittest::Queryable;
+        let a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                // The fonts `logic` installs take effect on the next frame, as `WordApp::ui` waits.
+                if app.fonts_frames < 2 {
+                    app.fonts_frames += 1;
+                    return;
+                }
+                title_bar(app, ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        let drawn = |h: &egui_kittest::Harness<'static, WordApp>, id: &str| h.ctx.read_response(qat_button_id(id)).is_some();
+        for id in ["file.save", "edit.undo", "edit.redo"] {
+            assert!(drawn(&h, id), "{id} is on the toolbar");
+        }
+        let at = h.ctx.read_response(qat_menu_button_id()).expect("the … button").rect.center();
+        h.event(egui::Event::PointerMoved(at));
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() });
+        }
+        h.run_steps(2);
+        h.get_by_label("Hide Quick Access Toolbar").click();
+        // `read_response` also reads the frame before last, so run two frames past the change.
+        h.run_steps(3);
+        assert!(!h.state().ui.quick_access_toolbar, "the menu's last item hides the toolbar");
+        assert!(h.query_by_label("Hide Quick Access Toolbar").is_none(), "and closes the menu");
+        for id in ["file.save", "edit.undo", "edit.redo"] {
+            assert!(!drawn(&h, id), "{id} is gone");
+        }
+        assert!(h.ctx.read_response(qat_menu_button_id()).is_none(), "so is the … button");
+        assert!(h.query_by_label_contains("Not saved").is_some(), "the title is still drawn");
+        h.state_mut().run("ui.quickAccessToolbar", json!({"value": true})).unwrap();
+        h.run_steps(2);
+        for id in ["file.save", "edit.undo", "edit.redo"] {
+            assert!(drawn(&h, id), "{id} is back");
+        }
+        assert!(h.ctx.read_response(qat_menu_button_id()).is_some());
+    }
+
+    /// #3040: clicking a row in the Undo list hands the keyboard back to the document.
+    #[test]
+    fn undo_list_row_returns_focus_to_the_document() {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        a.run("text.insert", json!({"text": "Hello"})).unwrap();
+        assert_eq!(a.session.undo_history().len(), 1);
+
+        let (ctx, mut n) = (ctx(), 0);
+        frame(&ctx, &mut n, vec![], &mut a);
+        let arrow = ctx.read_response(undo_list_button_id()).unwrap();
+        let popup = egui::Popup::default_response_id(&arrow);
+        click(&ctx, &mut n, arrow.rect.center(), &mut a);
+        assert!(egui::Popup::is_id_open(&ctx, popup), "the arrow opens the Undo list");
+        frame(&ctx, &mut n, vec![], &mut a);
+        let row = ctx.read_response(undo_list_row_id(0)).unwrap();
+        a.canvas.want_focus = false;
+        click(&ctx, &mut n, row.rect.center(), &mut a);
+        assert!(a.canvas.want_focus, "the row click returns focus to the document");
+        assert!(a.session.undo_history().is_empty(), "the step was undone");
     }
 }
