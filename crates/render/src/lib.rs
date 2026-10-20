@@ -18,6 +18,10 @@ use wordcraft_metafile::{Item, Picture, PlacedItem, Seg};
 
 mod color_glyph;
 pub mod icon_lib;
+mod subpixel;
+
+use subpixel::Painter;
+pub use subpixel::Subpixel;
 
 /// Worker threads for rasterising (0 on the web, where there are no threads).
 pub fn default_threads() -> u16 {
@@ -460,6 +464,10 @@ pub struct RenderOptions {
     /// onto the pixel grid, so text looks as crisp as in other apps there. Nothing moves
     /// sideways, so lines break as without it. For on-screen rasters only: exports stay exact.
     pub hinting: bool,
+    /// Draw hinted text with subpixel (LCD) edges in this subpixel order, as FreeType does with
+    /// fontconfig's `rgba` set. Only for opaque rasters shown one texel per screen pixel (the
+    /// canvas pages at rest): stretched, rotated or exported, the coloured edges would smear.
+    pub subpixel: Option<Subpixel>,
     /// Dark page (View › Switch Modes): every colour but pictures has its lightness inverted, so
     /// white paper turns black and black text white while hues stay the same. Screen only.
     pub dark: bool,
@@ -545,6 +553,7 @@ impl Default for RenderOptions {
             mark_color: Rgb(0x2B, 0x57, 0x9A),
             text_darkening: false,
             hinting: false,
+            subpixel: None,
             dark: false,
             dark_paper: DARK_PAPER,
         }
@@ -571,7 +580,7 @@ fn render_region_capped(doc: &Document, page: &Page, w: u32, h: u32, view: Affin
     // Over the cap the whole picture is drawn smaller, not cropped.
     let view = if (cw, ch) == (w, h) { view } else { Affine::scale_non_uniform(cw as f64 / w as f64, ch as f64 / h as f64) * view };
     let (w16, h16) = (cw as u16, ch as u16);
-    let mut ctx = context_pool::CONTEXTS.take(w16, h16);
+    let mut ctx = Painter::new(context_pool::CONTEXTS.take(w16, h16), w16, h16, opts.subpixel);
     ctx.set_transform(Affine::IDENTITY);
     ctx.set_paint(color(opts.ink(doc.settings.page_color.unwrap_or(opts.paper)), 1.0));
     ctx.fill_rect(&kurbo::Rect::new(0.0, 0.0, w16 as f64, h16 as f64));
@@ -584,21 +593,16 @@ fn render_region_capped(doc: &Document, page: &Page, w: u32, h: u32, view: Affin
     for (alpha, items) in page_layers(doc, page, &opts.display) {
         let faded = alpha < 1.0 && !items.is_empty();
         if faded {
-            ctx.push_opacity_layer(alpha);
+            ctx.push_opacity(alpha);
         }
         for it in &items {
             draw(&mut ctx, doc, it, view, &visible, opts);
         }
         if faded {
-            ctx.pop_layer();
+            ctx.pop_opacity();
         }
     }
-    ctx.flush();
-    let mut pixels = vec![0u8; w16 as usize * h16 as usize * 4];
-    let mut res = Resources::new();
-    if let Some(pm) = vello_cpu::PixmapMut::new(w16, h16, &mut pixels) {
-        ctx.render(pm, &mut res);
-    }
+    let (pixels, ctx) = ctx.finish(w16, h16);
     context_pool::CONTEXTS.give_back(ctx);
     Rendered { width: w16 as u32, height: h16 as u32, pixels }
 }
@@ -744,6 +748,70 @@ fn draw_watermark(ctx: &mut RenderContext, view: Affine, page: &Page, wm: &wordc
     }
 }
 
+/// Where an item drawn by vello_cpu may put ink (page points), generously; `None` when that isn't
+/// known cheaply (shapes and WordArt with effects, text of unknown length): it may be anywhere.
+fn item_bounds(it: &Draw) -> Option<kurbo::Rect> {
+    let rect = |r: &wordcraft_geom::Rect| kurbo::Rect::new(r.x as f64, r.y as f64, r.right() as f64, r.bottom() as f64);
+    let finite = |r: kurbo::Rect| r.is_finite().then_some(r);
+    match it {
+        Draw::Fill { rect: r, .. } | Draw::Image { rect: r, .. } => finite(rect(r)),
+        Draw::Line { x0, y0, x1, y1, width, stroke, .. } => {
+            // How far the stroke reaches off the line, as drawn: half its width; a double line's
+            // two strokes sit 0.9 widths off it, a wave's crests 1.2 widths (at least 0.8).
+            let w = f64::from(*width).abs();
+            let reach = match stroke {
+                Stroke::Double => w * 1.2,
+                Stroke::Wave => (w * 1.2).max(0.8) + w * 0.5,
+                _ => w / 2.0,
+            };
+            finite(kurbo::Rect::new(f64::from(*x0), f64::from(*y0), f64::from(*x1), f64::from(*y1)).abs().inflate(reach, reach))
+        }
+        Draw::Ink { pts, width, .. } => {
+            let reach = f64::from(*width).abs().max(1.0);
+            let b = pts.iter().fold(None::<kurbo::Rect>, |b, (x, y)| {
+                let p = kurbo::Rect::from_points((f64::from(*x), f64::from(*y)), (f64::from(*x), f64::from(*y)));
+                Some(b.map_or(p, |b| b.union(p)))
+            })?;
+            finite(b.inflate(reach, reach))
+        }
+        Draw::Path { segs, stroke_width, .. } => {
+            let reach = f64::from(*stroke_width).abs().max(1.0) * 2.0;
+            finite(wordcraft_layout::display::seg_path(segs).bounding_box().inflate(reach, reach))
+        }
+        Draw::Mark { x, baseline, size, .. } => {
+            let (x, y, s) = (f64::from(*x), f64::from(*baseline), f64::from(*size).abs());
+            finite(kurbo::Rect::new(x - s, y - s * 1.5, x + s * 2.0, y + s))
+        }
+        _ => None,
+    }
+}
+
+/// A straight line's stroke with flat ends as a rectangle (page points): `None` for a slanted,
+/// empty or non-finite one.
+fn line_rect(x0: f32, y0: f32, x1: f32, y1: f32, width: f32) -> Option<kurbo::Rect> {
+    let (x0, y0, x1, y1, h) = (f64::from(x0), f64::from(y0), f64::from(x1), f64::from(y1), f64::from(width).abs() / 2.0);
+    let r = if y0 == y1 {
+        kurbo::Rect::new(x0.min(x1), y0 - h, x0.max(x1), y0 + h)
+    } else if x0 == x1 {
+        kurbo::Rect::new(x0 - h, y0.min(y1), x0 + h, y0.max(y1))
+    } else {
+        return None;
+    };
+    (r.is_finite() && r.area() > 0.0).then_some(r)
+}
+
+/// Where a glyph run drawn by vello_cpu may put ink (page points), generously: from the first
+/// glyph's origin to past the last one, a size above the baseline and below.
+fn glyph_run_bounds(glyphs: &[(u32, f32, f32)], size: f32) -> Option<kurbo::Rect> {
+    let s = f64::from(size).abs().max(1.0) * 1.5;
+    let b = glyphs.iter().fold(None::<kurbo::Rect>, |b, (_, x, y)| {
+        let p = kurbo::Rect::from_points((f64::from(*x), f64::from(*y)), (f64::from(*x), f64::from(*y)));
+        Some(b.map_or(p, |b| b.union(p)))
+    })?;
+    let r = kurbo::Rect::new(b.x0 - s, b.y0 - s, b.x1 + s * 2.0, b.y1 + s);
+    r.is_finite().then_some(r)
+}
+
 /// Does `view` map page points to device pixels without rotation, skew or mirroring, scaling both
 /// axes alike? Only then do hinted outlines (made on the pixel grid) line up with the screen.
 fn is_upright(view: Affine) -> bool {
@@ -802,7 +870,21 @@ fn wave_path(x0: f64, y0: f64, x1: f64, y1: f64, amp: f64) -> BezPath {
     p
 }
 
-fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visible: &kurbo::Rect, opts: &RenderOptions) {
+fn draw(ctx: &mut Painter, doc: &Document, it: &Draw, view: Affine, visible: &kurbo::Rect, opts: &RenderOptions) {
+    // Where the item lands, for subpixel text drawn after it (containers' items note their own;
+    // a glyph run notes itself when it isn't drawn as subpixel text).
+    if !matches!(
+        it,
+        Draw::Glyphs { .. }
+            | Draw::Fill { .. }
+            | Draw::Line { .. }
+            | Draw::Figure { .. }
+            | Draw::Clip { .. }
+            | Draw::Turned { .. }
+            | Draw::Rotated { .. }
+    ) {
+        ctx.note(item_bounds(it).map(|b| view.transform_rect_bbox(b).inflate(1.0, 1.0)));
+    }
     match it {
         Draw::Figure { draws, .. } => {
             for d in draws {
@@ -814,11 +896,29 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
             if !r.overlaps(*visible) {
                 return;
             }
+            let ink = if *text_bg { opts.ink_bg(*c) } else { opts.ink(*c) };
+            // Over subpixel text that waits (a table cell's shading under the row above's
+            // descenders): drawn after it in order rather than rendering a section for it.
+            if is_upright(view) && ctx.rect_over_text(view.transform_rect_bbox(r), ink, *alpha) {
+                return;
+            }
+            ctx.note(Some(view.transform_rect_bbox(r).inflate(1.0, 1.0)));
             ctx.set_transform(view);
-            ctx.set_paint(color(if *text_bg { opts.ink_bg(*c) } else { opts.ink(*c) }, *alpha));
+            ctx.set_paint(color(ink, *alpha));
             ctx.fill_rect(&r);
         }
         Draw::Line { x0, y0, x1, y1, width, color: c, stroke, alpha, text_bg } => {
+            // A straight solid line (a table border) over subpixel text that waits: drawn after
+            // it in order, as a rectangle (flat ends), rather than rendering a section for it.
+            if *stroke == Stroke::Solid
+                && (x0 == x1 || y0 == y1)
+                && is_upright(view)
+                && let Some(r) = line_rect(*x0, *y0, *x1, *y1, *width)
+                && ctx.rect_over_text(view.transform_rect_bbox(r), opts.ink_text(*c, *text_bg), *alpha)
+            {
+                return;
+            }
+            ctx.note(item_bounds(it).map(|b| view.transform_rect_bbox(b).inflate(1.0, 1.0)));
             ctx.set_transform(view);
             ctx.set_paint(color(opts.ink_text(*c, *text_bg), *alpha));
             let w = *width as f64;
@@ -874,7 +974,6 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
             }
             let db = FontDb::global();
             let k = *size as f64 / face.upem.max(1.0);
-            ctx.set_paint(color(opts.ink_text(*c, *text_bg), *alpha));
             let skew = if *synth_italic { Affine::new([1.0, 0.0, -0.21, 1.0, 0.0, 0.0]) } else { Affine::IDENTITY };
             // Scaled letters (`w:w`): each glyph stretched across from its pen position.
             let sx = if x_scale.is_finite() && *x_scale > 0.0 { f64::from(*x_scale) } else { 1.0 };
@@ -887,9 +986,6 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
             let darken = if darken_px > 0.0 && k * px_per_pt > 0.0 { 2.0 * darken_px / (k * px_per_pt) } else { 0.0 };
             let outline_stroke = if *synth_bold { face.upem * 0.03 } else { 0.0 } + darken;
             let join = if darken > 0.0 { kurbo::Join::Round } else { kurbo::Join::Miter };
-            if outline_stroke > 0.0 {
-                ctx.set_stroke(kurbo::Stroke::new(outline_stroke).with_join(join));
-            }
             // Emoji and other colour glyphs (#1269) are drawn from the font's colour data.
             let colour = face.has_color_glyphs();
             let ppem = *size as f64 * px_per_pt;
@@ -898,6 +994,20 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
             let hint_ppem = (opts.hinting && !colour && is_upright(view)).then_some(ppem as f32);
             // The outline strokes in device pixels, for the hinted outlines.
             let stroke_px = outline_stroke * k * px_per_pt;
+            // Subpixel text, where this raster has it: from the same hinted outlines, for letters at
+            // their own width (scaled letters, `w:w`, are drawn greyscale). Tried before anything
+            // is set on vello_cpu, so a run drawn so leaves no section to render.
+            if let Some(p) = hint_ppem
+                && sx == 1.0
+                && ctx.subpixel_run(*face, glyphs, p, view, visible, *synth_italic, stroke_px, opts.ink_text(*c, *text_bg), *alpha)
+            {
+                return;
+            }
+            ctx.note(glyph_run_bounds(glyphs, *size).map(|b| view.transform_rect_bbox(b).inflate(2.0, 2.0)));
+            ctx.set_paint(color(opts.ink_text(*c, *text_bg), *alpha));
+            if outline_stroke > 0.0 {
+                ctx.set_stroke(kurbo::Stroke::new(outline_stroke).with_join(join));
+            }
             let mut hinted_stroke = false;
             for (gid, x, y) in glyphs {
                 let (gx, gy) = (*x as f64, *y as f64);
@@ -1132,13 +1242,12 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
             if !r.is_finite() || !r.overlaps(*visible) {
                 return;
             }
-            ctx.set_transform(view);
-            ctx.push_clip_layer(&r.to_path(0.1));
+            ctx.push_clip(&r.to_path(0.1), view, view.transform_rect_bbox(r));
             let local = r.intersect(*visible);
             for it in items {
                 draw(ctx, doc, it, view, &local, opts);
             }
-            ctx.pop_layer();
+            ctx.pop_clip();
         }
         Draw::Turned { x, y, turn, items } => {
             let m = Affine::new(Draw::turn_matrix(*turn, *x, *y).map(f64::from));
@@ -1282,17 +1391,14 @@ pub fn render_items(doc: &Document, items: &[Draw], x: f32, y: f32, w: f32, h: f
     let view = Affine::scale_non_uniform(cw as f64 / pw as f64, ch as f64 / ph as f64)
         * Affine::scale(scale as f64)
         * Affine::translate((-x as f64, -y as f64));
-    let mut ctx = RenderContext::new_with(w16, h16, vello_cpu::RenderSettings { num_threads: 0, ..Default::default() });
+    let ctx = RenderContext::new_with(w16, h16, vello_cpu::RenderSettings { num_threads: 0, ..Default::default() });
+    // Drawn on nothing (a drag preview): no paper for subpixel text to fringe against.
+    let mut ctx = Painter::new(ctx, w16, h16, None);
     let visible = view.inverse().transform_rect_bbox(kurbo::Rect::new(0.0, 0.0, w16 as f64, h16 as f64)).inflate(40.0, 40.0);
     for it in items {
         draw(&mut ctx, doc, it, view, &visible, opts);
     }
-    ctx.flush();
-    let mut pixels = vec![0u8; w16 as usize * h16 as usize * 4];
-    let mut res = Resources::new();
-    if let Some(pm) = vello_cpu::PixmapMut::new(w16, h16, &mut pixels) {
-        ctx.render(pm, &mut res);
-    }
+    let (pixels, _) = ctx.finish(w16, h16);
     Rendered { width: w16 as u32, height: h16 as u32, pixels }
 }
 
@@ -2389,3 +2495,22 @@ mod tests {
 mod cache_tests;
 #[cfg(test)]
 mod tests_color_glyphs;
+#[cfg(test)]
+mod tests_subpixel;
+
+/// `items` drawn over white paper, `w`×`h` px under `view`, as a page raster is (subpixel text
+/// included): for tests of how drawing order and clips meet subpixel text.
+#[cfg(test)]
+fn render_draws(doc: &Document, items: &[Draw], w: u16, h: u16, view: Affine, opts: &RenderOptions) -> Rendered {
+    let ctx = RenderContext::new_with(w, h, vello_cpu::RenderSettings { num_threads: 0, ..Default::default() });
+    let mut ctx = Painter::new(ctx, w, h, opts.subpixel);
+    ctx.set_transform(Affine::IDENTITY);
+    ctx.set_paint(color(Rgb::WHITE, 1.0));
+    ctx.fill_rect(&kurbo::Rect::new(0.0, 0.0, f64::from(w), f64::from(h)));
+    let visible = view.inverse().transform_rect_bbox(kurbo::Rect::new(0.0, 0.0, f64::from(w), f64::from(h))).inflate(40.0, 40.0);
+    for it in items {
+        draw(&mut ctx, doc, it, view, &visible, opts);
+    }
+    let (pixels, _) = ctx.finish(w, h);
+    Rendered { width: u32::from(w), height: u32::from(h), pixels }
+}
