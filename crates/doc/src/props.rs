@@ -973,6 +973,10 @@ pub struct ParaProps {
     /// "Allow Latin text to wrap in the middle of a word"). Unset = on.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub word_wrap: Option<bool>,
+    /// Internal layout flag: break between every character in every script, including Thai/Lao.
+    /// Set by `textbox::lay` for vertically stacked text; never stored in the document format.
+    #[serde(skip)]
+    pub force_char_break: bool,
     /// `w:overflowPunct`: punctuation may hang past the line end. Unset = on.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub overflow_punct: Option<bool>,
