@@ -37,6 +37,20 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     if !has_document && !works_without_document(&app.ui.backstage_page) {
         app.ui.backstage_page = "home".into();
     }
+    let bs_anim_id = ui.id().with("backstage_enter_anim");
+    let was_open: Option<bool> = ui.ctx().data(|d| d.get_temp(ui.id().with("was_backstage_open")));
+    if was_open != Some(true) {
+        ui.ctx().data_mut(|d| d.insert_temp(ui.id().with("was_backstage_open"), true));
+        if app.animations_on() {
+            ui.ctx().animate_value_with_time(bs_anim_id, 0.0, 0.0);
+        }
+    }
+    let bs_enter_time = if app.animations_on() { 0.14 } else { 0.0 };
+    let bs_progress = ui.ctx().animate_value_with_time(bs_anim_id, 1.0, bs_enter_time);
+    if bs_progress < 1.0 {
+        let opacity = (bs_progress * (2.0 - bs_progress)).clamp(0.0, 1.0);
+        ui.set_opacity(opacity);
+    }
     let mac = app.integrated_titlebar;
     egui::Panel::left("backstage_nav")
         .exact_size(200.0)
@@ -79,6 +93,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 app.canvas.want_focus = true;
             }
             ui.add_space(if mac { 12.0 } else { 6.0 });
+            let mut target_nav_y: Option<f32> = None;
             for (id, label, icon) in PAGES {
                 // No document open (#1129): Info, Save, Save As, Print and Export are greyed out.
                 let on = has_document || works_without_document(id);
@@ -86,9 +101,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, tl!(label)));
                 let active = app.ui.backstage_page == id;
                 if active {
-                    ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(46));
-                } else if on && resp.hovered() {
-                    ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(26));
+                    target_nav_y = Some(r.min.y);
+                } else if on {
+                    let hover_a = ui.ctx().animate_bool_responsive(resp.id.with("bs_hover"), resp.hovered());
+                    if hover_a > 0.01 {
+                        ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha((26.0 * hover_a) as u8));
+                    }
                 }
                 let ink = if on { egui::Color32::WHITE } else { egui::Color32::from_white_alpha(110) };
                 icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 31.0, r.center().y), vec2(18.0, 18.0)), icon, ink, ink);
@@ -128,6 +146,19 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     }
                 }
             }
+            if let Some(target_y) = target_nav_y {
+                let id_nav_y = ui.id().with("backstage_nav_active_y");
+                let id_nav_init = ui.id().with("backstage_nav_active_init");
+                let is_init = ui.ctx().data(|d| d.get_temp::<bool>(id_nav_init)).unwrap_or(false);
+                let nav_anim_time = if app.animations_on() { 0.14 } else { 0.0 };
+                if !is_init {
+                    ui.ctx().data_mut(|d| d.insert_temp(id_nav_init, true));
+                    ui.ctx().animate_value_with_time(id_nav_y, target_y, 0.0);
+                }
+                let cur_y = ui.ctx().animate_value_with_time(id_nav_y, target_y, nav_anim_time);
+                let nav_rect = Rect::from_min_size(pos2(0.0, cur_y), vec2(200.0, 38.0));
+                ui.painter().rect_filled(nav_rect, 0.0, egui::Color32::from_white_alpha(46));
+            }
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
                 for (label, id) in [("About", "about"), ("Discord community", "discord")] {
                     let (r, resp) = ui.allocate_exact_size(vec2(200.0, 32.0), Sense::click());
@@ -146,9 +177,26 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 }
             });
         });
+    let page_id = ui.id().with("backstage_active_page_name");
+    let last_page: Option<String> = ui.ctx().data(|d| d.get_temp(page_id));
+    let page_changed = last_page.as_deref() != Some(app.ui.backstage_page.as_str());
+    let page_anim_id = ui.id().with("backstage_page_anim");
+    if page_changed {
+        ui.ctx().data_mut(|d| d.insert_temp(page_id, app.ui.backstage_page.clone()));
+        if last_page.is_some() && app.animations_on() {
+            ui.ctx().animate_value_with_time(page_anim_id, 0.0, 0.0);
+        }
+    }
+    let page_anim_time = if app.animations_on() { 0.12 } else { 0.0 };
+    let page_progress = ui.ctx().animate_value_with_time(page_anim_id, 1.0, page_anim_time);
+
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE.fill(if recovery { egui::Color32::BLACK } else { t.ribbon }).inner_margin(egui::Margin::symmetric(40, 30)))
         .show(ui, |ui| {
+            if page_progress < 1.0 {
+                let opacity = (page_progress * (2.0 - page_progress)).clamp(0.0, 1.0);
+                ui.set_opacity(opacity);
+            }
             // The Print page fills the pane and scrolls its settings and its preview itself (#1156).
             if app.ui.backstage_page == "print" {
                 export_page(app, ui);
@@ -1095,5 +1143,28 @@ mod tests {
         h.get_by_label("Save As").click();
         h.run_steps(4);
         assert_eq!(h.state().ui.backstage_page, "saveAs");
+    }
+
+    #[test]
+    fn backstage_screen_and_page_transitions_animate() {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
+        a.run("ui.backstage", json!({"value": true, "page": "home"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        assert!(h.state().ui.backstage);
+        assert_eq!(h.state().ui.backstage_page, "home");
+        h.state_mut().run("ui.backstage", json!({"value": true, "page": "options"})).unwrap();
+        h.run_steps(4);
+        assert_eq!(h.state().ui.backstage_page, "options");
+        h.state_mut().run("ui.backstage", json!({"value": false})).unwrap();
+        h.run_steps(4);
+        assert!(!h.state().ui.backstage);
     }
 }

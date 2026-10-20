@@ -2214,22 +2214,38 @@ impl WordApp {
         }
         if self.ui.backstage {
             backstage::show(self, ui);
-        } else if !self.has_document() {
-            // No document open (#1129): the ribbon greyed out but for Help, and no page.
-            chrome::title_bar(self, ui);
-            ribbon::show(self, ui);
-            chrome::status_bar(self, ui);
-            egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |_| {});
         } else {
-            chrome::title_bar(self, ui);
-            if !self.session.view.focus_mode {
+            let was_bs: Option<bool> = ctx.data(|d| d.get_temp(ui.id().with("was_backstage_open")));
+            let editor_anim_id = ui.id().with("editor_enter_anim");
+            if was_bs == Some(true) {
+                ctx.data_mut(|d| d.insert_temp(ui.id().with("was_backstage_open"), false));
+                if self.animations_on() {
+                    ctx.animate_value_with_time(editor_anim_id, 0.0, 0.0);
+                }
+            }
+            let editor_time = if self.animations_on() { 0.12 } else { 0.0 };
+            let editor_progress = ctx.animate_value_with_time(editor_anim_id, 1.0, editor_time);
+            if editor_progress < 1.0 {
+                let opacity = (editor_progress * (2.0 - editor_progress)).clamp(0.0, 1.0);
+                ui.set_opacity(opacity);
+            }
+            if !self.has_document() {
+                // No document open (#1129): the ribbon greyed out but for Help, and no page.
+                chrome::title_bar(self, ui);
                 ribbon::show(self, ui);
                 chrome::status_bar(self, ui);
-                panes::show(self, ui);
+                egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |_| {});
+            } else {
+                chrome::title_bar(self, ui);
+                if !self.session.view.focus_mode {
+                    ribbon::show(self, ui);
+                    chrome::status_bar(self, ui);
+                    panes::show(self, ui);
+                }
+                egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |ui| {
+                    canvas::show(self, ui);
+                });
             }
-            egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |ui| {
-                canvas::show(self, ui);
-            });
         }
         content_controls::popup(self, &ctx);
         dialogs::show(self, &ctx);
