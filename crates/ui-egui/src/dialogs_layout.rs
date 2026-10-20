@@ -1789,7 +1789,7 @@ mod tests {
         assert_eq!(first_column(&a), ["ab", "Ab", "ăa", "Ăa"]);
         assert!(a.dialog.is_none());
 
-        // The same column in the default (root) collation: `ă` is `a` with a mark, so `ăa` < `ab`.
+        // The same column in the default (language-neutral) collation: `ă` is `a` with a mark, so `ăa` < `ab`.
         let mut a = table_app(1, &cells);
         a.run("table.sort", json!({})).unwrap();
         let LayoutDialog::Sort(f) = form(&mut a) else { panic!("sort") };

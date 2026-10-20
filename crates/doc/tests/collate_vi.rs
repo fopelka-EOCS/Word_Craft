@@ -208,7 +208,7 @@ fn language_tag_variants() {
         assert_eq!(sorted(V1_INPUT, tag, false), V1_EXPECTED, "{tag}");
         assert_eq!(collate("Đào", "Dương", Some(tag)), Ordering::Greater, "{tag}");
     }
-    // The root order treats Đ as D with a secondary difference.
+    // The language-neutral order treats Đ as D with a secondary difference.
     for tag in ["", "-", "zz"] {
         assert_eq!(collate("Đào", "Dương", Some(tag)), Ordering::Less, "{tag:?}");
     }

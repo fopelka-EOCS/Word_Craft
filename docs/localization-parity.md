@@ -165,9 +165,12 @@ the column's cells, by default) and Case sensitive (lower case before upper case
 otherwise equal texts). Mail merge "contains" conditions match whole letters, so `e` does not
 match inside `ễ`, even when the text is decomposed; the recipient sort and the less, greater and equal
 filters use the document's language order (`equal` is canonical-equivalence aware). The collation is `crates/doc/src/collate.rs`, a hand-written per-language
-table over canonical decomposition data derived from the Unicode Character Database
-(`crates/doc/src/collate_ucd.rs`, under the Unicode License v3, see `ATTRIBUTION.md`); full CLDR
-collation is not used, and punctuation orders by code point. Table sort and
+table over canonical decomposition data (Unicode Character Database 17.0 data as packaged in ICU4X
+`icu_normalizer_data` 2.3.0, `crates/doc/src/collate_ucd.rs`, under the Unicode License v3, see
+`ATTRIBUTION.md`); full CLDR collation is not used. The agreement tests against ICU4X compare the
+Vietnamese order only; the order used when no language applies is our own, not CLDR root: accented
+letters (and `ø ł æ ß ð ħ ı œ`) sort with their base letters, and everything else, punctuation
+included, by code point. Table sort and
 table formulas read numbers with the language's decimal and group separators (`1 250,50` in
 Polish, `1.250,50` in German, `1,250.50` in English) and write formula results with its decimal
 separator (`crates/doc/src/locale_number.rs`). Cuban and Peruvian Spanish (`es-CU`, `es-PE`) use

@@ -6,7 +6,8 @@
 //! Polish puts `ą` right after `a` and `ż` after `ź` after `z`, Swedish puts `å ä ö` after `z`,
 //! Czech puts `ch` after `h`, Spanish `ñ` after `n`, Hungarian `cs`, `gy`, `sz`… after their
 //! first letter. The per-language tables follow the published alphabets of those languages.
-//! Text without diacritics sorts exactly as a case-insensitive code-point compare.
+//! Text of plain ASCII letters sorts exactly as a case-insensitive code-point compare; letters such
+//! as `ø`, `ł`, `æ` and `ß` sort with their base letter.
 //!
 //! How a key is built ([`sort_key`]):
 //! 1. The text is lowercased (`to_lowercase`, no full case folding) and put in canonical form
@@ -788,8 +789,9 @@ mod tests {
 
     #[test]
     fn layer1_vietnamese_letters_sort_next_to_their_base_letter() {
-        // ICU `en`: Ánh next to Anh, no longer after Z.
-        // Primary first: "an" is a prefix of "anh", so Ấn sorts before Anh (as in ICU `en`).
+        // Expected order from the analysis vectors (ICU `en`; no test here runs ICU for a non-Vi order):
+        // Ánh next to Anh, no longer after Z.
+        // Primary first: "an" is a prefix of "anh", so Ấn sorts before Anh.
         assert_eq!(sorted(&["Zambia", "Ấn", "Ánh", "Anh", "Bình"], "en-US"), ["Ấn", "Anh", "Ánh", "Bình", "Zambia"]);
         assert_eq!(sorted(&["Huỳnh", "Hoàng", "Hồ"], "en"), ["Hồ", "Hoàng", "Huỳnh"]);
         assert_eq!(collate("ấ", "ä", None), Ordering::Less); // vectors.json collisions.en_less

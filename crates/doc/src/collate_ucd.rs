@@ -56,9 +56,14 @@
 //! that Vietnamese and the Latin scripts WordCraft sorts need.
 //!
 //! The tables are generated from the Unicode Character Database 17.0 (via ICU4X
-//! `icu_normalizer` =2.3.0, data generated with CLDR 48.2.1 / ICU 78.1) and verified against it
-//! by the test `tables_match_icu_normalizer`. Canonical decompositions are frozen by Unicode's
-//! normalization stability policy, so later Unicode versions do not change them.
+//! `icu_normalizer` =2.3.0, data generated with CLDR 48.2.1 / ICU 78.1rc, the `icuexport` tag in
+//! `icu_normalizer_data` 2.3.0) and verified against it by the test `tables_match_icu_normalizer`.
+//! Canonical decompositions are frozen by Unicode's normalization stability policy, so later
+//! Unicode versions do not change them.
+//!
+//! Attribution: Unicode Character Database 17.0 data as packaged in ICU4X `icu_normalizer_data`
+//! 2.3.0, Unicode-3.0, Copyright © 2020-2024 Unicode, Inc. The licence notice at the top of this
+//! file is that package's notice.
 //!
 //! Nothing here panics: lookups use `get` and binary search, and the work is linear in the input
 //! except for the sort of a mark run, which is capped at 32 marks.
