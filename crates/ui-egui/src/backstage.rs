@@ -29,6 +29,7 @@ fn back_chevron_c(band_min_x: f32, center_y: f32, fullscreen: bool, content_left
     pos2(band_min_x + x, center_y)
 }
 
+/// The Backstage (File menu): navigation sidebar and active page (Home, New, Open, Info…).
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     let recovery = app.ui.backstage_page == "recover";
@@ -1145,6 +1146,7 @@ mod tests {
         assert_eq!(h.state().ui.backstage_page, "saveAs");
     }
 
+    /// The Backstage screen and internal page navigation animate with smooth transitions.
     #[test]
     fn backstage_screen_and_page_transitions_animate() {
         let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());

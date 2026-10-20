@@ -246,6 +246,7 @@ pub fn in_table_public(app: &WordApp) -> bool {
     app.session.sel.focus.path.cell().is_some()
 }
 
+/// The ribbon: the tab strip (File, Home, Insert…) and the active tab's commands.
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     if app.session.view.read_mode {
@@ -3509,6 +3510,7 @@ mod tests {
         assert_eq!(shown(a), before, "Chart Design shown, the chart untouched");
     }
 
+    /// Switching ribbon tabs smoothly animates the indicator underline in both directions.
     #[test]
     fn ribbon_tab_switching_animates_indicator() {
         let a = crate::WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
