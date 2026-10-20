@@ -2502,9 +2502,9 @@ fn default_preferences_lowercase_start_and_standard_hyphen() {
     typ(&mut session, "\n\n1. numero ");
     assert_eq!(session.doc.plain_text(StoryRef::Body), "ciao ; prova \nancora \nvoce \nnumero ");
 
-    // 6. Only after period (.) it capitalizes
-    typ(&mut session, "\n\nfine. inizio ");
-    assert_eq!(session.doc.plain_text(StoryRef::Body), "ciao ; prova \nancora \nvoce \nnumero \nfine. Inizio ");
+    // 6. After period, question mark, and exclamation mark it capitalizes
+    typ(&mut session, "\n\nfine. inizio? davvero! certo ");
+    assert_eq!(session.doc.plain_text(StoryRef::Body), "ciao ; prova \nancora \nvoce \nnumero \nfine. Inizio? Davvero! Certo ");
 
     // 7. Single hyphen between words is not converted to en-dash
     let mut s2 = Session::new(wordcraft_doc::Document::new());

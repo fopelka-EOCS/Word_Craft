@@ -43,10 +43,12 @@ pub fn poll(inbox: &Inbox, app: &mut WordApp, ctx: &egui::Context) {
             Event::Open(paths) => {
                 for p in paths.iter().filter_map(|p| p.to_str()) {
                     match app.run("file.open", serde_json::json!({"path": p})) {
-                        // Leave Backstage, as opening from the Open dialog does, and mark recovery checked.
+                        // Leave Backstage, as opening from the Open dialog does, and mark recovery checked if a file opened.
                         Ok(_) => {
                             app.ui.backstage = false;
-                            app.recovery_seen = true;
+                            if app.session.path.is_some() {
+                                app.recovery_seen = true;
+                            }
                         }
                         Err(e) => {
                             log::warn!("{p}: {e}");
