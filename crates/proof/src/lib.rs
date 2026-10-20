@@ -942,9 +942,10 @@ mod tests {
         let before = dictionary_generation();
         set_dictionaries_folder(Some(dir.clone()));
         assert!(dictionary_generation() > before, "cached checks are dropped");
-        // Turkish has no test dictionary to put in the folder; Indonesian is listed after it.
+        // Greek was added before Turkish; Indonesian remains last.
         let found = installed_dictionaries();
-        assert_eq!(found.get(4).map(|(lang, _)| *lang), Some(ProofLang::Tr));
+        assert_eq!(found.get(4).map(|(lang, _)| *lang), Some(ProofLang::El));
+        assert_eq!(found.get(5).map(|(lang, _)| *lang), Some(ProofLang::Tr));
         assert_eq!(found.last(), Some(&(ProofLang::Id, Some(dir.join("id_ID.dic")))));
         assert_eq!(
             found[..4],
