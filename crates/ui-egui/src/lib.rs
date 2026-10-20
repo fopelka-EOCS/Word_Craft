@@ -3163,7 +3163,7 @@ mod tests {
             vec![("table.properties", json!({"valign": "center"})), ("table.altText", json!({"title": "Prices", "text": "Fruit by colour"}))]
         );
         let undo_before = a.session.undo_labels().len();
-        g.apply(&basis, &mut a);
+        g.apply(&basis, &mut a).unwrap();
         assert_eq!(a.session.undo_labels().len(), undo_before + 1, "one undo step");
         let reopened = dialogs::TableForm::read(&a).unwrap();
         assert_eq!((reopened.alt_title.as_str(), reopened.alt_text.as_str(), reopened.valign.as_str()), ("Prices", "Fruit by colour", "center"));

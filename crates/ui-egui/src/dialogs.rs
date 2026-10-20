@@ -897,11 +897,13 @@ impl TableForm {
     /// Run [`TableForm::commands`] as one undo step, on the row, column and cell the dialog
     /// shows. After Previous/Next the whole row or column is selected, which leaves the caret in
     /// its last cell: the caret goes to the dialog's cell for the commands, and the selection
-    /// comes back after them.
-    pub fn apply(&self, basis: &TableForm, app: &mut WordApp) {
+    /// comes back after them. If a command is refused, none applies (the document and the undo
+    /// steps stay as they were, so Alt Text never joins an earlier edit's step) and its error
+    /// comes back.
+    pub fn apply(&self, basis: &TableForm, app: &mut WordApp) -> Result<(), String> {
         let commands = self.commands(basis);
         if commands.is_empty() {
-            return;
+            return Ok(());
         }
         let kept = (app.session.sel.clone(), app.session.column.clone());
         let moved = match self.cell_pos(app) {
@@ -911,15 +913,11 @@ impl TableForm {
             }
             None => false,
         };
-        for (i, (id, params)) in commands.into_iter().enumerate() {
-            if i > 0 {
-                app.session.join_next_undo();
-            }
-            let _ = app.run(id, params);
-        }
+        let done = run_as_one_step(app, commands);
         if moved {
             (app.session.sel, app.session.column) = kept;
         }
+        done
     }
 
     /// The start of the cell the dialog shows, when the caret is in another cell of the table.
@@ -2525,10 +2523,9 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             let (ok, cancel) = (ok && open, cancel && open);
             table_sub_window(ui.ctx(), form);
             step_table_form(app, form, basis);
-            if ok {
-                form.apply(basis, app);
-            }
-            ok || cancel
+            // A setting refused: nothing applied, the status bar says why and the dialog stays.
+            let refused = ok && form.apply(basis, app).is_err();
+            (ok && !refused) || cancel
         }
         Dialog::CellMargins { form, basis } => {
             cell_margins_dialog(ui, form);
@@ -4001,7 +3998,10 @@ fn cell_start(
 /// is selected whole.
 fn step_table_form(app: &mut WordApp, form: &mut TableForm, basis: &mut TableForm) {
     let Some(step) = form.step.take() else { return };
-    form.apply(basis, app);
+    // A setting refused: nothing applied, and the dialog stays on this row with the changes.
+    if form.apply(basis, app).is_err() {
+        return;
+    }
     // Applied: OK doesn't send it again, even if the dialog can't show the next row.
     *basis = form.clone();
     // A step with nowhere to go (a cell without a paragraph of its own) leaves the dialog as it is.
@@ -4913,7 +4913,7 @@ mod tests {
         assert_eq!((changes["cellWrap"].clone(), changes["wrap"].clone()), (json!(false), json!("around")));
         assert!(changes["cellMargins"].is_array());
         assert!(changes.get("position").is_none(), "Word's place for Around needs no position");
-        f.apply(&basis, &mut a);
+        f.apply(&basis, &mut a).unwrap();
         let t = caret_table(&a);
         assert_eq!(t.props.width_pct, Some(50.0));
         let cell = &t.rows[0].cells[0].props;
@@ -4932,7 +4932,7 @@ mod tests {
         f.position.v_rel = "page".into();
         f.position.overlap = true;
         f.cell_margins_own = false;
-        f.apply(&basis, &mut a);
+        f.apply(&basis, &mut a).unwrap();
         let t = caret_table(&a);
         let fl = t.props.float.unwrap();
         assert_eq!((fl.h_align, fl.h_rel, fl.v_align, fl.v_rel, fl.overlap), (Some(FloatAlign::Center), Anchor::Margin, None, Anchor::Page, true));
@@ -4941,7 +4941,7 @@ mod tests {
         let mut f = read_table_form(&mut a).unwrap();
         let basis = f.clone();
         f.around = false;
-        f.apply(&basis, &mut a);
+        f.apply(&basis, &mut a).unwrap();
         assert!(caret_table(&a).props.float.is_none(), "None: in line with the text again");
     }
 
@@ -4972,7 +4972,7 @@ mod tests {
             let selected = a.session.cell_range().map(|c| (c.rows, c.cols));
             assert!(selected.is_some(), "{step:?}: the step selects the row or column");
             let mut grid = caret_table(&a).grid;
-            f.apply(&basis, &mut a);
+            f.apply(&basis, &mut a).unwrap();
             let t = caret_table(&a);
             let (r, g) = (row - 1, column - 1);
             for (i, x) in t.rows.iter().enumerate() {
@@ -4986,6 +4986,39 @@ mod tests {
             assert_eq!(a.session.cell_range().map(|c| (c.rows, c.cols)), selected, "{step:?}: still selected");
             a.run("edit.undo", json!({})).unwrap();
         }
+    }
+
+    /// #2428: a setting the engine refuses (here a hostile cell alignment) applies nothing: the
+    /// Alt Text set with it isn't joined to the step of an earlier edit; a step doesn't move on and
+    /// keeps the changes; OK leaves the dialog open with the reason in the status bar.
+    #[test]
+    fn table_properties_refused_settings_apply_nothing() {
+        use egui_kittest::kittest::By;
+        let mut a = app_with("");
+        a.run("insert.table", json!({"rows": 2, "cols": 2})).unwrap();
+        a.run("text.insert", json!({"text": "Price"})).unwrap();
+        let labels = a.session.undo_labels();
+        let basis = read_table_form(&mut a).unwrap();
+        let mut f = basis.clone();
+        f.valign = "middle".into();
+        f.alt_title = "Prices".into();
+        assert!(f.apply(&basis, &mut a).is_err());
+        assert_eq!(caret_table(&a).props.caption, None, "the Alt Text didn't apply either");
+        assert_eq!(a.session.undo_labels(), labels, "no step added, none joined");
+        let mut stepped = basis.clone();
+        f.step = Some(TableStep::NextRow);
+        step_table_form(&mut a, &mut f, &mut stepped);
+        assert_eq!((f.row, f.valign.as_str(), f.step), (1, "middle", None), "still on row 1, with the changes");
+        assert_eq!(stepped, basis, "nothing taken as applied");
+        a.dialog = Some(Dialog::TableProperties { form: Box::new(f), basis: Box::new(basis) });
+        let mut h = table_properties_harness(a);
+        in_table_properties(&h, By::new().label("OK")).click();
+        h.run_steps(2);
+        assert!(matches!(h.state().dialog, Some(Dialog::TableProperties { .. })), "OK refused: the dialog stays");
+        let status = h.state().status_msg.as_ref().map(|(s, _)| s.clone()).unwrap_or_default();
+        assert!(status.contains("vertical alignment"), "the status bar says why: {status:?}");
+        assert_eq!(caret_table(h.state()).props.caption, None);
+        assert_eq!(h.state().session.undo_labels(), labels);
     }
 
     /// #2428: Previous/Next goes into a cell that starts with a nested table (the dialog shows
@@ -5099,7 +5132,7 @@ mod tests {
         let mut f = basis.clone();
         f.cell_margins_own = false;
         assert_eq!(f.changes(&basis), json!({"cellMargins": null}));
-        f.apply(&basis, &mut a);
+        f.apply(&basis, &mut a).unwrap();
         let cell = &caret_table(&a).rows[1].cells[0].props;
         assert_eq!((cell.margins, cell.partial_margins), (None, None));
     }
@@ -5142,7 +5175,7 @@ mod tests {
         f.set_align("center");
         f.around = true;
         assert_eq!(f.position.h, "center");
-        f.apply(&basis, &mut a);
+        f.apply(&basis, &mut a).unwrap();
         assert_eq!(caret_table(&a).props.float.and_then(|fl| fl.h_align), Some(FloatAlign::Center));
         let g = read_table_form(&mut a).unwrap();
         assert_eq!((g.align.as_str(), g.position.h.as_str()), ("center", "center"));
@@ -5166,7 +5199,7 @@ mod tests {
         let mut g = basis.clone();
         g.around = false;
         assert_eq!(g.changes(&basis), json!({"align": "right", "wrap": "none"}));
-        g.apply(&basis, &mut a);
+        g.apply(&basis, &mut a).unwrap();
         let t = caret_table(&a);
         assert_eq!((t.props.float, t.props.align), (None, Some(Align::Right)));
         // Positioning's OK: the pictures show the side it puts the table on; an offset leaves them.
@@ -5179,12 +5212,15 @@ mod tests {
         }
     }
 
-    /// A Table Properties dialog on `app`'s caret, drawn in a window the size of WordCraft's.
+    /// A Table Properties dialog on `app`'s caret (unless one is open already), drawn in a window
+    /// the size of WordCraft's.
     fn table_properties_harness(mut app: WordApp) -> egui_kittest::Harness<'static, WordApp> {
         // The dialog takes the interface unit when it opens; the first frame sets it.
         crate::options::sync(&app);
-        app.dialog = Dialog::open("tableProperties", &mut app);
-        assert!(app.dialog.is_some(), "the caret is in a table");
+        if app.dialog.is_none() {
+            app.dialog = Dialog::open("tableProperties", &mut app);
+        }
+        assert!(matches!(app.dialog, Some(Dialog::TableProperties { .. })), "the caret is in a table");
         let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
             |ui, app: &mut WordApp| {
                 let ctx = ui.ctx().clone();
