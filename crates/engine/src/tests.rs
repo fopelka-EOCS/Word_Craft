@@ -1935,7 +1935,8 @@ fn table_properties_set_percentages_cell_options_and_wrapping() {
     let total: f32 = table(&s).grid.iter().sum();
     run(&mut s, "table.properties", json!({"columnWidthPct": 25.0, "cellMargins": [1.0, 2.0, 3.0, 4.0], "cellWrap": false}));
     let t = table(&s);
-    assert!((t.grid[0] - total / 4.0).abs() < 0.01, "a quarter of the table");
+    let now: f32 = t.grid.iter().sum();
+    assert!((now - total).abs() < 0.01 && (t.grid[0] - total / 4.0).abs() < 0.01, "a quarter of the same table: {:?}", t.grid);
     for r in 0..2 {
         assert_eq!((t.rows[r].cells[0].props.width, t.rows[r].cells[0].props.width_pct), (None, Some(25.0)), "row {r}");
     }
@@ -1976,9 +1977,156 @@ fn table_properties_set_percentages_cell_options_and_wrapping() {
         json!({"position": {"hRel": "paragraph"}}),
         json!({"position": {"vAlign": "left"}}),
         json!({"position": {"dist": 3}}),
+        json!({"position": {}}),
+        json!({"position": {"horizontal": "center"}}),
+        json!({"position": {"x": "36"}}),
     ] {
         assert!(s.run("table.properties", &bad).is_err(), "{bad}");
     }
+}
+
+/// Table Properties (#2428): a column in Percent is that share of the drawn table, which keeps
+/// its width; a column in points, automatic or a share leaves the other columns' kinds; a merged
+/// cell that only covers the column keeps its own width; Same as the whole table drops the sides
+/// a .docx set one by one.
+#[test]
+fn table_properties_columns_keep_their_kinds_and_shares() {
+    let mut s = props_table();
+    let table = |s: &Session| s.doc.body.iter().find_map(|b| b.as_table()).unwrap().clone();
+    let at = |s: &mut Session, r: u32, c: u32| {
+        s.sel = crate::Selection::caret(Pos { story: StoryRef::Body, path: wordcraft_doc::Path(vec![0, r, c, 0]), off: 0 })
+    };
+    let drawn = |s: &mut Session| {
+        let l = s.layout();
+        let w = |c: usize| {
+            l.pages[0].items.iter().find_map(|it| match it {
+                wordcraft_layout::Placed::Cell { rect, row: 0, cell, table, .. } if *cell == c && table.0.len() == 1 => Some(rect.w),
+                _ => None,
+            })
+        };
+        (w(0).unwrap(), w(1).unwrap())
+    };
+    let (a, b) = drawn(&mut s);
+    run(&mut s, "table.properties", json!({"columnWidthPct": 25.0}));
+    let (a2, b2) = drawn(&mut s);
+    assert!((a2 + b2 - (a + b)).abs() < 1.0 && (a2 / (a2 + b2) - 0.25).abs() < 0.01, "a quarter of the same table: {a2} + {b2}");
+    assert_eq!(table(&s).props.width, Some(240.0), "the table keeps its preferred width");
+    // In points: the column's cells drop the share, the other column keeps its kind of width.
+    let fixed = table(&s).rows[0].cells[1].props.width.is_some();
+    run(&mut s, "table.properties", json!({"columnWidth": 90.0}));
+    let t = table(&s);
+    assert_eq!((t.rows[0].cells[0].props.width, t.rows[0].cells[0].props.width_pct), (Some(90.0), None));
+    assert_eq!(t.rows[0].cells[1].props.width.is_some(), fixed);
+    // Column 2 automatic stays automatic when column 1 changes, and keeps a cell's own share.
+    at(&mut s, 0, 1);
+    run(&mut s, "table.properties", json!({"columnWidth": null}));
+    at(&mut s, 1, 1);
+    run(&mut s, "table.properties", json!({"cellWidthPct": 40.0}));
+    at(&mut s, 0, 0);
+    run(&mut s, "table.properties", json!({"columnWidth": 100.0}));
+    run(&mut s, "table.properties", json!({"columnWidthPct": 30.0}));
+    let t = table(&s);
+    assert_eq!((t.rows[0].cells[1].props.width, t.rows[0].cells[1].props.width_pct), (None, None), "still automatic");
+    assert_eq!((t.rows[1].cells[1].props.width, t.rows[1].cells[1].props.width_pct), (None, Some(40.0)), "the cell's own share");
+    // A cell merged across both columns isn't one of column 2's.
+    let merged = s.doc.body.iter_mut().find_map(|b| match std::sync::Arc::make_mut(b) {
+        wordcraft_doc::Block::Table(t) => Some(t),
+        _ => None,
+    });
+    let merged = merged.unwrap();
+    let total: f32 = merged.grid.iter().sum();
+    merged.rows[0].cells.truncate(1);
+    merged.rows[0].cells[0].props.span = 2;
+    merged.rows[0].cells[0].props.width = Some(total);
+    merged.rows[0].cells[0].props.partial_margins = Some([Some(0.0), None, None, None]);
+    s.touch();
+    at(&mut s, 1, 1);
+    run(&mut s, "table.properties", json!({"columnWidthPct": 50.0}));
+    run(&mut s, "table.properties", json!({"columnWidth": null}));
+    let t = table(&s);
+    let m = &t.rows[0].cells[0].props;
+    assert!(m.width.is_some_and(|w| (w - total).abs() < 0.01) && m.width_pct.is_none(), "the merged cell keeps the table's width: {m:?}");
+    assert_eq!((t.rows[1].cells[1].props.width, t.rows[1].cells[1].props.width_pct), (None, None), "column 2 automatic");
+    at(&mut s, 0, 0);
+    run(&mut s, "table.properties", json!({"cellMargins": null}));
+    let t = table(&s);
+    let cell = &t.rows[0].cells[0].props;
+    assert_eq!((cell.margins, cell.partial_margins), (None, None), "the table's margins, no side from the file");
+}
+
+/// Table Properties (#2428): an alignment moves a table that already wraps, and a position alone
+/// floats an in-line table where its alignment put it.
+#[test]
+fn table_properties_alignment_moves_a_floating_table() {
+    use wordcraft_doc::para::FloatAlign;
+    let mut s = props_table();
+    let body = s.layout().pages[0].body;
+    run(&mut s, "table.properties", json!({"wrap": "around"}));
+    run(&mut s, "table.properties", json!({"align": "center"}));
+    let (l, _, r, _) = table_box(&mut s);
+    assert!(((l - body.x) - (body.right() - r)).abs() < 2.0, "centred: {l}..{r} in {body:?}");
+    run(&mut s, "table.properties", json!({"align": "right"}));
+    let (_, _, r, _) = table_box(&mut s);
+    assert!((r - body.right()).abs() < 7.0, "at the right: {r} vs {}", body.right());
+    // An explicit position in the same call wins over the alignment.
+    run(&mut s, "table.properties", json!({"align": "left", "position": {"hAlign": "center"}}));
+    let t = s.doc.body.iter().find_map(|b| b.as_table()).unwrap();
+    assert_eq!((t.props.align, t.props.float.and_then(|f| f.h_align)), (Some(wordcraft_doc::props::Align::Left), Some(FloatAlign::Center)));
+    // In line and centred, then only a vertical position: it floats centred, not at the left.
+    run(&mut s, "table.properties", json!({"wrap": "none", "align": "center"}));
+    run(&mut s, "table.properties", json!({"position": {"vAlign": "top", "vRel": "margin"}}));
+    let (l, _, r, _) = table_box(&mut s);
+    assert!(((l - body.x) - (body.right() - r)).abs() < 2.0, "still centred: {l}..{r}");
+}
+
+/// Junk for every `table.properties` setting with the caret in a table (#2428): an error or a
+/// change, never a panic; the document still lays out and saves.
+#[test]
+fn table_properties_junk_never_panics() {
+    let mut s = props_table();
+    let keys = [
+        "align",
+        "rtl",
+        "width",
+        "widthPct",
+        "indent",
+        "rowHeight",
+        "rowHeightRule",
+        "allowBreak",
+        "headerRow",
+        "columnWidth",
+        "columnWidthPct",
+        "cellWidth",
+        "cellWidthPct",
+        "valign",
+        "cellMargins",
+        "cellWrap",
+        "wrap",
+        "position",
+    ];
+    let junk = [
+        json!(null),
+        json!(true),
+        json!(-1e30),
+        json!(1e30),
+        json!(0),
+        json!(-0.0),
+        json!("x"),
+        json!([]),
+        json!([1e30, -1e30, 0, 1]),
+        json!({}),
+        json!({"x": 1e30, "y": -1e30, "dist": [1e30, -1, 0, 1e30], "hRel": "page", "overlap": "yes"}),
+    ];
+    for k in keys {
+        for j in &junk {
+            let mut v = serde_json::Map::new();
+            v.insert(k.to_string(), j.clone());
+            let _ = s.run("table.properties", &serde_json::Value::Object(v));
+            assert!(!s.layout().pages.is_empty(), "{k}: {j}");
+        }
+    }
+    let back = wordcraft_docx::read(&wordcraft_docx::write(&s.doc).unwrap()).unwrap();
+    assert!(back.body.iter().any(|b| b.as_table().is_some()));
 }
 
 /// A 2×2 table 240pt wide with text in every cell, and a long paragraph after it (#2428).

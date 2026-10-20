@@ -199,7 +199,7 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .params(r#"{"value"?: bool} (true: the first column stands at the right; without a value it toggles)"#)),
         t(CommandSpec::new("table.properties", "Properties", "Table Layout › Table", properties).params(
-            r#"{"align"?: "left|center|right", "rtl"?: bool, "width"?: pt|null, "widthPct"?: percent, "indent"?: pt, "rowHeight"?: pt|null, "rowHeightRule"?: "atLeast|exact", "allowBreak"?: bool, "headerRow"?: bool, "columnWidth"?: pt|null, "columnWidthPct"?: percent, "cellWidth"?: pt|null, "cellWidthPct"?: percent, "valign"?: "top|center|bottom", "cellMargins"?: [top, left, bottom, right]|null, "cellWrap"?: bool, "wrap"?: "none|around", "position"?: {"hAlign"?: "left|center|right|inside|outside", "x"?: pt, "hRel"?: "margin|page|column", "vAlign"?: "top|center|bottom|inside|outside", "y"?: pt, "vRel"?: "margin|page|paragraph", "dist"?: [left, top, right, bottom], "overlap"?: bool}} (row, column and cell settings apply to the caret's; a null column width makes the column automatic, null cell margins follow the table's; text wraps around a table that has a position; without settings it returns the current ones)"#,
+            r#"{"align"?: "left|center|right", "rtl"?: bool, "width"?: pt|null, "widthPct"?: percent, "indent"?: pt, "rowHeight"?: pt|null, "rowHeightRule"?: "atLeast|exact", "allowBreak"?: bool, "headerRow"?: bool, "columnWidth"?: pt|null, "columnWidthPct"?: percent, "cellWidth"?: pt|null, "cellWidthPct"?: percent, "valign"?: "top|center|bottom", "cellMargins"?: [top, left, bottom, right]|null, "cellWrap"?: bool, "wrap"?: "none|around", "position"?: {"hAlign"?: "left|center|right|inside|outside", "x"?: pt, "hRel"?: "margin|page|column", "vAlign"?: "top|center|bottom|inside|outside", "y"?: pt, "vRel"?: "margin|page|paragraph", "dist"?: [left, top, right, bottom], "overlap"?: bool}} (row, column and cell settings apply to the caret's; a null column width makes the column automatic, null cell margins follow the table's; a position (at least one of its keys) floats the table as Around does, an alignment moves a floating one; without settings it returns the current ones)"#,
         )),
         CommandSpec::new("table.fromText", "Convert Text to Table", "Insert › Tables", from_text)
             .params(r#"{"separator"?: "tab|comma|paragraph|other", "char"?: string (with other), "columns"?: n, "autofit"?: "initial|fixed|contents|window", "width"?: pt (initial column width, 0 = Auto, at most 1584)}"#),
@@ -241,16 +241,24 @@ fn autofit(s: &mut Session, v: &Value) -> CmdResult {
 /// Give every cell the width of the grid columns it spans, so the cells' preferred widths
 /// (saved to .docx) agree with the grid.
 pub(crate) fn sync_cell_widths(t: &mut Table) {
+    sync_widths(t, true);
+}
+
+/// Give the cells the width of the grid columns they span: every cell, or (`all` false) only
+/// those that have a width in points, so an automatic cell or one that is a share of the table
+/// keeps that. A width in points replaces a share (.docx saves the points first anyway).
+fn sync_widths(t: &mut Table, all: bool) {
     let grid = t.grid.clone();
     for row in &mut t.rows {
         let mut g = 0usize;
         for c in &mut row.cells {
             let span = c.span();
             let w: f32 = grid.get(g..g.saturating_add(span).min(grid.len())).unwrap_or(&[]).iter().sum();
-            if w > 0.0 {
+            if w > 0.0 && (all || c.props.width.is_some()) {
                 c.props.width = Some(w);
+                c.props.width_pct = None;
             }
-            g += span;
+            g = g.saturating_add(span);
         }
     }
 }
@@ -276,29 +284,89 @@ fn set_column_widths(t: &mut Table, cells: &[(usize, usize)], w: f32) {
     }
 }
 
+/// Table Properties › Column: the grid column cell `c` of row `r` starts in becomes `w` wide and
+/// the table's preferred width goes, so the layout doesn't scale the column back. Only this
+/// column's cells get the width; the other columns keep whether they are automatic, in points or
+/// a share of the table.
 fn set_column_width(t: &mut Table, r: usize, c: usize, w: f32) {
     let g = t.grid_col(r, c);
     if let Some(x) = t.grid.get_mut(g) {
         *x = w;
         t.props.width = None;
         t.props.width_pct = None;
-        sync_cell_widths(t);
+        sync_widths(t, false);
+        column_cells(t, r, c, |cl| {
+            cl.props.width = Some(w);
+            cl.props.width_pct = None;
+        });
     }
+}
+
+/// Table Properties › Column in Percent: the grid column cell `c` of row `r` starts in becomes
+/// `pct` % of the table, the other columns share the rest in their proportions, so the table
+/// keeps its width (and its preferred width); the column's cells keep the share.
+fn set_column_share(t: &mut Table, r: usize, c: usize, pct: f32) {
+    let g = t.grid_col(r, c);
+    let real = |w: f32| if w.is_finite() && w > 0.0 { w } else { 0.0 };
+    let total: f32 = t.grid.iter().map(|w| real(*w)).sum();
+    let old = t.grid.get(g).map_or(0.0, |w| real(*w));
+    let rest = total - old;
+    // A table of one column is all that column already.
+    if total > 0.0 && rest > 0.0 {
+        let new = (total * pct / 100.0).clamp(6.0, 1584.0);
+        let k = (total - new).max(0.0) / rest;
+        for (i, w) in t.grid.iter_mut().enumerate() {
+            if i == g {
+                *w = new;
+            } else if real(*w) > 0.0 {
+                *w = (*w * k).max(6.0);
+            }
+        }
+        sync_widths(t, false);
+    }
+    column_cells(t, r, c, |cl| {
+        cl.props.width = None;
+        cl.props.width_pct = Some(pct);
+    });
 }
 
 // Table Properties › Text wrapping and Positioning (#2428).
 use wordcraft_doc::para::{Anchor, FloatAlign};
 use wordcraft_doc::props::TableFloat;
 
-/// Every cell of the grid column cell `c` of row `r` starts in, one per row.
+/// Every cell of the grid column cell `c` of row `r` starts in, one per row: the cells that are
+/// just that column, not a merged cell that only covers it.
 fn column_cells(t: &mut Table, r: usize, c: usize, f: impl Fn(&mut wordcraft_doc::Cell)) {
     let g = t.grid_col(r, c);
     for i in 0..t.rows.len() {
         if let Some(ci) = t.cell_at_grid(i, g)
+            && t.grid_col(i, ci) == g
             && let Some(cl) = t.rows.get_mut(i).and_then(|row| row.cells.get_mut(ci))
+            && cl.span() == 1
         {
             f(cl);
         }
+    }
+}
+
+/// Where Around puts a table that didn't float: where it stands, on the side its alignment
+/// puts it, moving with the text, 0.25 cm from the text beside it, as Table Properties does.
+fn around(align: Option<Align>) -> TableFloat {
+    TableFloat {
+        h_rel: Anchor::Column,
+        v_rel: Anchor::Paragraph,
+        h_align: Some(float_side(align)),
+        dist: [WRAP_GAP, 0.0, WRAP_GAP, 0.0],
+        ..Default::default()
+    }
+}
+
+/// The horizontal alignment a floating table takes from the table's alignment.
+fn float_side(align: Option<Align>) -> FloatAlign {
+    match align {
+        Some(Align::Center) => FloatAlign::Center,
+        Some(Align::Right) => FloatAlign::End,
+        _ => FloatAlign::Start,
     }
 }
 
@@ -349,8 +417,12 @@ impl Position {
 
 /// `table.properties`' `position` object (see the command's params).
 fn position(v: &Value) -> Result<Position, CmdError> {
-    if !v.is_object() {
+    const KEYS: [&str; 8] = ["hAlign", "x", "hRel", "vAlign", "y", "vRel", "dist", "overlap"];
+    let Some(o) = v.as_object() else {
         return Err(CmdError::Params("position takes an object".into()));
+    };
+    if let Some(k) = o.keys().find(|k| !KEYS.contains(&k.as_str())) {
+        return Err(CmdError::Params(format!("unknown table position key `{k}`")));
     }
     let bad = |k: &str, x: &str| CmdError::Params(format!("unknown table position {k} `{x}`"));
     let at = |k: &str| p::f32(v, k).map(|x| x.clamp(-1584.0, 1584.0));
@@ -391,14 +463,19 @@ fn position(v: &Value) -> Result<Position, CmdError> {
             Some(d.map(|f| f.clamp(0.0, 1584.0)))
         }
     };
-    Ok(Position {
+    let pos = Position {
         h,
         h_rel: rel("hRel", ("column", Anchor::Column))?,
         v: v_at,
         v_rel: rel("vRel", ("paragraph", Anchor::Paragraph))?,
         dist,
         overlap: p::bool(v, "overlap"),
-    })
+    };
+    // `{}`, or values of the wrong type: nothing to place the table by.
+    if pos.h.is_none() && pos.h_rel.is_none() && pos.v.is_none() && pos.v_rel.is_none() && pos.dist.is_none() && pos.overlap.is_none() {
+        return Err(CmdError::Params("position sets nothing: give hAlign or x, hRel, vAlign or y, vRel, dist or overlap".into()));
+    }
+    Ok(pos)
 }
 
 /// Table Properties: table, row, column and cell settings in one undoable step. Row, column and
@@ -495,37 +572,29 @@ fn properties(s: &mut Session, v: &Value) -> CmdResult {
     };
     let position = v.get("position").map(position).transpose()?;
     with_table(s, |t| {
-        // Text wraps around a floating table: placed as Word places one from Table Properties,
-        // where it stands, on the side its alignment puts it, 0.25 cm from the text beside it.
+        // Text wraps around a floating table (`around`), with the alignment this call sets, if
+        // any: it's applied to `props.align` further down.
+        let side = align.or(t.props.align);
         if let Some(on) = wrap {
             if !on {
                 t.props.float = None;
             } else if t.props.float.is_none() {
-                t.props.float = Some(TableFloat {
-                    h_rel: Anchor::Column,
-                    v_rel: Anchor::Paragraph,
-                    // The alignment this call sets, if any: it's applied further down.
-                    h_align: Some(match align.or(t.props.align) {
-                        Some(Align::Center) => FloatAlign::Center,
-                        Some(Align::Right) => FloatAlign::End,
-                        _ => FloatAlign::Start,
-                    }),
-                    dist: [WRAP_GAP, 0.0, WRAP_GAP, 0.0],
-                    ..Default::default()
-                });
+                t.props.float = Some(around(side));
             }
         }
-        // None keeps the table in line even with a position given.
+        // A floating table is placed by its float, not by `props.align`: an alignment puts it
+        // on that side of where it is anchored.
+        if let Some(a) = align
+            && let Some(f) = t.props.float.as_mut()
+        {
+            f.h_align = Some(float_side(Some(a)));
+        }
+        // A position floats an in-line table as Around does, then moves it. None keeps the table
+        // in line even with a position given.
         if wrap != Some(false)
             && let Some(pos) = &position
         {
-            let f = t.props.float.get_or_insert(TableFloat {
-                h_rel: Anchor::Column,
-                v_rel: Anchor::Paragraph,
-                dist: [WRAP_GAP, 0.0, WRAP_GAP, 0.0],
-                ..Default::default()
-            });
-            pos.apply(f);
+            pos.apply(t.props.float.get_or_insert_with(|| around(side)));
         }
         if let Some(a) = align {
             t.props.align = Some(a);
@@ -547,14 +616,7 @@ fn properties(s: &mut Session, v: &Value) -> CmdResult {
         }
         // A share of the table's width: the column takes it now and its cells keep the share.
         if let Some(pct) = column_pct {
-            let total: f32 = t.grid.iter().filter(|w| w.is_finite()).sum();
-            if total > 0.0 {
-                set_column_width(t, r, c, (total * pct / 100.0).clamp(6.0, 1584.0));
-            }
-            column_cells(t, r, c, |cl| {
-                cl.props.width = None;
-                cl.props.width_pct = Some(pct);
-            });
+            set_column_share(t, r, c, pct);
         }
         if let Some(w) = width {
             t.props.width = w;
@@ -590,8 +652,10 @@ fn properties(s: &mut Session, v: &Value) -> CmdResult {
                 if let Some(va) = valign {
                     cl.props.valign = Some(va);
                 }
+                // Own margins, or (`null`) the table's: no side kept from a .docx either way.
                 if let Some(m) = cell_margins {
                     cl.props.margins = m;
+                    cl.props.partial_margins = None;
                 }
                 if let Some(w) = cell_wrap {
                     cl.props.no_wrap = !w;
