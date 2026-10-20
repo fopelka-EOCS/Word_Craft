@@ -14,10 +14,10 @@ Serve come riferimento permanente affinché, in caso di aggiornamenti dal reposi
 - **File modificati**:
   - `crates/engine/src/cmd/tools.rs`:
     - Aggiunto `pub cap_paragraphs: bool` (default `false`) a `AutoCorrectPrefs`.
-    - La valutazione delle maiuscole ad inizio cella (`cap_cells`), ad inizio paragrafo/elenco (`cap_paragraphs`), e all'interno del paragrafo (`cap_sentences`) è ora completamente indipendente e modulare.
+    - La valutazione delle maiuscole all'inizio della cella (`cap_cells`), all'inizio del paragrafo/dell'elenco (`cap_paragraphs`), e all'interno del paragrafo (`cap_sentences`) è ora completamente indipendente e modulare.
     - Funzione `starts_sentence`: riconosce `.`, `!`, e `?` come terminatori validi di frase, mantenendo l'eccezione delle abbreviazioni per i punti fermi.
   - `crates/engine/src/tests_typing.rs`:
-    - Aggiunto test unitario `default_preferences_lowercase_start_and_standard_hyphen` che verifica il mantenimento del minuscolo ad inizio documento, a capo, dopo `;`, negli elenchi puntati e numerati, e la maiuscola dopo `.`, `!`, `?`.
+    - Aggiunto test unitario `default_preferences_lowercase_start_and_standard_hyphen` che verifica il mantenimento del minuscolo all'inizio del documento, a capo, dopo `;`, negli elenchi puntati e numerati, e la maiuscola dopo `.`, `!`, `?`.
 
 ### 1.2 Trattino Standard `-` di Default
 - **Comportamento precedente**: La sequenza `" - "` o `"--"` veniva automaticamente convertita in trattino lungo (en-dash `–` o em-dash `—`).
