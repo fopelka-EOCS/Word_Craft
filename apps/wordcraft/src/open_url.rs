@@ -138,8 +138,9 @@ mod portal {
             log::debug!("desktop portal answers on {handle}, not {path}; not waiting for it");
             return Ok(());
         }
-        // The signal iterator has no timeout: it is read on a helper, which ends with the
-        // answer or the connection (after a timeout it keeps waiting for the user's choice).
+        // The signal iterator has no timeout, so a helper reads it. The iterator keeps the
+        // connection alive, so the helper ends only with the portal's answer (sent when the
+        // user's choice ends) or with the session bus; a portal that never answers keeps it.
         let (tx, rx) = channel();
         std::thread::Builder::new()
             .name("open-url-portal".into())
