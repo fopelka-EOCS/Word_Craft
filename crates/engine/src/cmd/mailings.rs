@@ -1923,6 +1923,14 @@ mod tests {
         let sort = [SortKey { field: "Họ".into(), descending: false }];
         assert_eq!(select_records(&headers, &rows, &[], &sort, Some("vi")), [0, 1]);
         assert_eq!(select_records(&headers, &rows, &[], &sort, None), [1, 0]);
+
+        // The tone marks U+0341 and U+0340 are U+0301 (sắc) and U+0300 (huyền).
+        let rows = json!([["Má", "1"], ["Ma\u{341}", "2"], ["Mà", "3"], ["MA\u{340}", "4"]]);
+        s.run("mailings.recipients", &json!({"fields": ["Họ", "Id"], "rows": rows})).unwrap();
+        filter(&mut s, json!([{"field": "Họ", "op": "equal", "value": "má"}]));
+        assert_eq!(ids(&s), ["1", "2"]);
+        s.run("mailings.filterRecipients", &json!({"rules": [], "sort": [{"field": "Họ"}]})).unwrap();
+        assert_eq!(ids(&s), ["3", "4", "1", "2"]);
     }
 
     /// #1287: an Edit Recipient List that fails to load keeps the list's filter and sort.

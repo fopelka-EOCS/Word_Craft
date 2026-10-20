@@ -914,6 +914,31 @@ mod tests {
     }
 
     #[test]
+    fn tone_marks_typed_as_their_singletons_are_the_tones() {
+        // U+0340 and U+0341 (the grave and acute tone marks) decompose to U+0300 and U+0301, and
+        // U+0344 to U+0308 U+0301.
+        let pairs = [("a\u{341}", "á"), ("a\u{340}", "à"), ("MA\u{341}", "MÁ"), ("Ă\u{341}", "Ắ"), ("Hoa\u{340}", "Hoà"), ("u\u{344}", "ǘ")];
+        for lang in [None, Some("vi"), Some("pl"), Some("sv")] {
+            for (single, usual) in pairs {
+                assert_eq!(collate(single, usual, lang), Ordering::Equal, "{single:?} {lang:?}");
+                assert_eq!(sort_key(single, lang), sort_key(usual, lang), "{single:?} {lang:?}");
+                assert_eq!(sort_order(single, usual, lang, true), Ordering::Equal, "{single:?} {lang:?}");
+            }
+        }
+        assert!(contains_text("Ma\u{341} Hoa\u{340}", "má hoà"));
+        assert!(contains_text("Má Hoà", "ma\u{341}"));
+        assert_eq!(heading_letter("A\u{341}nh", Some("vi")), heading_letter("Ánh", Some("vi")));
+        // Under `vi` they are huyền and sắc: `ma` + U+0341 sorts exactly where `má` does.
+        assert_eq!(sort_key("ma\u{340}", Some("vi")).secondary.get(1).and_then(|s| s.first()), Some(&1));
+        assert_eq!(sort_key("ma\u{341}", Some("vi")).secondary.get(1).and_then(|s| s.first()), Some(&4));
+        let row = ["ma", "ma\u{340}", "mả", "mã", "ma\u{341}", "mạ"];
+        let mut v = row;
+        v.reverse();
+        v.sort_by(|a, b| collate(a, b, Some("vi")));
+        assert_eq!(v, row);
+    }
+
+    #[test]
     fn search_text_matches_across_case_and_encoding() {
         assert_eq!(search_text("NGUYỄN"), search_text("nguye\u{302}\u{303}n"));
         assert_eq!(search_text("Ánh"), sort_key("A\u{301}nh", Some("vi")).text);
