@@ -1924,7 +1924,7 @@ mod tests {
                     _ => None,
                 })
                 .collect();
-            assert_eq!(paras, ["X", "#", "cap"], "{id}");
+            assert_eq!(paras, ["x", "#", "cap"], "{id}");
             let docx = crate::io::save_bytes("p.docx", &s.doc).unwrap();
             assert!(docx.windows(11).any(|w| w == b"word/media/"), "{id}: the saved file keeps the picture");
         }

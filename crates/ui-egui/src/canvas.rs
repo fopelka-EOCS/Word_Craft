@@ -2847,9 +2847,9 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
         // which keep the pointer where they overlap.
         crate::table_ruler::columns(app, ui, layout, pi, bar, x0, scale);
 
-        // Dragging the left-indent marker (bottom). Hitbox enlarged for easy handling.
+        // Dragging the left-indent marker (bottom).
         let id = ui.id().with("ruler_left");
-        let mr = Rect::from_center_size(pos2(left, bar.max.y - 4.0), vec2(16.0, 16.0));
+        let mr = Rect::from_center_size(pos2(left, bar.max.y - 3.0), vec2(12.0, 12.0));
         let r_left = ui.interact(mr, id, Sense::click_and_drag());
         if r_left.dragged()
             && let Some(pp) = r_left.interact_pointer_pos()
@@ -2865,8 +2865,8 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
             let _ = app.run("para.indents", json!({"left": snapped, "firstLine": new_first}));
         }
 
-        // Dragging the first-line indent marker (top). Hitbox enlarged for easy handling.
-        let fr = Rect::from_center_size(pos2(first, bar.min.y + 4.0), vec2(16.0, 14.0));
+        // Dragging the first-line indent marker (top).
+        let fr = Rect::from_center_size(pos2(first, bar.min.y + 3.0), vec2(12.0, 10.0));
         let r_first = ui.interact(fr, ui.id().with("ruler_first"), Sense::click_and_drag());
         if r_first.dragged()
             && let Some(pp) = r_first.interact_pointer_pos()
@@ -2880,7 +2880,7 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
         }
 
         // Dragging the right-indent marker.
-        let rr = Rect::from_center_size(pos2(right, bar.max.y - 4.0), vec2(16.0, 16.0));
+        let rr = Rect::from_center_size(pos2(right, bar.max.y - 3.0), vec2(12.0, 12.0));
         let r_right = ui.interact(rr, ui.id().with("ruler_right"), Sense::click_and_drag());
         if r_right.dragged()
             && let Some(pp) = r_right.interact_pointer_pos()
@@ -2944,9 +2944,9 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
 /// first line (a flag at the top), left and right (at the bottom).
 fn indent_marker_rects(first: f32, left: f32, right: f32, bar: Rect) -> [Rect; 3] {
     [
-        Rect::from_min_max(pos2(first - 6.0, bar.min.y), pos2(first + 6.0, bar.min.y + 7.0)),
-        Rect::from_min_max(pos2(left - 6.0, bar.max.y - 11.0), pos2(left + 6.0, bar.max.y + 2.5)),
-        Rect::from_min_max(pos2(right - 6.0, bar.max.y - 8.0), pos2(right + 6.0, bar.max.y)),
+        Rect::from_min_max(pos2(first - 4.5, bar.min.y), pos2(first + 4.5, bar.min.y + 5.0)),
+        Rect::from_min_max(pos2(left - 4.5, bar.max.y - 8.0), pos2(left + 4.5, bar.max.y + 1.0)),
+        Rect::from_min_max(pos2(right - 4.5, bar.max.y - 6.0), pos2(right + 4.5, bar.max.y - 1.0)),
     ]
 }
 
@@ -4066,7 +4066,7 @@ mod tests {
         let (from, to) = (screen(&mut h, Pos::body(0, 8)), screen(&mut h, Pos::body(0, 13)));
         multi_drag(&mut h, from, to, 2);
         let (s, e) = h.state().session.sel.ordered();
-        assert_eq!((s, e), (Pos::body(0, 6), Pos::body(0, 17)), "whole words");
+        assert_eq!((s, e), (Pos::body(0, 6), Pos::body(0, 16)), "whole words");
         // Let the double-click time pass, then triple-click the second paragraph and drag into the third.
         for _ in 0..40 {
             h.step();
@@ -4083,7 +4083,7 @@ mod tests {
         let at = screen(&mut h, Pos::body(0, 1));
         multi_drag(&mut h, at, at, 2);
         let (s, e) = h.state().session.sel.ordered();
-        assert_eq!((s, e), (Pos::body(0, 0), Pos::body(0, 6)));
+        assert_eq!((s, e), (Pos::body(0, 0), Pos::body(0, 5)));
     }
 
     /// #2551: dragging the vertical scrollbar shows the page at the top of the window beside the

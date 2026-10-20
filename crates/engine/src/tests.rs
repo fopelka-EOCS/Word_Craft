@@ -566,8 +566,7 @@ fn backspace_and_delete() {
     run(&mut s, "text.insert", json!({"text": "cd"}));
     run(&mut s, "caret.home", json!({}));
     run(&mut s, "text.backspace", json!({}));
-    // Enter capitalised the first word, as Word's AutoCorrect does.
-    assert_eq!(text(&s), "Abcd");
+    assert_eq!(text(&s), "abcd");
     run(&mut s, "caret.docStart", json!({}));
     run(&mut s, "text.delete", json!({}));
     assert_eq!(text(&s), "bcd");
@@ -6079,19 +6078,19 @@ fn drag_after_multi_click_extends_by_units() {
         run(s, "select.dragUnit", json!({"unit": unit, "start": start, "end": end, "pos": pos}));
         (s.sel.anchor.clone(), s.sel.focus.clone())
     };
-    // Double-click "beta" (6..11 with its trailing space).
+    // Double-click "beta" (6..10 without trailing space).
     run(&mut s, "caret.set", json!({"pos": Pos::body(0, 7)}));
     run(&mut s, "select.word", json!({}));
     let (a, b) = s.sel.ordered();
-    assert_eq!((a.off, b.off), (6, 11));
+    assert_eq!((a.off, b.off), (6, 10));
     // Forward into the middle of "gamma": the whole word joins.
     assert_eq!(drag(&mut s, "word", a.clone(), b.clone(), Pos::body(0, 13)), (Pos::body(0, 6), Pos::body(0, 16)));
-    // Back into "Alpha": anchored at the end of "beta ", focus at the start of "Alpha".
-    assert_eq!(drag(&mut s, "word", a.clone(), b.clone(), Pos::body(0, 2)), (Pos::body(0, 11), Pos::body(0, 0)));
+    // Back into "Alpha": anchored at the end of "beta", focus at the start of "Alpha".
+    assert_eq!(drag(&mut s, "word", a.clone(), b.clone(), Pos::body(0, 2)), (Pos::body(0, 10), Pos::body(0, 0)));
     // Back inside the first word: just that word.
-    assert_eq!(drag(&mut s, "word", a.clone(), b.clone(), Pos::body(0, 8)), (Pos::body(0, 6), Pos::body(0, 11)));
+    assert_eq!(drag(&mut s, "word", a.clone(), b.clone(), Pos::body(0, 8)), (Pos::body(0, 6), Pos::body(0, 10)));
     // Into the next paragraph: whole word there.
-    assert_eq!(drag(&mut s, "word", a.clone(), b.clone(), Pos::body(1, 8)), (Pos::body(0, 6), Pos::body(1, 12)));
+    assert_eq!(drag(&mut s, "word", a.clone(), b.clone(), Pos::body(1, 8)), (Pos::body(0, 6), Pos::body(1, 11)));
 
     // Ctrl+click a sentence, drag into the next sentence.
     run(&mut s, "caret.set", json!({"pos": Pos::body(0, 3)}));

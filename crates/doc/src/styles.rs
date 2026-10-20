@@ -629,7 +629,16 @@ impl StyleSheet {
             id: "ListParagraph".into(),
             name: "List Paragraph".into(),
             based_on: Some("Normal".into()),
-            para: ParaProps { indent_left: Some(36.0), contextual_spacing: Some(true), ..para() },
+            para: ParaProps {
+                indent_left: Some(36.0),
+                space_after: Some(6.0),
+                contextual_spacing: Some(false),
+                ..para()
+            },
+            chr: CharProps {
+                size: Some(12.0),
+                ..chr()
+            },
             priority: Some(34),
             quick: true,
             ..p_style()

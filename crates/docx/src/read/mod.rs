@@ -926,7 +926,7 @@ impl Reader<'_> {
             }
         }
         if sheet.default_chr.size.is_none() {
-            sheet.default_chr.size = Some(10.0);
+            sheet.default_chr.size = Some(12.0);
         }
         // Built-in styles' behaviour (gallery, priority, visibility), written back as is.
         sheet.latent_styles = root.child("w:latentStyles").map(|l| l.to_xml()).filter(|x| x.len() <= MAX_LATENT_STYLES_XML);

@@ -1396,15 +1396,7 @@ impl Paragraph {
             }
             b = off + i + c.len_utf8();
         }
-        // Word also selects the trailing spaces.
-        let mut e = b;
-        for (i, c) in self.text.get(b..).unwrap_or("").char_indices() {
-            if c != ' ' {
-                break;
-            }
-            e = b + i + 1;
-        }
-        (a, e)
+        (a, b)
     }
     /// Sentence around `off` (Ctrl+click): ends after `.`, `!`, `?` and following spaces.
     pub fn sentence_at(&self, off: usize) -> (usize, usize) {
@@ -1600,7 +1592,7 @@ mod tests {
         assert_eq!(p.word_end(4), 11);
         assert_eq!(p.word_start(10), 4);
         assert_eq!(p.word_start(11), 4);
-        assert_eq!(p.word_at(5), (4, 11));
+        assert_eq!(p.word_at(5), (4, 9));
         assert_eq!(p.sentence_at(3), (0, 21));
         assert_eq!(p.next_boundary(0), 1);
         assert_eq!(p.prev_boundary(0), 0);

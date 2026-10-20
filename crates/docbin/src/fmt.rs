@@ -422,7 +422,7 @@ pub(crate) fn stylesheet(raw: &[crate::stsh::RawStyle], fonts: &[String]) -> Sty
     // Word's base character properties: font index 0 of the table, 10 pt ([MS-DOC] sprmCHps).
     sheet.default_chr.font = fonts.first().cloned();
     if sheet.default_chr.size.is_none() {
-        sheet.default_chr.size = Some(10.0);
+        sheet.default_chr.size = Some(12.0);
     }
     for (istd, st) in raw.iter().enumerate() {
         if st.name.is_empty() {

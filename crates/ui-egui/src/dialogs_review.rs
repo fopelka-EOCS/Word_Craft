@@ -808,7 +808,7 @@ mod tests {
         for c in "brb ".chars() {
             b.session.run("text.insert", &json!({"text": c.to_string()})).unwrap();
         }
-        assert_eq!(b.session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Be right back ");
+        assert_eq!(b.session.doc.plain_text(wordcraft_doc::StoryRef::Body), "be right back ");
         // A damaged AutoCorrect section reads as the defaults; the rest of the file still loads.
         let mut v: Value = serde_json::from_str(&saved).unwrap();
         v["editing"]["autocorrect"] = json!({"entries": 7, "capDays": "x"});

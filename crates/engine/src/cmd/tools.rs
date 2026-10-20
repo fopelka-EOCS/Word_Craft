@@ -81,6 +81,8 @@ pub struct AutoCorrectPrefs {
     pub two_initial_caps: bool,
     /// Capitalize the first letter of sentences.
     pub cap_sentences: bool,
+    /// Capitalize the first letter of paragraphs and list items.
+    pub cap_paragraphs: bool,
     /// Capitalize the first letter of table cells.
     pub cap_cells: bool,
     /// Capitalize names of days.
@@ -127,13 +129,14 @@ impl Default for AutoCorrectPrefs {
             replace_text: true,
             two_initial_caps: true,
             cap_sentences: true,
+            cap_paragraphs: false,
             cap_cells: true,
             cap_days: true,
             caps_lock: true,
             smart_quotes: true,
             fractions: true,
             ordinals: true,
-            dashes: true,
+            dashes: false,
             links: true,
             bullets: true,
             numbering: true,
@@ -317,6 +320,7 @@ fn autocorrect_options(s: &mut Session, v: &Value) -> CmdResult {
         ("replaceText", &mut ac.replace_text),
         ("twoInitialCaps", &mut ac.two_initial_caps),
         ("capSentences", &mut ac.cap_sentences),
+        ("capParagraphs", &mut ac.cap_paragraphs),
         ("capCells", &mut ac.cap_cells),
         ("capDays", &mut ac.cap_days),
         ("capsLock", &mut ac.caps_lock),
@@ -390,6 +394,7 @@ fn autocorrect_options(s: &mut Session, v: &Value) -> CmdResult {
         "replaceText": ac.replace_text,
         "twoInitialCaps": ac.two_initial_caps,
         "capSentences": ac.cap_sentences,
+        "capParagraphs": ac.cap_paragraphs,
         "capCells": ac.cap_cells,
         "capDays": ac.cap_days,
         "capsLock": ac.caps_lock,
@@ -968,7 +973,8 @@ pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError>
     } else {
         last
     };
-    let mut sentence = sentence_on && starts_sentence(before_word, &exceptions) && should_capitalize(first, next);
+    let is_cell_start = before_word.trim().is_empty() && f.path.cell().is_some() && ac.cap_paragraphs;
+    let mut sentence = sentence_on && (is_cell_start || starts_sentence(before_word, &exceptions, ac.cap_paragraphs)) && should_capitalize(first, next);
     let prev = if sentence { prev_token(before_word) } else { String::new() };
     // Typing the word again after backspacing an automatic capital: the user doesn't want it
     // (Word's "Automatically add words to list"); an exception, so no capital this time either.
@@ -1114,16 +1120,16 @@ const DAYS: [&str; 7] = ["monday", "tuesday", "wednesday", "thursday", "friday",
 
 /// Does a word typed after `before` (the paragraph text up to the word) begin a sentence?
 /// `exceptions` are the lowercase abbreviations whose full stop doesn't end one.
-fn starts_sentence(before: &str, exceptions: &[String]) -> bool {
+fn starts_sentence(before: &str, exceptions: &[String], cap_paragraphs: bool) -> bool {
     let t = before.trim_end();
     if t.is_empty() {
-        return true;
+        return cap_paragraphs;
     }
     if t.len() == before.len() {
         return false; // no space between the previous text and the word
     }
     let t = t.trim_end_matches(|c: char| "\"'”’)]".contains(c));
-    if !t.ends_with(['.', '!', '?']) || t.ends_with("..") || t.ends_with('…') {
+    if !t.ends_with('.') || t.ends_with("..") || t.ends_with('…') {
         return false;
     }
     let prev = t.rsplit(char::is_whitespace).next().unwrap_or(t).trim_start_matches(|c: char| "\"'“‘([".contains(c));
@@ -2029,8 +2035,14 @@ mod tests {
         for t in ["teh", " ", "Teh", " ", "(c)", " "] {
             s.run("text.insert", &json!({"text": t})).unwrap();
         }
-        // The first word of a sentence is capitalised too.
-        assert_eq!(s.doc.plain_text(StoryRef::Body), "The The © ");
+        // The first word of a sentence is capitalised when cap_paragraphs is enabled.
+        assert_eq!(s.doc.plain_text(StoryRef::Body), "the The © ");
+        let mut s2 = Session::new(Document::new());
+        s2.prefs.autocorrect.cap_paragraphs = true;
+        for t in ["teh", " ", "Teh", " ", "(c)", " "] {
+            s2.run("text.insert", &json!({"text": t})).unwrap();
+        }
+        assert_eq!(s2.doc.plain_text(StoryRef::Body), "The The © ");
     }
 
     #[test]

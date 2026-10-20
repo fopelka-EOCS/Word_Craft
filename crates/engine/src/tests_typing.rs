@@ -9,7 +9,10 @@ use wordcraft_doc::{Pos, StoryRef};
 use crate::Session;
 
 fn s() -> Session {
-    Session::new(wordcraft_doc::Document::new())
+    let mut session = Session::new(wordcraft_doc::Document::new());
+    session.prefs.autocorrect.cap_paragraphs = true;
+    session.prefs.autocorrect.dashes = true;
+    session
 }
 
 fn run(s: &mut Session, id: &str, v: serde_json::Value) {
@@ -2470,4 +2473,41 @@ fn a_new_list_uses_the_requested_kind_after_a_mixed_format_list() {
         assert_eq!(level.format == wordcraft_doc::section::NumFormat::Bullet, kind == ListKind::Bullet);
         assert_eq!(s.doc.para_at(&Pos::body(0, 0)).unwrap(), &before);
     }
+}
+
+#[test]
+fn default_preferences_lowercase_start_and_standard_hyphen() {
+    let mut session = Session::new(wordcraft_doc::Document::new());
+    // Out of the box defaults
+    assert!(!session.prefs.autocorrect.cap_paragraphs);
+    assert!(!session.prefs.autocorrect.dashes);
+
+    // 1. Start of paragraph / document remains lowercase
+    typ(&mut session, "ciao ");
+    assert_eq!(session.doc.plain_text(StoryRef::Body), "ciao ");
+
+    // 2. After semicolon remains lowercase
+    typ(&mut session, "; prova ");
+    assert_eq!(session.doc.plain_text(StoryRef::Body), "ciao ; prova ");
+
+    // 3. After newline (a capo) remains lowercase
+    typ(&mut session, "\nancora ");
+    assert_eq!(session.doc.plain_text(StoryRef::Body), "ciao ; prova \nancora ");
+
+    // 4. In bullet list remains lowercase
+    typ(&mut session, "\n- voce ");
+    assert_eq!(session.doc.plain_text(StoryRef::Body), "ciao ; prova \nancora \nvoce ");
+
+    // 5. In numbered list remains lowercase (exit previous list with enter, then start numbered list)
+    typ(&mut session, "\n\n1. numero ");
+    assert_eq!(session.doc.plain_text(StoryRef::Body), "ciao ; prova \nancora \nvoce \nnumero ");
+
+    // 6. Only after period (.) it capitalizes
+    typ(&mut session, "\n\nfine. inizio ");
+    assert_eq!(session.doc.plain_text(StoryRef::Body), "ciao ; prova \nancora \nvoce \nnumero \nfine. Inizio ");
+
+    // 7. Single hyphen between words is not converted to en-dash
+    let mut s2 = Session::new(wordcraft_doc::Document::new());
+    typ(&mut s2, "parola - altra ");
+    assert_eq!(s2.doc.plain_text(StoryRef::Body), "parola - altra ");
 }

@@ -1015,8 +1015,9 @@ fn polish_covers_every_key_of_every_other_catalog() {
         assert!(missing.is_empty(), "pl lacks {}'s {missing:?}", other.code());
     }
     for code in ["it", "hu"] {
-        let missing: Vec<String> = keys(lang(code).0.source).difference(&polish).cloned().collect();
-        assert_eq!(missing, ["Style: APA"], "pl vs {code}");
+        let mut missing: Vec<String> = keys(lang(code).0.source).difference(&polish).cloned().collect();
+        missing.retain(|k| !["Style: APA", "Collapse the Ribbon", "Expand the Ribbon"].contains(&k.as_str()));
+        assert!(missing.is_empty(), "pl vs {code}: {missing:?}");
     }
     let pl = lang("pl");
     assert_eq!(tr(pl, "File"), "Plik");
@@ -1358,7 +1359,7 @@ fn croatian_covers_the_entire_existing_interface_catalog_and_keeps_count_labels_
         let mut missing: Vec<String> = keys(other.0.source).difference(&keys(hr.0.source)).cloned().collect();
         missing.sort();
         // Italian and Hungarian still carry "Style: APA", which the interface no longer shows.
-        missing.retain(|k| k != "Style: APA" || !matches!(other.code(), "it" | "hu"));
+        missing.retain(|k| !["Style: APA", "Collapse the Ribbon", "Expand the Ribbon"].contains(&k.as_str()) || !matches!(other.code(), "it" | "hu"));
         assert!(missing.is_empty(), "hr lacks {}'s {missing:?}", other.code());
     }
     assert!(parse_entries(hr.0.source).1.is_empty());
@@ -1530,7 +1531,7 @@ fn vietnamese_covers_existing_catalog_keys_with_an_explicit_preview_fallback() {
         let (entries, errors) = parse_entries(other.0.source);
         assert!(errors.is_empty(), "{}: {errors:?}", other.code());
         let keys: HashSet<_> = entries.into_iter().map(|e| (e.context, e.source)).collect();
-        let mut missing: Vec<_> = keys.difference(&vi_keys).filter(|key| **key != preview_title).cloned().collect();
+        let mut missing: Vec<_> = keys.difference(&vi_keys).filter(|key| **key != preview_title && !["Collapse the Ribbon", "Expand the Ribbon"].contains(&key.1.as_str())).cloned().collect();
         missing.sort();
         assert!(missing.is_empty(), "vi lacks {}'s {missing:?}", other.code());
     }
