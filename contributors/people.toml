@@ -166,3 +166,7 @@ real_name = "Max Murphy"
 
 [people.SlavenDj]
 sync_github_name = true
+
+[people.tixomirkin]
+sync_github_name = true
+
