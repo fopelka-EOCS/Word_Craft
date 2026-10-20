@@ -2688,3 +2688,5 @@
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Въведете размер в произволна единица, например 5 cm или 300 px. Другата страна се променя съответно, така че картината запазва пропорциите си.
 
 	Import…	Импортиране…
+	Hunspell .aff and .dic files here (pl_PL, el_GR, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Файловете .aff и .dic на Hunspell от тази папка (pl_PL, el_GR, pt_BR, it_IT, hr_HR, tr_TR) се използват преди системните.
+	Spelling follows the language of the document text. Install a Hunspell dictionary for Greek and other supported languages.	Правописната проверка следва езика на текста в документа. Инсталирайте речник Hunspell за гръцки и другите поддържани езици.

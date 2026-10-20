@@ -2696,3 +2696,5 @@ preview	Title	Örnek
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Herhangi bir birimde bir boyut yazın, örneğin 5 cm veya 300 px. Diğer kenar da buna uyar, böylece resim oranlarını korur.
 
 	Import…	İçe aktar…
+	Hunspell .aff and .dic files here (pl_PL, el_GR, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Bu klasördeki Hunspell .aff ve .dic dosyaları (pl_PL, el_GR, pt_BR, it_IT, hr_HR, tr_TR) sistemdekilerden önce kullanılır.
+	Spelling follows the language of the document text. Install a Hunspell dictionary for Greek and other supported languages.	Yazım denetimi belge metninin dilini izler. Yunanca ve desteklenen diğer diller için bir Hunspell sözlüğü yükleyin.

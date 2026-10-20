@@ -23,10 +23,11 @@ pub fn dictionary() -> Arc<AffixDict> {
 
 fn load_installed() -> AffixDict {
     let Some((aff, dic)) = crate::hunspell::find(NAMES) else {
+        crate::hunspell::clear_load_error("el_GR");
         log::info!("Greek spelling: no el_GR Hunspell dictionary installed");
         return AffixDict::default();
     };
-    crate::hunspell::load(&aff, &dic).unwrap_or_else(|e| {
+    crate::hunspell::note_load("el_GR", &dic, crate::hunspell::load(&aff, &dic)).unwrap_or_else(|e| {
         log::warn!("Greek spelling: {e}");
         AffixDict::default()
     })
@@ -260,5 +261,14 @@ mod tests {
         assert!(suggest_with(&d, "καλημερα", 5).is_empty());
         assert!(is_correct_with(&sample(), "ἄνθρωπος"));
         assert!(suggest_with(&sample(), "ἄνθρωποσ", 5).is_empty());
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn greek_suggestions_never_panic(s in "[α-ωάέήίόύώϊϋΐΰςΑ-Ω'’ -]{0,14}") {
+            let d = sample();
+            let _ = suggest_with(&d, &s, 4);
+            let _ = is_correct_with(&d, &s);
+        }
     }
 }

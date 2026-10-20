@@ -2714,3 +2714,5 @@ preview	Title	Titel
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Skriv en storlek i valfri enhet, till exempel 5 cm eller 300 px. Den andra sidan följer med, så att bilden behåller sina proportioner.
 
 	Import…	Importera…
+	Hunspell .aff and .dic files here (pl_PL, el_GR, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Hunspell-filer (.aff och .dic) här (pl_PL, el_GR, pt_BR, it_IT, hr_HR, tr_TR) används före systemets.
+	Spelling follows the language of the document text. Install a Hunspell dictionary for Greek and other supported languages.	Stavningskontrollen följer språket i dokumenttexten. Installera en Hunspell-ordlista för grekiska och andra språk som stöds.

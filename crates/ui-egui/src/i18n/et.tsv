@@ -2322,3 +2322,5 @@
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Sisesta suurus mis tahes ühikus, näiteks 5 cm või 300 px. Teine külg muutub kaasa, nii et pilt säilitab oma proportsioonid.
 
 	Import…	Impordi…
+	Hunspell .aff and .dic files here (pl_PL, el_GR, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Selle kausta Hunspelli .aff- ja .dic-failid (pl_PL, el_GR, pt_BR, it_IT, hr_HR, tr_TR) on eelistatud süsteemi omadele.
+	Spelling follows the language of the document text. Install a Hunspell dictionary for Greek and other supported languages.	Õigekirjakontroll järgib dokumendi teksti keelt. Paigaldage kreeka ja teiste toetatud keelte jaoks Hunspelli sõnastik.

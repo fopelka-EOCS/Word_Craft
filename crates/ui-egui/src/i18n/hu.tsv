@@ -2695,3 +2695,5 @@
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Írj be egy méretet bármilyen mértékegységben, például 5 cm vagy 300 px. A másik oldal követi, így a kép megtartja az arányait.
 
 	Import…	Importálás…
+	Hunspell .aff and .dic files here (pl_PL, el_GR, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Az ebben a mappában lévő Hunspell .aff és .dic fájlok (pl_PL, el_GR, pt_BR, it_IT, hr_HR, tr_TR) elsőbbséget élveznek a rendszer fájljaival szemben.
+	Spelling follows the language of the document text. Install a Hunspell dictionary for Greek and other supported languages.	A helyesírás-ellenőrzés a dokumentum szövegének nyelvét követi. Telepítsen Hunspell-szótárat a görög és más támogatott nyelvekhez.
