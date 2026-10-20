@@ -10,14 +10,14 @@ Serve come riferimento permanente affinché, in caso di aggiornamenti dal reposi
 
 ### 1.1 Lettera Maiuscola Solo Dopo il Punto (`.`)
 - **Comportamento precedente**: Ogni nuovo paragrafo (a capo), ogni elemento di elenco puntato/numerato e ogni cella di tabella convertivano automaticamente la prima lettera in maiuscolo.
-- **Nuovo comportamento**: La maiuscola automatica si attiva **esclusivamente dopo il punto fermo (`.`)**. Quando si va a capo, dopo un punto e virgola (`;`), o all'inizio di una voce di elenco puntato/numerato, la lettera rimane **minuscola**.
+- **Nuovo comportamento**: La maiuscola automatica si attiva **esclusivamente dopo i terminatori di frase (`.`, `!`, `?`)**. Quando si va a capo, dopo un punto e virgola (`;`), o all'inizio di una voce di elenco puntato/numerato, la lettera rimane **minuscola**.
 - **File modificati**:
   - `crates/engine/src/cmd/tools.rs`:
     - Aggiunto `pub cap_paragraphs: bool` (default `false`) a `AutoCorrectPrefs`.
-    - Modificata la funzione `starts_sentence(before, exceptions, cap_paragraphs)`: se il testo precedente è vuoto (inizio paragrafo/elenco/a capo), restituisce `cap_paragraphs` (ovvero `false`).
-    - L'inizio di cella di tabella rispetta anch'esso `ac.cap_paragraphs`.
+    - La valutazione delle maiuscole ad inizio cella (`cap_cells`), ad inizio paragrafo/elenco (`cap_paragraphs`), e all'interno del paragrafo (`cap_sentences`) è ora completamente indipendente e modulare.
+    - Funzione `starts_sentence`: riconosce `.`, `!`, e `?` come terminatori validi di frase, mantenendo l'eccezione delle abbreviazioni per i punti fermi.
   - `crates/engine/src/tests_typing.rs`:
-    - Aggiunto test unitario `default_preferences_lowercase_start_and_standard_hyphen` che verifica il mantenimento del minuscolo ad inizio documento, a capo, dopo `;`, negli elenchi puntati e numerati, e la maiuscola dopo `.`.
+    - Aggiunto test unitario `default_preferences_lowercase_start_and_standard_hyphen` che verifica il mantenimento del minuscolo ad inizio documento, a capo, dopo `;`, negli elenchi puntati e numerati, e la maiuscola dopo `.`, `!`, `?`.
 
 ### 1.2 Trattino Standard `-` di Default
 - **Comportamento precedente**: La sequenza `" - "` o `"--"` veniva automaticamente convertita in trattino lungo (en-dash `–` o em-dash `—`).
