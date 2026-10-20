@@ -2401,3 +2401,11 @@
 	More tabs	Veel vahekaarte
 # #3013: Insert Table of Figures
 	Include label and number	Lisa silt ja number
+
+	Subpixel text:	Alampikslitega tekst:
+	Sharper page text on LCD screens: each third of a pixel lights its own colour. Pick the order of your screen's colour stripes, left to right.	Teravam lehetekst LCD-ekraanidel: iga kolmandik pikslist helendab oma värviga. Valige ekraani värviribade järjekord vasakult paremale.
+	Your desktop's font settings use subpixel rendering, RGB.	Teie töölaua fondiseaded kasutavad alampikslite renderdamist, RGB.
+	Your desktop's font settings use subpixel rendering, BGR.	Teie töölaua fondiseaded kasutavad alampikslite renderdamist, BGR.
+	Your desktop's font settings use greyscale text, so page text is greyscale.	Teie töölaua fondiseaded kasutavad halltoonides teksti, seega on lehetekst halltoonides.
+	RGB	RGB
+	BGR	BGR

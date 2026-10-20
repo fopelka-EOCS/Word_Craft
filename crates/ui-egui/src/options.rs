@@ -544,6 +544,9 @@ fn advanced(app: &mut WordApp, ui: &mut Ui) {
         });
         ui.end_row();
     });
+    if cfg!(all(unix, not(target_os = "macos"))) {
+        subpixel_picker(app, ui);
+    }
     let mut keytips = app.ui.keytips_enabled;
     if ui.checkbox(&mut keytips, tl!("Show KeyTips (Alt or F10)")).changed() {
         let _ = app.run("ui.keytips", json!({"value": keytips}));
@@ -682,6 +685,34 @@ fn animations_picker(app: &mut WordApp, ui: &mut Ui) {
             Some(true) => "Your system has animation effects turned on.",
             Some(false) => "Your system has animation effects turned off.",
             None => "Your system doesn't report an animation setting, so animation effects stay on.",
+        };
+        note(ui, reported);
+    }
+}
+
+/// Subpixel text on the pages (Linux and the BSDs): follow the desktop's font settings (the
+/// default), off, RGB or BGR. Under "Use system setting" a line says what the desktop asks for.
+fn subpixel_picker(app: &mut WordApp, ui: &mut Ui) {
+    use crate::theme::SubpixelText;
+    ui.horizontal(|ui| {
+        ui.label(tl!("Subpixel text:"));
+        egui::ComboBox::from_id_salt("subpixel_text").selected_text(tl!(app.ui.subpixel_text.label())).width(220.0).show_ui(ui, |ui| {
+            for a in SubpixelText::ALL {
+                if ui.selectable_label(app.ui.subpixel_text == a, tl!(a.label())).clicked() {
+                    let _ = app.run("ui.subpixelText", json!({"value": a.code()}));
+                }
+            }
+        });
+    });
+    note(
+        ui,
+        "Sharper page text on LCD screens: each third of a pixel lights its own colour. Pick the order of your screen's colour stripes, left to right.",
+    );
+    if app.ui.subpixel_text == SubpixelText::System {
+        let reported = match app.system_subpixel() {
+            Some(crate::Subpixel::Rgb) => "Your desktop's font settings use subpixel rendering, RGB.",
+            Some(crate::Subpixel::Bgr) => "Your desktop's font settings use subpixel rendering, BGR.",
+            None => "Your desktop's font settings use greyscale text, so page text is greyscale.",
         };
         note(ui, reported);
     }
@@ -1095,6 +1126,37 @@ mod tests {
         assert_eq!(h.state().ui.animations, Animations::On);
         assert!(h.state().animations_on());
         assert!(h.query_by_label("Your system has animation effects turned off.").is_none(), "only said while the system is followed");
+    }
+
+    /// File › Options › Advanced › Subpixel text (Linux and the BSDs): Use system setting (the
+    /// default) follows the desktop's font settings, and a line says what they ask for.
+    #[test]
+    #[cfg(all(unix, not(target_os = "macos")))]
+    fn subpixel_text_is_an_advanced_option() {
+        use crate::theme::SubpixelText;
+        let services = Services { subpixel_order: Some(Box::new(|| Some(crate::Subpixel::Rgb))), ..Default::default() };
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), services);
+        a.run("file.options", json!({"pane": "advanced"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        assert_eq!(h.state().ui.subpixel_text, SubpixelText::System);
+        assert!(h.query_by_label("Subpixel text:").is_some());
+        assert!(h.query_by_label("Your desktop's font settings use subpixel rendering, RGB.").is_some());
+        assert_eq!(h.state().subpixel_order(), Some(crate::Subpixel::Rgb));
+        h.get_by_value("Use system setting").click();
+        h.run_steps(4);
+        h.get_by_label("Off").click();
+        h.run_steps(4);
+        assert_eq!(h.state().ui.subpixel_text, SubpixelText::Off);
+        assert_eq!(h.state().subpixel_order(), None);
+        assert!(h.query_by_label("Your desktop's font settings use subpixel rendering, RGB.").is_none(), "only said while the desktop is followed");
     }
 
     /// File › Options › General › Start-up (#766): the checkbox is the `ui.startScreen` setting.

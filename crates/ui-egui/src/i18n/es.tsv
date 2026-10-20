@@ -2729,3 +2729,11 @@ preview	Title	Título
 	More tabs	Más pestañas
 # #3013: Insert Table of Figures
 	Include label and number	Incluir rótulo y número
+
+	Subpixel text:	Texto en subpíxeles:
+	Sharper page text on LCD screens: each third of a pixel lights its own colour. Pick the order of your screen's colour stripes, left to right.	Texto de página más nítido en pantallas LCD: cada tercio de píxel ilumina su propio color. Elige el orden de las franjas de color de tu pantalla, de izquierda a derecha.
+	Your desktop's font settings use subpixel rendering, RGB.	La configuración de fuentes de tu escritorio usa renderizado de subpíxeles, RGB.
+	Your desktop's font settings use subpixel rendering, BGR.	La configuración de fuentes de tu escritorio usa renderizado de subpíxeles, BGR.
+	Your desktop's font settings use greyscale text, so page text is greyscale.	La configuración de fuentes de tu escritorio usa texto en escala de grises, así que el texto de la página se muestra en escala de grises.
+	RGB	RGB
+	BGR	BGR

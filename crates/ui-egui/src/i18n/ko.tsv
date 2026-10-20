@@ -2617,3 +2617,11 @@ preview	Title	제목
 	More tabs	탭 더 보기
 # #3013: Insert Table of Figures
 	Include label and number	레이블 및 번호 포함
+
+	Subpixel text:	서브픽셀 텍스트:
+	Sharper page text on LCD screens: each third of a pixel lights its own colour. Pick the order of your screen's colour stripes, left to right.	LCD 화면에서 페이지 텍스트를 더 선명하게 표시합니다. 픽셀의 3분의 1마다 각자의 색으로 빛납니다. 화면의 색 줄무늬 순서를 왼쪽에서 오른쪽으로 선택하세요.
+	Your desktop's font settings use subpixel rendering, RGB.	데스크톱 글꼴 설정에서 서브픽셀 렌더링(RGB)을 사용합니다.
+	Your desktop's font settings use subpixel rendering, BGR.	데스크톱 글꼴 설정에서 서브픽셀 렌더링(BGR)을 사용합니다.
+	Your desktop's font settings use greyscale text, so page text is greyscale.	데스크톱 글꼴 설정에서 회색조 텍스트를 사용하므로 페이지 텍스트도 회색조로 표시됩니다.
+	RGB	RGB
+	BGR	BGR

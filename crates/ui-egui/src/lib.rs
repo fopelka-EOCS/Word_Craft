@@ -94,6 +94,7 @@ use wordcraft_engine::Session;
 
 pub use control::ControlRequest;
 pub use file_dialogs::{FileDialogAnswer, FileDialogRequest, open_filters};
+pub use wordcraft_render::Subpixel;
 
 /// Platform services injected by the host (file dialogs, file I/O).
 #[derive(Default)]
@@ -142,6 +143,11 @@ pub struct Services {
     /// Asked every frame, so a change in the system's settings shows at once: the host answers
     /// from memory and does any slow asking elsewhere. Without the hook, animation effects stay on.
     pub animations_enabled: Option<Box<dyn Fn() -> Option<bool>>>,
+    /// Linux and the BSDs: the subpixel order the desktop's font settings ask text to be drawn
+    /// with (KDE Plasma's and GNOME's, as fontconfig-based apps such as Firefox follow them), or
+    /// `None` for greyscale text or when it doesn't say. What "Use system setting" follows
+    /// ([`theme::SubpixelText`]). Asked every frame, answered from memory.
+    pub subpixel_order: Option<Box<dyn Fn() -> Option<Subpixel>>>,
     /// Desktop: the text on the system clipboard, if any. Ctrl+V gets it from egui's paste event;
     /// the ribbon and context-menu Paste read it here (#584).
     pub clipboard_text: Option<Box<dyn Fn() -> Option<String>>>,
@@ -270,6 +276,9 @@ pub struct UiState {
     /// Animation effects (smooth scrolling, fades): on, off, or follow the system's setting, which
     /// is the default. An unknown saved value reads as the default.
     pub animations: theme::Animations,
+    /// Subpixel text on the pages (Linux and the BSDs): follow the desktop's font settings (the
+    /// default), off, RGB or BGR. An unknown saved value reads as the default.
+    pub subpixel_text: theme::SubpixelText,
     /// The dark-mode switch `ui.json` held before `theme` (#115): read once to migrate, never written.
     #[serde(rename = "dark", skip_serializing)]
     pub(crate) legacy_dark: Option<bool>,
@@ -391,6 +400,7 @@ impl Default for UiState {
             interface_size: theme::InterfaceSize::default(),
             legacy_interface_size: None,
             animations: theme::Animations::default(),
+            subpixel_text: theme::SubpixelText::default(),
             legacy_dark: None,
             nav_tab: "headings".into(),
             nav_pane: false,
@@ -603,6 +613,8 @@ pub struct WordApp {
     system_animations: Option<bool>,
     /// Whether egui's own animations were last switched on or off ([`theme::apply_animations`]).
     applied_animations: Option<bool>,
+    /// What the desktop last asked text to be drawn with ([`Services::subpixel_order`]).
+    system_subpixel: Option<Subpixel>,
     pub frame_ms: f64,
     /// The window title last sent; a viewport command schedules a repaint, so only send changes.
     sent_title: String,
@@ -728,6 +740,7 @@ impl WordApp {
             applied_editing: None,
             system_animations: None,
             applied_animations: None,
+            system_subpixel: None,
             frame_ms: 0.0,
             sent_title: String::new(),
             sent_full_screen: false,
@@ -1513,6 +1526,23 @@ impl WordApp {
         self.system_animations = self.services.animations_enabled.as_ref().and_then(|ask| ask());
     }
 
+    /// The subpixel order the pages' text is drawn with: the Subpixel text setting, where
+    /// `System` follows what the desktop last asked for. Linux and the BSDs only; elsewhere, and
+    /// with `None`, text is greyscale.
+    pub fn subpixel_order(&self) -> Option<Subpixel> {
+        if cfg!(all(unix, not(target_os = "macos"))) { self.ui.subpixel_text.order(self.system_subpixel) } else { None }
+    }
+
+    /// What the desktop last asked text to be drawn with (`None`: greyscale, or it doesn't say).
+    pub fn system_subpixel(&self) -> Option<Subpixel> {
+        self.system_subpixel
+    }
+
+    /// Ask the host for the desktop's subpixel setting.
+    fn read_system_subpixel(&mut self) {
+        self.system_subpixel = self.services.subpixel_order.as_ref().and_then(|ask| ask());
+    }
+
     /// Commands that live in the UI layer.
     fn ui_command(&mut self, id: &str, p: &Value) -> Option<Result<Value, String>> {
         let s = |k: &str| p.get(k).and_then(Value::as_str);
@@ -1670,6 +1700,19 @@ impl WordApp {
                 }
                 self.read_system_animations();
                 json!({"animations": self.ui.animations.code(), "enabled": self.animations_on(), "system": self.system_animations})
+            }
+            "ui.subpixelText" => {
+                // `system` (follow the desktop's font settings), `off`, `rgb` or `bgr`; no value
+                // reads it. `order` is what that comes to now, `system` what the desktop asks for.
+                if let Some(v) = s("value") {
+                    match theme::SubpixelText::from_code(v) {
+                        Some(a) => self.ui.subpixel_text = a,
+                        None => return Some(Err(format!("unknown subpixel text setting {v:?}; use system, off, rgb or bgr"))),
+                    }
+                }
+                self.read_system_subpixel();
+                let code = |o: Option<Subpixel>| o.map(|o| if o == Subpixel::Rgb { "rgb" } else { "bgr" });
+                json!({"subpixelText": self.ui.subpixel_text.code(), "order": code(self.subpixel_order()), "system": code(self.system_subpixel)})
             }
             "ui.language" => {
                 // `auto` (follow the system) or a language code; anything else is an error.
@@ -2160,6 +2203,7 @@ impl WordApp {
         // Animation effects: the host is asked every frame what the system says (it answers from
         // memory), so a change made in the system's settings is followed without a restart.
         self.read_system_animations();
+        self.read_system_subpixel();
         let animate = self.animations_on();
         if self.applied_animations != Some(animate) {
             theme::apply_animations(ctx, animate);
@@ -2800,6 +2844,7 @@ pub(crate) fn works_without_document(id: &str) -> bool {
             | "ui.theme"
             | "ui.interfaceSize"
             | "ui.animations"
+            | "ui.subpixelText"
             | "ui.language"
             | "ui.saveChanges"
             | "ui.openFileDialog"
@@ -4357,6 +4402,35 @@ mod tests {
         frame(&mut a, Vec::new());
         assert_eq!(a.canvas.scale, last);
         assert_eq!(a.canvas.pages_hinted, platform, "hinted once the zoom stops");
+    }
+
+    /// `ui.subpixelText`: `system` (the default) follows what the desktop asks for, `off`, `rgb` and
+    /// `bgr` override it; pages draw text so on Linux and the BSDs only. The setting is part of the
+    /// pages' texture key, so changing it draws them again.
+    #[test]
+    fn subpixel_text_follows_the_desktop_or_the_setting() {
+        use crate::theme::SubpixelText;
+        let linux = cfg!(all(unix, not(target_os = "macos")));
+        let on = |o: &str| if linux { json!(o) } else { Value::Null };
+        // No host hook (tests, headless screenshots): nothing is asked for, so greyscale.
+        let mut a = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
+        assert_eq!(a.run("ui.subpixelText", json!({})).unwrap(), json!({"subpixelText": "system", "order": null, "system": null}));
+        let services = Services { subpixel_order: Some(Box::new(|| Some(Subpixel::Bgr))), ..Default::default() };
+        let mut a = WordApp::new(Session::new(wordcraft_doc::Document::new()), services);
+        assert_eq!(a.run("ui.subpixelText", json!({})).unwrap(), json!({"subpixelText": "system", "order": on("bgr"), "system": "bgr"}));
+        let key = |a: &WordApp| canvas::tests_view_key(a);
+        let followed = key(&a);
+        assert_eq!(a.run("ui.subpixelText", json!({"value": "Off"})).unwrap()["order"], Value::Null);
+        assert_eq!(a.ui.subpixel_text, SubpixelText::Off);
+        assert_eq!(key(&a) != followed, linux, "greyscale pages are drawn again");
+        assert_eq!(a.run("ui.subpixelText", json!({"value": "rgb"})).unwrap()["order"], on("rgb"));
+        assert!(a.run("ui.subpixelText", json!({"value": "diagonal"})).is_err());
+        assert_eq!(a.ui.subpixel_text, SubpixelText::Rgb, "a bad value changes nothing");
+        // Kept in `ui.json`; an unknown saved value reads as the default.
+        let saved: UiState = serde_json::from_value(serde_json::to_value(&a.ui).unwrap()).unwrap();
+        assert_eq!(saved.subpixel_text, SubpixelText::Rgb);
+        let junk: UiState = serde_json::from_value(json!({"subpixelText": "sideways"})).unwrap();
+        assert_eq!(junk.subpixel_text, SubpixelText::System);
     }
 
     /// With animation effects off a zoom step is finished in its own frame: Ctrl+wheel zooms the

@@ -2366,3 +2366,11 @@
 	More tabs	Weitere Registerkarten
 # #3013: Insert Table of Figures
 	Include label and number	Bezeichnung und Nummer einbeziehen
+
+	Subpixel text:	Subpixel-Text:
+	Sharper page text on LCD screens: each third of a pixel lights its own colour. Pick the order of your screen's colour stripes, left to right.	Schärferer Seitentext auf LCD-Bildschirmen: Jedes Drittel eines Pixels leuchtet in seiner eigenen Farbe. Wählen Sie die Reihenfolge der Farbstreifen Ihres Bildschirms, von links nach rechts.
+	Your desktop's font settings use subpixel rendering, RGB.	Die Schrifteinstellungen Ihres Desktops verwenden Subpixel-Darstellung, RGB.
+	Your desktop's font settings use subpixel rendering, BGR.	Die Schrifteinstellungen Ihres Desktops verwenden Subpixel-Darstellung, BGR.
+	Your desktop's font settings use greyscale text, so page text is greyscale.	Die Schrifteinstellungen Ihres Desktops verwenden Graustufentext, daher wird der Seitentext in Graustufen dargestellt.
+	RGB	RGB
+	BGR	BGR

@@ -755,8 +755,10 @@ pub fn sync_fit_zoom(app: &mut WordApp, scale: f32) {
 /// Taken once per frame.
 fn view_key(app: &WordApp, dim_body: bool, hidden: Option<&Pos>, hinted: bool) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    // A page drawn unhinted mid-zoom must not pass for the hinted page (see [`hint_pages`]).
+    // A page drawn unhinted mid-zoom must not pass for the hinted page (see [`hint_pages`]), nor
+    // one with greyscale text for one with subpixel text.
     hinted.hash(&mut h);
+    app.subpixel_order().hash(&mut h);
     let v = &app.session.view;
     (v.marks, app.session.prefs.marks, v.show_markup, v.dark_mode, wordcraft_render::DARK_PAPER, v.hide_ink, v.draw.replay).hash(&mut h);
     app.session.prefs.markup.hash(&mut h);
@@ -1244,6 +1246,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             let width_scale = (geo.scale * ppp).min(max_tex / page.w.max(1.0)).max(0.05);
             let tiled = page.h.clamp(1.0, 1e6) * width_scale > max_tex;
             let scale_px = if tiled { width_scale } else { width_scale.min(max_tex / page.h.clamp(1.0, 1e6)).max(0.05) };
+            // Subpixel text only where the raster is shown one texel per screen pixel: not on a
+            // page shrunk to the GPU's texture size, where it would be scaled.
+            let one_to_one = (scale_px - geo.scale * ppp).abs() <= 1e-4 * scale_px.abs().max(1.0);
             let tile_height_px = TILE_HEIGHT_PX.min(max_tex as usize).max(1);
             // Hide White Space shows only a band of the page; everything below paints into it.
             let band_of = |r: Rect| Rect::from_min_max(pos2(r.min.x - 4.0, r.min.y + band_top), pos2(r.max.x + 4.0, r.min.y + band_bot));
@@ -1261,6 +1266,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             if visible && !tiled && !fresh && (forced || rendered < 2 || !app.canvas.textures.contains_key(&i) && rendered < 4) {
                 let mut opts = page_render_options(app, dim_body);
                 opts.hinting &= hinted;
+                opts.subpixel = opts.subpixel.filter(|_| one_to_one);
                 // Only on the page it is on: the `Pos` can't match an object of another page.
                 opts.display.hide_object = hidden.as_ref().filter(|(page, _)| *page == i).map(|(_, p)| p.clone());
                 let img = wordcraft_render::render_page(&app.session.doc, page, scale_px, &opts);
@@ -1318,6 +1324,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     if !fresh && rendered < 4 {
                         let mut opts = page_render_options(app, dim_body);
                         opts.hinting &= hinted;
+                        opts.subpixel = opts.subpixel.filter(|_| one_to_one);
                         // Only on the page it is on: the `Pos` can't match an object of another page.
                         opts.display.hide_object = hidden.as_ref().filter(|(page, _)| *page == i).map(|(_, p)| p.clone());
                         // The tiny subtraction avoids a 1px overshoot from round-tripping f32
@@ -3480,6 +3487,8 @@ fn field_showing_code(app: &WordApp, pos: &wordcraft_doc::Pos) -> Option<wordcra
 /// Render options for this view's page rasters: marks, markup, dark page, header/body dimming.
 fn page_render_options(app: &WordApp, dim_body: bool) -> wordcraft_render::RenderOptions {
     let mut opts = screen_render_options();
+    // The canvas pages only: thumbnails and previews are shown scaled.
+    opts.subpixel = app.subpixel_order();
     opts.display.marks = app.session.view.marks;
     opts.display.always = app.session.prefs.marks;
     opts.display.placeholders = true;
@@ -3561,6 +3570,12 @@ fn caret_color_at(app: &mut WordApp, layout: &std::sync::Arc<DocLayout>, page: u
 pub(crate) fn caret_color_on(app: &WordApp, layout: &DocLayout, page: usize, x: f32, y: f32) -> Color32 {
     let Some(p) = layout.pages.get(page) else { return Color32::BLACK };
     caret_contrast(wordcraft_render::background_at(&app.session.doc, p, &page_render_options(app, dims_body(app, layout)), x, y))
+}
+
+/// The view part of the pages' texture key at rest, for tests elsewhere in the crate.
+#[cfg(test)]
+pub(crate) fn tests_view_key(app: &WordApp) -> u64 {
+    view_key(app, false, None, true)
 }
 
 /// Are pages drawn hinted this frame (as [`screen_render_options`] says)? Not while a pointer
@@ -6775,5 +6790,41 @@ mod tests {
         let doc = wordcraft_doc::Document::from_text("Hello WordCraft");
         let app = WordApp::new(wordcraft_engine::Session::new(doc), Default::default());
         assert_ne!(view_key(&app, false, None, true), view_key(&app, false, None, false));
+    }
+
+    /// A real page (tables with banded fills, shading, coloured headings): with subpixel text it
+    /// differs from the greyscale page only along the edges of its text; every fill under and
+    /// around the text is where it was, in its colour.
+    #[test]
+    fn a_page_with_subpixel_text_differs_from_greyscale_only_at_text_edges() {
+        let doc = wordcraft_engine::sample::sample_document();
+        let l = wordcraft_layout::layout(&doc, &mut wordcraft_layout::LayoutCache::new(), &wordcraft_layout::LayoutOptions::default());
+        let grey = wordcraft_render::RenderOptions { hinting: true, ..Default::default() };
+        let sub = wordcraft_render::RenderOptions { subpixel: Some(wordcraft_render::Subpixel::Rgb), ..grey.clone() };
+        for page in &l.pages {
+            let a = wordcraft_render::render_page(&doc, page, 1.93, &grey);
+            let b = wordcraft_render::render_page(&doc, page, 1.93, &sub);
+            let (pa, pb) = (a.pixels.as_chunks::<4>().0, b.pixels.as_chunks::<4>().0);
+            // Each pixel's brightness: greyscale and subpixel text cover about the same.
+            let lum = |p: &[u8; 4]| (u32::from(p[0]) + u32::from(p[1]) + u32::from(p[2])) / 3;
+            let far = pa.iter().zip(pb).filter(|(x, y)| lum(x).abs_diff(lum(y)) > 90).count();
+            assert!(far * 1000 < pa.len(), "{far} of {} pixels far apart", pa.len());
+            // Inside every area of one colour (paper, fills, shading, a thick stroke), two pixels
+            // from any edge, the pages are the same pixel for pixel: subpixel text changes only
+            // the pixels at the edges of text, and nothing is drawn out of order.
+            let (w, h) = (a.width as usize, a.height as usize);
+            let at = |x: usize, y: usize| pa[y * w + x];
+            let mut inside = 0;
+            for y in 2..h.saturating_sub(2) {
+                for x in 2..w.saturating_sub(2) {
+                    let c = at(x, y);
+                    if (y - 2..=y + 2).all(|yy| (x - 2..=x + 2).all(|xx| at(xx, yy) == c)) {
+                        inside += 1;
+                        assert_eq!(pb[y * w + x], c, "({x}, {y}) inside an area of {c:?}");
+                    }
+                }
+            }
+            assert!(inside * 2 > pa.len(), "most of a page is inside areas: {inside} of {}", pa.len());
+        }
     }
 }

@@ -2381,3 +2381,11 @@
 	More tabs	Још картица
 # #3013: Insert Table of Figures
 	Include label and number	Укључи ознаку и број
+
+	Subpixel text:	Потпикселни текст:
+	Sharper page text on LCD screens: each third of a pixel lights its own colour. Pick the order of your screen's colour stripes, left to right.	Оштрији текст страница на LCD екранима: свака трећина пиксела светли сопственом бојом. Изаберите редослед обојених трака на екрану, слева надесно.
+	Your desktop's font settings use subpixel rendering, RGB.	Подешавања фонтова вашег радног окружења користе потпикселно исцртавање, RGB.
+	Your desktop's font settings use subpixel rendering, BGR.	Подешавања фонтова вашег радног окружења користе потпикселно исцртавање, BGR.
+	Your desktop's font settings use greyscale text, so page text is greyscale.	Подешавања фонтова вашег радног окружења користе текст у нијансама сиве, па је текст страница у нијансама сиве.
+	RGB	RGB
+	BGR	BGR

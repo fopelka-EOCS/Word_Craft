@@ -2772,3 +2772,11 @@ preview	Title	Örnek
 	More tabs	Diğer sekmeler
 # #3013: Insert Table of Figures
 	Include label and number	Etiketi ve numarayı ekle
+
+	Subpixel text:	Alt piksel metin:
+	Sharper page text on LCD screens: each third of a pixel lights its own colour. Pick the order of your screen's colour stripes, left to right.	LCD ekranlarda daha keskin sayfa metni: pikselin her üçte biri kendi renginde yanar. Ekranınızın renk şeritlerinin sırasını soldan sağa seçin.
+	Your desktop's font settings use subpixel rendering, RGB.	Masaüstünüzün yazı tipi ayarları alt piksel işleme kullanıyor, RGB.
+	Your desktop's font settings use subpixel rendering, BGR.	Masaüstünüzün yazı tipi ayarları alt piksel işleme kullanıyor, BGR.
+	Your desktop's font settings use greyscale text, so page text is greyscale.	Masaüstünüzün yazı tipi ayarları gri tonlamalı metin kullanıyor, bu nedenle sayfa metni gri tonlamalı.
+	RGB	RGB
+	BGR	BGR

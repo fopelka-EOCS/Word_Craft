@@ -2379,3 +2379,11 @@
 	More tabs	更多选项卡
 # #3013: Insert Table of Figures
 	Include label and number	包含标签和编号
+
+	Subpixel text:	子像素文本：
+	Sharper page text on LCD screens: each third of a pixel lights its own colour. Pick the order of your screen's colour stripes, left to right.	在 LCD 屏幕上让页面文字更清晰：每个像素的三分之一各自发出自己的颜色。请按从左到右的顺序选择屏幕的颜色条纹排列。
+	Your desktop's font settings use subpixel rendering, RGB.	桌面的字体设置使用子像素渲染（RGB）。
+	Your desktop's font settings use subpixel rendering, BGR.	桌面的字体设置使用子像素渲染（BGR）。
+	Your desktop's font settings use greyscale text, so page text is greyscale.	桌面的字体设置使用灰度文字，因此页面文字为灰度显示。
+	RGB	RGB
+	BGR	BGR

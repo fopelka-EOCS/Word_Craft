@@ -2368,3 +2368,11 @@
 	More tabs	更多索引標籤
 # #3013: Insert Table of Figures
 	Include label and number	包含標籤和編號
+
+	Subpixel text:	次像素文字：
+	Sharper page text on LCD screens: each third of a pixel lights its own colour. Pick the order of your screen's colour stripes, left to right.	在 LCD 螢幕上讓頁面文字更清晰：每個像素的三分之一各自發出自己的顏色。請依從左到右的順序選擇螢幕的色條排列。
+	Your desktop's font settings use subpixel rendering, RGB.	桌面的字型設定使用次像素轉譯（RGB）。
+	Your desktop's font settings use subpixel rendering, BGR.	桌面的字型設定使用次像素轉譯（BGR）。
+	Your desktop's font settings use greyscale text, so page text is greyscale.	桌面的字型設定使用灰階文字，因此頁面文字以灰階顯示。
+	RGB	RGB
+	BGR	BGR

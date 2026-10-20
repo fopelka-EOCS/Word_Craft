@@ -2799,3 +2799,11 @@ template	Letter	Lettera
 	More tabs	Altre schede
 # #3013: Insert Table of Figures
 	Include label and number	Includi etichetta e numero
+
+	Subpixel text:	Testo subpixel:
+	Sharper page text on LCD screens: each third of a pixel lights its own colour. Pick the order of your screen's colour stripes, left to right.	Testo della pagina più nitido sugli schermi LCD: ogni terzo di pixel si illumina del proprio colore. Scegli l’ordine delle strisce di colore dello schermo, da sinistra a destra.
+	Your desktop's font settings use subpixel rendering, RGB.	Le impostazioni dei caratteri del desktop usano il rendering subpixel, RGB.
+	Your desktop's font settings use subpixel rendering, BGR.	Le impostazioni dei caratteri del desktop usano il rendering subpixel, BGR.
+	Your desktop's font settings use greyscale text, so page text is greyscale.	Le impostazioni dei caratteri del desktop usano testo in scala di grigi, quindi il testo della pagina è in scala di grigi.
+	RGB	RGB
+	BGR	BGR
