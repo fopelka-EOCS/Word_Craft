@@ -27,7 +27,7 @@ mod traffic_lights;
 use wordcraft_engine::Session;
 use wordcraft_ui_egui::{
     Services, UiState, WordApp,
-    window_geometry::{WindowGeometry, take_rescue},
+    window_geometry::{WindowGeometry, take_rescue, unzoomed},
 };
 
 /// The app, the restored window geometry (or, with none, the default: no position) until the
@@ -47,20 +47,27 @@ impl eframe::App for App {
         apple_events::poll(&self.4, &mut self.0, ctx);
         self.0.logic(ctx);
         self.3.show(frame);
+        // The window in the units it opens with, without the Interface size (#2828). Commands
+        // take points again: they are carried out after this frame at its Interface size (a size
+        // `logic` above has just changed applies from the next frame).
+        let (info, content, zoom) = ctx.input(|i| {
+            let (info, zoom) = unzoomed(i.viewport(), i.pixels_per_point());
+            (info, i.viewport_rect().size() * zoom, zoom)
+        });
         // A window that doesn't fit on its screen (the default size on a laptop) shrinks to fit
         // there, so all of the scroll bar can be dragged (#1215). Checked on the frame that first
         // knows the monitor: the off-screen check below takes the pending geometry then.
-        if let Some((pos, size)) = ctx.input(|i| self.1.and_then(|g| g.fit_on_monitor(i.viewport()))) {
-            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
-            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos));
+        if let Some((pos, size)) = self.1.and_then(|g| g.fit_on_monitor(&info)) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(size / zoom));
+            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos / zoom));
         }
         let prev = self.0.ui.window;
-        self.0.ui.window = ctx.input(|i| WindowGeometry::track(prev, i.viewport(), i.viewport_rect().size()));
+        self.0.ui.window = WindowGeometry::track(prev, &info, content);
         // The first frame, once the monitor is known (as `take_rescue` waits for): maximize a
         // window that opened at its normal size so it never flashed on screen half-opened.
-        let maximize = self.1.and_then(|g| g.maximize_after_open()).filter(|_| ctx.input(|i| i.viewport().monitor_size.is_some()));
-        if let Some(pos) = ctx.input(|i| take_rescue(&mut self.1, i.viewport())) {
-            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos));
+        let maximize = self.1.and_then(|g| g.maximize_after_open()).filter(|_| info.monitor_size.is_some());
+        if let Some(pos) = take_rescue(&mut self.1, &info) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos / zoom));
         }
         if let Some(command) = maximize {
             ctx.send_viewport_cmd(command);
