@@ -5392,7 +5392,17 @@ mod tests {
         assert_eq!(h.get_by_role_and_label(role, "Value:").value().as_deref(), Some("draft"));
         h.get_by_role_and_label(egui::accesskit::Role::Button, "Modify").click();
         h.run_steps(2);
+        assert!(h.query_by_label("Property names are 1–255 characters.").is_none(), "the prefilled name is accepted");
         assert!(h.query_by_label("Status = draft").is_some(), "Modify with no edits keeps the property");
+        // A real edit through the same prefilled form reaches the document as one undo step.
+        let depth = h.state().session.undo_depth();
+        set_text_field(&mut h, "Value:", "final");
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "Modify").click();
+        h.run_steps(2);
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "OK").click();
+        h.run_steps(4);
+        assert_eq!(h.state().session.doc.custom_prop("Status"), Some("final"));
+        assert_eq!(h.state().session.undo_depth(), depth + 1, "one undoable change");
     }
 
     /// #2982: a rename that changes only the case of the name is still a rename. Modify and OK
