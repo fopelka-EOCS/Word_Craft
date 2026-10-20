@@ -999,7 +999,7 @@ fn polish_covers_every_key_of_every_other_catalog() {
     }
     for code in ["it", "hu"] {
         let missing: Vec<String> = keys(lang(code).0.source).difference(&polish).cloned().collect();
-        assert_eq!(missing, ["Style: APA"], "pl vs {code}");
+        assert!(missing.is_empty(), "pl vs {code}: {missing:?}");
     }
     let pl = lang("pl");
     assert_eq!(tr(pl, "File"), "Plik");
@@ -1559,4 +1559,92 @@ fn bundled_interface_fonts_cover_vietnamese_letters() {
         }
     }
     assert!(!lang("vi").uses_cjk());
+}
+
+#[test]
+fn thai_locales_and_saved_preference_do_not_change_the_document() {
+    let th = lang("th");
+    for tag in ["th", "th-TH", "th_TH.UTF-8", "TH_th.UTF-8", "th-Thai-TH", "th-US"] {
+        assert_eq!(lang_from_tag(tag), Some(th), "{tag}");
+    }
+    assert_eq!(first_supported([UNSUPPORTED, "th-TH", "en-US"]), Some(th));
+    assert_eq!(normalize_pref("TH"), Some("th"));
+    assert_eq!(th.name(), "ภาษาไทย");
+    assert_eq!(th.editing_lang(), None);
+    assert!(!th.uses_cjk());
+    let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_engine::sample::sample_document()), Default::default());
+    let before = serde_json::to_value(&app.session.doc).unwrap();
+    let result = app.run("ui.language", serde_json::json!({"value": "TH"})).unwrap();
+    assert_eq!(result["effective"], "th");
+    assert!(result["available"].as_array().unwrap().iter().any(|l| l["code"] == "th" && l["name"] == "ภาษาไทย"));
+    assert_eq!(serde_json::to_value(&app.session.doc).unwrap(), before);
+    let saved = serde_json::to_string(&app.ui).unwrap();
+    let restored: crate::UiState = serde_json::from_str(&saved).unwrap();
+    assert_eq!(restored.language, "th");
+    assert_eq!(Lang::from_pref(&restored.language), th);
+}
+
+#[test]
+fn thai_covers_existing_catalog_keys_and_preserves_templates() {
+    use std::collections::HashSet;
+    let th = lang("th");
+    let (entries, errors) = parse_entries(th.0.source);
+    assert!(errors.is_empty(), "{errors:?}");
+    let keys: HashSet<_> = entries.into_iter().map(|e| (e.context, e.source)).collect();
+    for other in Lang::all().filter(|l| *l != Lang::EN && *l != th) {
+        let (entries, errors) = parse_entries(other.0.source);
+        assert!(errors.is_empty(), "{}: {errors:?}", other.code());
+        let mut missing: Vec<_> = entries.into_iter().map(|e| (e.context, e.source)).filter(|key| !keys.contains(key)).collect();
+        missing.sort();
+        assert!(missing.is_empty(), "th lacks {}'s {missing:?}", other.code());
+    }
+    assert_eq!(tr(th, "File"), "ไฟล์");
+    assert_eq!(tr(th, "Home"), "หน้าแรก");
+    assert_eq!(tr(th, "Save"), "บันทึก");
+    assert_eq!(tr(th, "Interface language:"), "ภาษาในส่วนติดต่อผู้ใช้:");
+    assert_eq!(trc(th, "preview", "Title"), "ชื่อเรื่อง");
+    assert_eq!(tr(th, "unknown future label"), "unknown future label");
+    assert_eq!(fmt(tr(th, "Exported {path}"), &[("path", "draft-{words}.docx")]), "ส่งออก draft-{words}.docx แล้ว");
+    for count in [0, 1, 2, 11, 21, 101] {
+        assert_eq!(fmt(tr(th, "{words} words"), &[("words", &count.to_string())]), format!("{count} คำ"));
+    }
+}
+
+#[test]
+fn thai_interface_and_language_name_have_font_fallbacks() {
+    let db = wordcraft_fonts::FontDb::global();
+    if db.fallback_for('ภ', u32::MAX).is_none() {
+        eprintln!("skipped: no Thai font installed or embedded through craft-fonts");
+        return;
+    }
+    let th = lang("th");
+    let (entries, errors) = parse_entries(th.0.source);
+    assert!(errors.is_empty(), "{errors:?}");
+    let chars: std::collections::BTreeSet<char> = entries
+        .iter()
+        .flat_map(|entry| entry.translation.chars())
+        .chain(th.name().chars())
+        .filter(|c| ('\u{0E00}'..='\u{0E7F}').contains(c))
+        .collect();
+    let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+    app.session.path = Some("english-name.docx".into());
+    app.run("ui.language", serde_json::json!({"value": "th"})).unwrap();
+    let ctx = egui::Context::default();
+    for _ in 0..2 {
+        ctx.run_ui(Default::default(), |ui| app.logic(ui.ctx())).drop_without_applying_deltas();
+    }
+    for font in [crate::theme::regular(14.0), crate::theme::medium(14.0), crate::theme::semibold(14.0)] {
+        let uv_for =
+            |c: char| ctx.fonts_mut(|fonts| fonts.layout_no_wrap(c.to_string(), font.clone(), egui::Color32::BLACK)).rows[0].glyphs[0].uv_rect;
+        let replacement = uv_for('\u{10FFFF}');
+        let missing: String = chars.iter().copied().filter(|c| uv_for(*c) == replacement).collect();
+        assert!(missing.is_empty(), "Thai interface glyphs missing in {font:?}: {missing}");
+    }
+    let count = app.canvas.ime_faces.len();
+    app.ensure_thai_fonts();
+    assert_eq!(app.canvas.ime_faces.len(), count);
+    let mut english = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+    english.ensure_thai_fonts();
+    assert!(!english.canvas.ime_faces.is_empty(), "the language picker needs the Thai name before Thai is selected");
+    set_current(Lang::EN);
 }

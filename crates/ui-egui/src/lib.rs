@@ -544,6 +544,7 @@ pub struct WordApp {
     fonts_korean: bool,
     /// Whether the installed UI fonts include an installed CJK fallback font (#241).
     fonts_system_cjk: bool,
+    fonts_thai: bool,
     /// CJK text is (about to be) on screen in a non-CJK interface, e.g. the language names in
     /// File ▸ Options: load the installed CJK fallback font if no embedded face covers it.
     pub(crate) want_system_cjk: bool,
@@ -677,6 +678,7 @@ impl WordApp {
             fonts_hans: false,
             fonts_korean: false,
             fonts_system_cjk: false,
+            fonts_thai: false,
             want_system_cjk: false,
             comment_fonts_for: None,
             fonts_frames: 0,
@@ -1909,6 +1911,23 @@ impl WordApp {
         }
     }
 
+    pub(crate) fn ensure_thai_fonts(&mut self) {
+        if self.fonts_thai {
+            return;
+        }
+        self.fonts_thai = true;
+        let new = theme::faces_for_preedit(
+            include_str!("i18n/th.tsv"),
+            &self.canvas.ime_faces,
+            |c| !('\u{0E00}'..='\u{0E7F}').contains(&c),
+            |c| wordcraft_fonts::FontDb::global().fallback_for(c, u32::MAX),
+        );
+        if !new.is_empty() {
+            self.canvas.ime_faces.extend(new);
+            self.styled = false;
+        }
+    }
+
     /// Document title for the title bar (and the suggested file name). An untitled document is
     /// named in the interface language, as `Document1` is in English.
     pub fn title_stem(&self) -> String {
@@ -1942,6 +1961,9 @@ impl WordApp {
     pub fn logic(&mut self, ctx: &egui::Context) {
         let lang = i18n::Lang::from_pref(&self.ui.language);
         i18n::set_current(lang);
+        if lang.code() == "th" {
+            self.ensure_thai_fonts();
+        }
         // New documents are written in the interface's language when WordCraft can proof it
         // (a Polish interface: Polish spelling, grammar and hyphenation from the first word).
         if self.applied_editing != Some(lang) {
