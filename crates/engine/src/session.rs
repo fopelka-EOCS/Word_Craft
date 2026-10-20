@@ -805,6 +805,11 @@ impl Session {
         self.layout = Some((self.rev, width, height, mode, spacing, l.clone(), self.view.proofing, outline, deleted, self.view.numeral));
         l
     }
+    /// The layout last made, whatever the document looked like then: enough to ask which section
+    /// a page belongs to without laying out again.
+    pub(crate) fn cached_layout(&self) -> Option<&Arc<DocLayout>> {
+        self.layout.as_ref().map(|l| &l.5)
+    }
     /// A layout for output (PDF, images, print): no proofing marks, print view.
     pub fn export_layout(&self) -> Arc<DocLayout> {
         self.export_layout_with(false)

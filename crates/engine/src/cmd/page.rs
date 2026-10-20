@@ -215,8 +215,10 @@ fn manual_hyphenation(s: &mut Session, v: &Value) -> CmdResult {
     Ok(best.map(|(_, v)| v).unwrap_or_else(|| json!({"done": true})))
 }
 
+/// The body block whose section the selection is in; in a header or footer, the last block of the
+/// section it belongs to (its own block index would name a body block that has nothing to do with it).
 fn block_of(s: &Session) -> usize {
-    s.sel.focus.path.0.first().copied().unwrap_or(0) as usize
+    super::hf::section_end(s).unwrap_or_else(|| s.sel.focus.path.0.first().copied().unwrap_or(0) as usize)
 }
 
 pub fn sect(s: &Session) -> SectionProps {
@@ -226,6 +228,9 @@ pub fn sect(s: &Session) -> SectionProps {
 
 /// The last block of each section of the selection.
 fn selected_section_ends(s: &Session) -> Vec<usize> {
+    if let Some(end) = super::hf::section_end(s) {
+        return vec![end];
+    }
     let (a, b) = s.sel.ordered();
     let (i0, i1) = (a.path.0.first().copied().unwrap_or(0) as usize, b.path.0.first().copied().unwrap_or(0) as usize);
     let ends: Vec<usize> = s.doc.sections().iter().map(|(e, _)| *e).collect();

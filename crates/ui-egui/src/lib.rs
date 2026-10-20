@@ -507,6 +507,8 @@ pub struct WordApp {
     last_autosave: f64,
     /// The tab shown before the Equation tab came up (restored when editing ends).
     pub(crate) equation_prev_tab: Option<String>,
+    /// The tab that was showing when the caret went into a header or footer.
+    pub(crate) header_footer_prev_tab: Option<String>,
     /// SmartArt Text Pane: the item last focused (Promote, Demote and Add Shape act on it) and
     /// the item being typed in (its keystrokes join one undo step).
     pub smart_art_item: Option<usize>,
@@ -619,6 +621,7 @@ impl WordApp {
             word_count: (0, 0),
             last_autosave: 0.0,
             equation_prev_tab: None,
+            header_footer_prev_tab: None,
             smart_art_item: None,
             smart_art_typing: None,
             outline_prev_tab: None,
