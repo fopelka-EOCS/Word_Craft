@@ -67,6 +67,8 @@ pub struct CanvasState {
     /// The caret's colour and the fingerprint of where it was worked out ([`caret_color_at`]).
     caret_bg: Option<(u64, Color32)>,
     dragging: bool,
+    /// The drag started inside the equation being edited: it selects part of the equation.
+    math_drag: bool,
     /// Alt+drag: where the column (block) selection started (page, x, y) and its last end.
     column_drag: Option<((usize, f32, f32), (usize, f32, f32))>,
     /// The last primary press on the page (time, screen point, clicks in a row), to count
@@ -216,6 +218,7 @@ impl CanvasState {
     /// Stop a text-selection drag when the pointer gesture becomes an object drag.
     pub(crate) fn cancel_text_drag(&mut self) {
         self.dragging = false;
+        self.math_drag = false;
         self.column_drag = None;
         self.unit_drag = None;
     }
@@ -258,6 +261,7 @@ impl Default for CanvasState {
             caret_visible_since: 0.0,
             caret_bg: None,
             dragging: false,
+            math_drag: false,
             column_drag: None,
             last_press: None,
             hf_press_switched: false,
@@ -1218,6 +1222,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     // A release `mouse` returned before seeing (double-click paths, off the canvas) ends the drag here (#1019).
     if app.canvas.dragging && !down && !released {
         app.canvas.dragging = false;
+        app.canvas.math_drag = false;
         app.canvas.column_drag = None;
         app.canvas.unit_drag = None;
     }
@@ -1586,8 +1591,11 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             let (pi, ex, base, ml) = (bx.page, bx.x, bx.base, bx.math.clone());
             let s = geo.scale;
             let frame = equation_frame(*pr, &bx, s);
-            // The argument the caret is in (a numerator, a radicand…) is shaded.
-            if !m.pos.path.is_empty()
+            let selection = app.session.math_selection();
+            // The argument the caret is in (a numerator, a radicand…) is shaded, unless part
+            // of the equation is selected.
+            if selection.is_none()
+                && !m.pos.path.is_empty()
                 && let Some((x0, x1, up, down)) = ml.arg_extent(&m.pos.path)
             {
                 let arg = Rect::from_min_max(
@@ -1595,6 +1603,18 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     pos2(pr.min.x + (ex + x1) * s, pr.min.y + (base + down) * s),
                 );
                 painter.rect_filled(arg.expand(1.0), 0.0, Color32::from_black_alpha(26));
+            }
+            // A selection inside it is highlighted from its first to its last caret position: in
+            // the top-level argument the whole frame's height, as in Word; deeper, the argument's.
+            if let Some(sp) = &selection
+                && let (Some(a), Some(b)) = (ml.slot(&sp.path, sp.start), ml.slot(&sp.path, sp.end))
+            {
+                let (x0, x1) = (pr.min.x + (ex + a.x) * s, pr.min.x + (ex + b.x) * s);
+                let (y0, y1) = match ml.arg_extent(&sp.path) {
+                    Some((_, _, up, down)) if !sp.path.is_empty() => (pr.min.y + (base - up) * s, pr.min.y + (base + down) * s),
+                    _ => (frame.outline.min.y + 1.0, frame.outline.max.y - 1.0),
+                };
+                painter.rect_filled(Rect::from_min_max(pos2(x0.min(x1), y0), pos2(x0.max(x1), y1)), 0.0, t.selection);
             }
             painter.rect_filled(frame.strip, 0.0, t.equation_box.gamma_multiply(0.35));
             let (c, w) = (frame.strip.center(), frame.strip.width() * 0.3);
@@ -1622,7 +1642,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 // The caret glides and fades like Word's (`caret_glide`).
                 let on = ((since / 530.0) as u64).is_multiple_of(2);
                 let look = crate::caret_glide::look(app, ui, content_origin, &geo, [pos2(x, y0), pos2(x, y1)], focused, since, on);
-                if look.opacity > 0.0 && focused {
+                // No caret while part of the equation is selected.
+                if look.opacity > 0.0 && focused && selection.is_none() {
                     let caret_color = caret_color_at(app, &layout, pi, ex + slot.x, base - slot.y + (slot.d - slot.a) / 2.0, view, dim_body);
                     painter.line_segment(look.bar, Stroke::new(1.5, caret_color.gamma_multiply(look.opacity)));
                 }
@@ -2710,12 +2731,16 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
             app.canvas.column_drag = None;
             return;
         }
-        if !mods.shift
-            && let Some((at, inner)) = layout.equation_hit(page, x, y, story)
+        // A press in an equation puts the caret there and starts a drag that selects part of
+        // it; Shift+click in the equation being edited selects up to the click.
+        if let Some((at, inner)) = layout.equation_hit(page, x, y, story)
+            && (!mods.shift || app.session.math.as_ref().is_some_and(|m| m.at == at))
         {
             app.session.sel = wordcraft_engine::Selection::caret(at);
-            let _ = app.run("equation.edit", json!({"pos": serde_json::to_value(&inner).unwrap_or_default()}));
+            let _ = app.run("equation.edit", json!({"pos": serde_json::to_value(&inner).unwrap_or_default(), "extend": mods.shift}));
             app.session.page_hint = page;
+            app.canvas.dragging = true;
+            app.canvas.math_drag = true;
             return;
         }
         if app.session.math.is_some() {
@@ -2803,6 +2828,19 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         app.session.page_hint = page;
         app.canvas.dragging = true;
         // Format painter applies on mouse up.
+    } else if app.canvas.math_drag && ui.input(|i| i.pointer.primary_down()) {
+        // Dragging from inside the equation being edited selects part of it, up to the caret
+        // position nearest the pointer, even with the pointer outside the equation.
+        if let Some(m) = app.session.math.clone()
+            && let Some(bx) = layout.equation_box(&m.at, app.session.page_hint)
+            && bx.page == page
+            && let Some(slot) = bx.math.hit(x - bx.x, bx.base - y)
+            && (slot.path != m.pos.path || slot.off != m.pos.off)
+        {
+            let pos = wordcraft_doc::math_edit::MathPos::new(slot.path.clone(), slot.off);
+            let _ = app.session.run("equation.edit", &json!({"pos": serde_json::to_value(&pos).unwrap_or_default(), "extend": true}));
+            app.canvas.caret_visible_since = crate::now_ms();
+        }
     } else if app.canvas.dragging
         && ui.input(|i| i.pointer.primary_down())
         && let Some((from, last)) = app.canvas.column_drag
@@ -2849,6 +2887,7 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         // content under it, this hit-test keeps the selection growing (#688).
     } else if app.canvas.dragging && ui.input(|i| i.pointer.primary_released()) {
         app.canvas.dragging = false;
+        app.canvas.math_drag = false;
         app.canvas.column_drag = None;
         app.canvas.unit_drag = None;
         if app.session.painter.is_some() && !app.session.sel.is_collapsed() {

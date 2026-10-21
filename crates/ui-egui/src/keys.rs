@@ -187,13 +187,15 @@ fn equation_key(app: &mut WordApp, key: Key, m: Modifiers) -> bool {
     if m.command || m.alt || (m.ctrl && !cfg!(target_os = "macos")) {
         return false;
     }
+    // Shift with the arrows, Home and End selects inside the equation.
+    let mv = |dir: &str| ("equation.move", json!({"dir": dir, "extend": m.shift}));
     let (id, params) = match key {
-        Key::ArrowLeft => ("equation.move", json!({"dir": "left"})),
-        Key::ArrowRight => ("equation.move", json!({"dir": "right"})),
-        Key::ArrowUp => ("equation.move", json!({"dir": "up"})),
-        Key::ArrowDown => ("equation.move", json!({"dir": "down"})),
-        Key::Home => ("equation.move", json!({"dir": "home"})),
-        Key::End => ("equation.move", json!({"dir": "end"})),
+        Key::ArrowLeft => mv("left"),
+        Key::ArrowRight => mv("right"),
+        Key::ArrowUp => mv("up"),
+        Key::ArrowDown => mv("down"),
+        Key::Home => mv("home"),
+        Key::End => mv("end"),
         Key::Tab => ("equation.move", json!({"dir": if m.shift { "prev" } else { "next" }})),
         Key::Backspace => ("equation.backspace", json!({})),
         Key::Delete => ("equation.delete", json!({})),

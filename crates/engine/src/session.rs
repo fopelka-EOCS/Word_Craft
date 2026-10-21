@@ -522,6 +522,8 @@ pub struct MathEdit {
     pub at: Pos,
     /// The caret inside it.
     pub pos: wordcraft_doc::math_edit::MathPos,
+    /// Where a selection inside it began (Shift+arrows, a drag), `pos` being its other end.
+    pub anchor: Option<wordcraft_doc::math_edit::MathPos>,
 }
 
 /// Editing preferences that persist between runs (the front end saves and restores them).

@@ -1150,6 +1150,72 @@ pub fn set_limits(nodes: &mut Arg, loc: Option<LimLoc>) {
     }
 }
 
+/// A selection inside an equation: units `start..end` of the argument at `path`.
+#[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct MathSpan {
+    pub path: Vec<(usize, usize)>,
+    pub start: usize,
+    pub end: usize,
+}
+
+impl MathSpan {
+    pub fn is_empty(&self) -> bool {
+        self.start >= self.end
+    }
+}
+
+/// What a selection from `anchor` to `focus` covers. As in Word, it lies in the innermost
+/// argument holding both ends, and an end inside a structure there takes the whole structure:
+/// from inside a numerator to the denominator selects the fraction.
+pub fn span(root: &Arg, anchor: &MathPos, focus: &MathPos) -> MathSpan {
+    let (a, f) = (clamp(root, anchor), clamp(root, focus));
+    let k = a.path.iter().zip(&f.path).take_while(|(x, y)| x == y).count();
+    let path = a.path.get(..k).map(<[_]>::to_vec).unwrap_or_default();
+    let Some(arg) = arg_at(root, &path) else { return MathSpan { path, start: 0, end: 0 } };
+    let ends = |p: &MathPos| match p.path.get(k) {
+        None => (p.off, p.off),
+        Some((n, _)) => {
+            let s = node_start(arg, *n);
+            (s, s + 1)
+        }
+    };
+    let ((a0, a1), (f0, f1)) = (ends(&a), ends(&f));
+    MathSpan { path, start: a0.min(f0), end: a1.max(f1) }
+}
+
+/// Delete what `span` covers; the caret goes where it began.
+pub fn delete_span(root: &mut Arg, span: &MathSpan) -> MathPos {
+    let pos = MathPos { path: span.path.clone(), off: span.start };
+    if let Some(a) = arg_at_mut(root, &span.path) {
+        let total = units(a);
+        let (start, end) = (span.start.min(total), span.end.min(total));
+        if start < end {
+            // Splitting at the start first leaves the end's unit offset where it was.
+            let i = split_at(a, start);
+            let j = split_at(a, end).min(a.len());
+            if i < j {
+                a.drain(i..j);
+            }
+        }
+    }
+    tidy(root);
+    clamp(root, &pos)
+}
+
+/// A copy of what `span` covers.
+pub fn span_nodes(root: &Arg, span: &MathSpan) -> Arg {
+    let Some(a) = arg_at(root, &span.path) else { return Vec::new() };
+    let mut a = a.clone();
+    let total = units(&a);
+    let (start, end) = (span.start.min(total), span.end.min(total));
+    if start >= end {
+        return Vec::new();
+    }
+    let i = split_at(&mut a, start);
+    let j = split_at(&mut a, end).min(a.len());
+    a.get(i..j).map(<[_]>::to_vec).unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1177,6 +1243,54 @@ mod tests {
         // Up from the denominator reaches the numerator.
         let den = MathPos::new(vec![(1, 1)], 1);
         assert_eq!(move_vertical(&eq, &den, true).unwrap().path, vec![(1, 0)]);
+    }
+
+    /// A selection lies in the argument holding both ends; an end inside a structure takes the
+    /// whole structure, as in Word.
+    #[test]
+    fn a_selection_takes_whole_structures_in_the_shared_argument() {
+        // x=(a+b)/c+1: x = (fraction) + 1, units 0..5 at the top level; numerator a+b.
+        let eq = parse_linear("x=(a+b)/c+1");
+        let at = |path: Vec<(usize, usize)>, off| MathPos::new(path, off);
+        // Inside one run: the characters between the ends, either way round.
+        let s = span(&eq, &at(vec![], 0), &at(vec![], 2));
+        assert_eq!((s.path.clone(), s.start, s.end), (vec![], 0, 2));
+        assert_eq!(lin(&span_nodes(&eq, &s)), "x=");
+        assert_eq!(span(&eq, &at(vec![], 2), &at(vec![], 0)), s);
+        // Inside the numerator: part of it.
+        let s = span(&eq, &at(vec![(1, 0)], 0), &at(vec![(1, 0)], 2));
+        assert_eq!(lin(&span_nodes(&eq, &s)), "a+");
+        // From the numerator to the denominator: the whole fraction.
+        let s = span(&eq, &at(vec![(1, 0)], 1), &at(vec![(1, 1)], 1));
+        assert_eq!((s.path.clone(), s.start, s.end), (vec![], 2, 3));
+        assert_eq!(lin(&span_nodes(&eq, &s)), "(a+b)/c");
+        // From before the = into the numerator: = and the fraction.
+        let s = span(&eq, &at(vec![], 1), &at(vec![(1, 0)], 2));
+        assert_eq!(lin(&span_nodes(&eq, &s)), "=(a+b)/c");
+        assert!(span(&eq, &at(vec![], 3), &at(vec![], 3)).is_empty());
+        // Hostile positions are clamped, never a panic.
+        let s = span(&eq, &at(vec![(9, 9)], 99), &at(vec![], 99));
+        assert!(s.end <= units(&eq));
+    }
+
+    #[test]
+    fn deleting_a_selection_removes_it_and_keeps_the_rest() {
+        let mut eq = parse_linear("x=(a+b)/c+1");
+        // The fraction goes; the caret stands where it was.
+        let p = delete_span(&mut eq, &MathSpan { path: vec![], start: 2, end: 3 });
+        assert_eq!((lin(&eq), p), ("x=+1".to_string(), MathPos::new(vec![], 2)));
+        // Part of a run, and part of a numerator.
+        let mut eq = parse_linear("x=(abc)/d");
+        let p = delete_span(&mut eq, &MathSpan { path: vec![(1, 0)], start: 1, end: 2 });
+        assert_eq!((lin(&eq), p), ("x=ac/d".to_string(), MathPos::new(vec![(1, 0)], 1)));
+        // All of a numerator leaves the fraction with an empty one.
+        let p = delete_span(&mut eq, &MathSpan { path: vec![(1, 0)], start: 0, end: 2 });
+        assert!(matches!(&eq[1], MNode::Frac { num, .. } if num.is_empty()), "{eq:?}");
+        assert_eq!(p, MathPos::new(vec![(1, 0)], 0));
+        // Out of range: clamped, nothing else touched.
+        let before = eq.clone();
+        delete_span(&mut eq, &MathSpan { path: vec![(7, 3)], start: 5, end: 99 });
+        assert_eq!(eq, before);
     }
 
     #[test]
