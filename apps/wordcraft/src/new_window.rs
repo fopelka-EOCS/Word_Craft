@@ -54,7 +54,22 @@ pub fn spawn(target: NewWindow) -> Result<(), String> {
     cmd.args(&args).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
     // The control channel and its key belong to this window.
     cmd.env_remove("WORDCRAFT_CONTROL_PORT");
-    cmd.spawn().map(|_| ()).map_err(|e| format!("Couldn't open a new window: {e}"))
+    let fail = |e: std::io::Error| format!("Couldn't open a new window: {e}");
+    if program == Path::new("/usr/bin/open") {
+        // Without `-W`, `open` returns once LaunchServices has accepted the request.
+        return open_result(cmd.status().map_err(fail)?);
+    }
+    let mut child = cmd.spawn().map_err(fail)?;
+    // The new window outlives this call; reap it when it exits so it doesn't stay a zombie.
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
+}
+
+/// `open`'s exit status as the hook's result.
+fn open_result(status: std::process::ExitStatus) -> Result<(), String> {
+    if status.success() { Ok(()) } else { Err(format!("Couldn't open a new window: open exited with {status}")) }
 }
 
 /// The hook for `Services::new_window`.
@@ -84,6 +99,15 @@ mod tests {
     fn unbundled_runs_the_executable_with_the_path() {
         let (prog, args) = command_for(Path::new("/x/wordcraft"), &NewWindow::Open("/tmp/a.docx".into()));
         assert_eq!((prog, args), (PathBuf::from("/x/wordcraft"), vec!["/tmp/a.docx".to_string()]));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn open_result_maps_the_exit_status() {
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(open_result(std::process::ExitStatus::from_raw(0)), Ok(()));
+        let e = open_result(std::process::ExitStatus::from_raw(1 << 8)).unwrap_err();
+        assert!(e.starts_with("Couldn't open a new window: open exited with"), "{e}");
     }
 
     #[cfg(target_os = "macos")]

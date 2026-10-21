@@ -273,10 +273,11 @@ const USAGE: &str = "\
 wordcraft — the WordCraft desktop app
 
 USAGE:
-  wordcraft [--sample] [--control PORT] [FILE…]
+  wordcraft [--sample] [--new TEMPLATE] [--control PORT] [FILE…]
 
 OPTIONS:
   --sample            open the sample document
+  --new TEMPLATE      open a new document from TEMPLATE (default: blank) instead of the Start screen
   --control PORT      start the localhost control server on PORT, for agents and scripts
                       (or set WORDCRAFT_CONTROL_PORT); see docs/control-protocol.md
   --version           print the version
@@ -322,6 +323,11 @@ fn open_non_unicode(app: &mut WordApp, path: &std::path::Path) {
     }
 }
 
+/// The template after `--new`: the next argument unless it is a flag; `blank` otherwise.
+fn new_template_arg(args: &mut std::iter::Peekable<impl Iterator<Item = String>>) -> String {
+    args.next_if(|t| !t.starts_with('-')).unwrap_or_else(|| "blank".into())
+}
+
 fn main() -> eframe::Result {
     // First, so the panic hook and every start-up warning are recorded (`logging`).
     let logger = logging::install();
@@ -345,7 +351,7 @@ fn main() -> eframe::Result {
                 }
             }
             "--sample" => sample = true,
-            "--new" => new_template = Some(args.next().unwrap_or_else(|| "blank".into())),
+            "--new" => new_template = Some(new_template_arg(&mut args)),
             "--version" => {
                 println!("wordcraft {} ({})", env!("CARGO_PKG_VERSION"), build_sha());
                 return Ok(());
@@ -502,6 +508,16 @@ fn main() -> eframe::Result {
 mod tests {
     use super::*;
     use std::os::unix::ffi::OsStringExt;
+
+    #[test]
+    fn new_takes_a_template_but_not_a_following_flag() {
+        let mut a = ["letter".to_string(), "x".into()].into_iter().peekable();
+        assert_eq!(new_template_arg(&mut a), "letter");
+        let mut a = ["--sample".to_string()].into_iter().peekable();
+        assert_eq!(new_template_arg(&mut a), "blank");
+        assert_eq!(a.next().as_deref(), Some("--sample"));
+        assert_eq!(new_template_arg(&mut std::iter::empty::<String>().peekable()), "blank");
+    }
 
     #[test]
     fn a_file_whose_name_isnt_unicode_opens_and_saves_back_to_itself() {
