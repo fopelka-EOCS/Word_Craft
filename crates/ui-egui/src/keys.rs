@@ -110,7 +110,6 @@ pub fn combo(m: Modifiers, key: &str, with_shift: bool) -> String {
 fn ui_shortcut(key: Key, m: Modifiers) -> Option<(&'static str, Value)> {
     let alt_only = m.alt && !m.command && !m.ctrl && !m.mac_cmd && !m.shift;
     let mac_cmd_alt = cfg!(target_os = "macos") && m.mac_cmd && m.alt && !m.ctrl && !m.shift;
-    let ctrl_only = m.ctrl && !m.command && !m.mac_cmd && !m.alt && !m.shift;
     match key {
         Key::Q if alt_only && !cfg!(target_os = "macos") => Some(("ui.dialog", json!({"name": "commands"}))),
         Key::R if mac_cmd_alt => Some(("ui.collapseRibbon", json!({}))),
@@ -118,9 +117,14 @@ fn ui_shortcut(key: Key, m: Modifiers) -> Option<(&'static str, Value)> {
         // where Ctrl+F1 is the system's keyboard-access switch.
         Key::F1 if m.ctrl && !m.alt && !m.shift && !m.mac_cmd && !cfg!(target_os = "macos") => Some(("ui.collapseRibbon", json!({}))),
         // On macOS Mod is Cmd, so Ctrl+W (Windows/Linux habit) would do nothing: it closes too.
-        Key::W if ctrl_only && cfg!(target_os = "macos") => Some(("file.close", json!({}))),
+        Key::W if mac_ctrl_only(m) => Some(("file.close", json!({}))),
         _ => None,
     }
+}
+
+/// Control alone on macOS, where Mod is Command (Control+W closes as Command+W does).
+fn mac_ctrl_only(m: Modifiers) -> bool {
+    cfg!(target_os = "macos") && m.ctrl && !m.command && !m.mac_cmd && !m.alt && !m.shift
 }
 
 /// Find and run the command bound to this key. Returns true if handled.
@@ -705,7 +709,7 @@ fn alt_code_echoed(app: &mut WordApp, echo: &AltCodeEcho, text: &str) -> bool {
 /// Whether a key runs its shortcut with the canvas unfocused (after a ribbon click, say): Mod and
 /// Alt shortcuts (Alt+Q reaches Search from anywhere, as in Word, #819) and the function keys.
 fn is_global_shortcut(key: Key, m: Modifiers) -> bool {
-    m.command || m.alt || (m.ctrl && key == Key::W) || is_function_key(key)
+    m.command || m.alt || (key == Key::W && mac_ctrl_only(m)) || is_function_key(key)
 }
 
 /// Command shortcuts when the canvas isn't focused but no text field is either.
@@ -804,6 +808,8 @@ mod tests {
         let both = egui::Modifiers { ctrl: true, shift: true, ..Default::default() };
         assert_eq!(ui_shortcut(Key::W, ctrl).is_some(), cfg!(target_os = "macos"));
         assert_eq!(ui_shortcut(Key::W, both), None);
+        // It reaches Close with the canvas unfocused too (after a ribbon click).
+        assert_eq!(is_global_shortcut(Key::W, ctrl), cfg!(target_os = "macos"));
     }
 
     #[test]
