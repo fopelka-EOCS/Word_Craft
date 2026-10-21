@@ -3,12 +3,14 @@
 //! The player lives in [`crate::speech`]; these commands drive it, so the player window, the
 //! ribbon, the CLI and agents all control reading the same way.
 
+use std::sync::Arc;
+
 use serde_json::Value;
 use wordcraft_doc::para::OBJ;
 use wordcraft_doc::{InlineObject, Pos};
 
 use super::sel_result;
-use crate::speech::{self, State};
+use crate::speech::{self, Plan, State};
 use crate::{CmdError, CmdResult, CommandSpec, Session, p};
 
 pub fn specs() -> Vec<CommandSpec> {
@@ -25,10 +27,20 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("readAloud.skipCitations", "Skip Citations and Bibliography", "Review › Speech", skip_citations)
             .params(r#"{"value"?: bool}"#)
             .pure(),
+        CommandSpec::new("readAloud.settings", "Read Aloud Settings", "Review › Speech", settings).params(SETTINGS_PARAMS).pure(),
         CommandSpec::new("readAloud.status", "Read Aloud Status", "Review › Speech", status).pure(),
         CommandSpec::new("caret.pastCitation", "Move Past Citation", "Zotero › Citations", past_citation).pure(),
     ]
 }
+
+const SETTINGS_PARAMS: &str = concat!(
+    "{",
+    r#""chunk"?: "paragraph|page|document" (read one paragraph, one page or all of it at a time)"#,
+    r#", "text"?: {"urls"?: "read|domain|skip", "skipEmoji"?: bool, "skipSymbols"?: bool, "skipMarkup"?: bool, "skipBrackets"?: bool, "skipParentheses"?: bool, "collapseRepeats"?: bool, "skipChars"?: string, "replacements"?: [{"from": string, "to": string}], "skipPatterns"?: [regex]}"#,
+    r#", "voices"?: {"enabled"?: bool, "marker"?: one character (default §; "§A Hello." is read by Voice A), "scope"?: "paragraph|untilNext", "#,
+    r#""narrator"?: {"system"?: voice, "rate"?: 0.5…2}, "roles"?: [{"label": string, "system"?: voice, "rate"?: 0.5…2}]}"#,
+    "} — changes the named settings (a bad value changes nothing) and returns them all; a reading in progress carries on from the same sentence.",
+);
 
 /// Start reading from the caret (or the selection); while reading, pause or carry on.
 fn read_aloud(s: &mut Session, v: &Value) -> CmdResult {
@@ -39,23 +51,56 @@ fn read_aloud(s: &mut Session, v: &Value) -> CmdResult {
         s.read_aloud.play_pause();
         return status(s, v);
     }
-    let skip = s.read_aloud.skip_citations;
-    let mut queue = if s.sel.is_collapsed() {
-        speech::sentences(&s.doc, &s.sel.focus, None, skip)
+    let started = if s.sel.is_collapsed() {
+        let at = s.sel.focus.clone();
+        // At the end of the document: read it from the top.
+        begin(s, &at, None) || {
+            let top = s.doc.start_of(at.story);
+            begin(s, &top, None)
+        }
     } else {
         let (a, b) = s.sel.ordered();
-        speech::sentences(&s.doc, &a, Some(&b), skip)
+        begin(s, &a, Some(&b))
     };
-    // At the end of the document: read it from the top.
-    if queue.is_empty() && s.sel.is_collapsed() {
-        let top = s.doc.start_of(s.sel.focus.story);
-        queue = speech::sentences(&s.doc, &top, None, skip);
-    }
-    if queue.is_empty() {
+    if !started {
         return Err(CmdError::Failed("there's nothing to read".into()));
     }
-    s.read_aloud.start(queue);
     status(s, v)
+}
+
+/// Start reading from `from` (to `to`) with the current settings, one chunk at a time. False
+/// when there's nothing to read there.
+fn begin(s: &mut Session, from: &Pos, to: Option<&Pos>) -> bool {
+    let layout = (s.read_aloud.settings().chunk == speech::Chunk::Page).then(|| s.layout());
+    let page_of = |p: &Pos| layout.as_ref().and_then(|l| l.page_of(p));
+    let plan = Plan::new(&s.doc, from, to, s.read_aloud.settings(), s.read_aloud.skip_citations, &page_of);
+    s.read_aloud.start_plan(Arc::new(s.doc.clone()), plan)
+}
+
+/// A reading in progress starts again at its current sentence (with new settings), paused if it
+/// was, and still ends where it ended (a selection's end).
+fn restart(s: &mut Session) {
+    if let Some(cur) = s.read_aloud.current() {
+        let paused = s.read_aloud.state() == State::Paused;
+        let to = s.read_aloud.reading_end();
+        if begin(s, &cur.start, to.as_ref()) && paused {
+            s.read_aloud.play_pause();
+        }
+    }
+}
+
+/// Read or change the Read Aloud settings.
+fn settings(s: &mut Session, v: &Value) -> CmdResult {
+    let has_any = v.as_object().is_some_and(|m| !m.is_empty());
+    if has_any {
+        let mut next = s.read_aloud.settings().clone();
+        next.apply(v)?;
+        if next != *s.read_aloud.settings() {
+            s.read_aloud.set_settings(next);
+            restart(s);
+        }
+    }
+    Ok(s.read_aloud.settings().to_json())
 }
 
 fn play_pause(s: &mut Session, v: &Value) -> CmdResult {
@@ -92,16 +137,7 @@ fn skip_citations(s: &mut Session, v: &Value) -> CmdResult {
     let on = p::bool(v, "value").unwrap_or(!s.read_aloud.skip_citations);
     if on != s.read_aloud.skip_citations {
         s.read_aloud.skip_citations = on;
-        if let Some(cur) = s.read_aloud.current() {
-            let paused = s.read_aloud.state() == State::Paused;
-            let queue = speech::sentences(&s.doc, &cur.start, None, on);
-            if !queue.is_empty() {
-                s.read_aloud.start(queue);
-                if paused {
-                    s.read_aloud.play_pause();
-                }
-            }
-        }
+        restart(s);
     }
     status(s, v)
 }
@@ -205,6 +241,7 @@ mod tests {
     #[test]
     fn read_aloud_commands_drive_the_player() {
         let mut s = Session::new(doc());
+        s.run("readAloud.settings", &json!({"chunk": "document"})).unwrap();
         s.sel = crate::Selection::caret(Pos::body(0, 0));
         let r = s.run("review.readAloud", &json!({})).unwrap();
         assert_eq!(r["state"], "playing");
@@ -238,12 +275,122 @@ mod tests {
     }
 
     #[test]
+    fn a_change_while_reading_a_selection_keeps_its_end() {
+        let mut s = Session::new(Document::from_text("One. Two. Three.\nFour."));
+        s.sel = crate::Selection { anchor: Pos::body(0, 5), focus: Pos::body(0, 9) };
+        s.run("review.readAloud", &json!({})).unwrap();
+        let r = s.run("readAloud.skipCitations", &json!({"value": false})).unwrap();
+        assert_eq!((r["current"]["text"].as_str(), r["count"].as_u64(), r["chunkCount"].as_u64()), (Some("Two."), Some(1), Some(1)));
+        let r = s.run("readAloud.settings", &json!({"chunk": "document"})).unwrap();
+        assert_eq!(r["chunk"], "document");
+        let st = s.run("readAloud.status", &json!({})).unwrap();
+        assert_eq!((st["current"]["text"].as_str(), st["count"].as_u64()), (Some("Two."), Some(1)));
+    }
+
+    #[test]
     fn read_aloud_at_the_end_starts_from_the_top() {
         let mut s = Session::new(Document::from_text("One. Two."));
         s.sel = crate::Selection::caret(Pos::body(0, 9));
         assert_eq!(s.run("review.readAloud", &json!({})).unwrap()["current"]["text"], "One.");
         let mut s = Session::new(Document::from_text(""));
         assert!(s.run("review.readAloud", &json!({})).is_err());
+    }
+
+    #[test]
+    fn reading_goes_one_paragraph_at_a_time() {
+        let mut s = Session::new(Document::from_text("One. Two.\n\nThree.\nFour."));
+        let r = s.run("review.readAloud", &json!({})).unwrap();
+        assert_eq!((r["count"].as_u64(), r["chunk"].as_str(), r["chunkCount"].as_u64()), (Some(2), Some("paragraph"), Some(4)));
+        s.run("readAloud.next", &json!({})).unwrap();
+        // Over the end of the paragraph: the next one with something to read (the empty one is passed).
+        let r = s.run("readAloud.next", &json!({})).unwrap();
+        assert_eq!((r["current"]["text"].as_str(), r["chunkIndex"].as_u64(), r["count"].as_u64()), (Some("Three."), Some(2), Some(1)));
+        // And back to the last sentence of the paragraph before.
+        let r = s.run("readAloud.previous", &json!({})).unwrap();
+        assert_eq!((r["current"]["text"].as_str(), r["chunkIndex"].as_u64()), (Some("Two."), Some(0)));
+        s.run("readAloud.previous", &json!({})).unwrap();
+        assert_eq!(s.run("readAloud.previous", &json!({})).unwrap()["current"]["text"], "One.");
+    }
+
+    #[test]
+    fn reading_goes_one_page_at_a_time() {
+        let mut s = Session::new(Document::from_text("A.\nB.\nC."));
+        // A page break before the last paragraph.
+        s.sel = crate::Selection::caret(Pos::body(2, 0));
+        s.run("insert.pageBreak", &json!({})).unwrap();
+        s.sel = crate::Selection::caret(Pos::body(0, 0));
+        s.run("readAloud.settings", &json!({"chunk": "page"})).unwrap();
+        let r = s.run("review.readAloud", &json!({})).unwrap();
+        assert_eq!(r["chunkCount"], 2, "{r}");
+        assert_eq!(r["count"], 2);
+    }
+
+    #[test]
+    fn text_rules_reach_the_reading() {
+        let mut s = Session::new(Document::from_text("Hi → there. Bye ***** now."));
+        s.run("review.readAloud", &json!({})).unwrap();
+        assert_eq!(s.run("readAloud.status", &json!({})).unwrap()["current"]["text"], "Hi there.");
+        assert_eq!(s.run("readAloud.next", &json!({})).unwrap()["current"]["text"], "Bye now.");
+        // The highlight is on the words as written.
+        let u = s.read_aloud.current().unwrap();
+        assert_eq!(s.doc.para_at(&u.start).unwrap().text.get(u.start.off..u.end.off), Some("Bye ***** now."));
+        // A change carries on from the same sentence.
+        let r = s.run("readAloud.settings", &json!({"text": {"collapseRepeats": false, "skipSymbols": false}})).unwrap();
+        assert_eq!(r["text"]["collapseRepeats"], false);
+        assert_eq!(s.read_aloud.current().map(|u| u.text).as_deref(), Some("Bye ***** now."));
+    }
+
+    #[test]
+    fn voice_markers_and_text_rules_reach_the_reading() {
+        let mut s = Session::new(Document::from_text("Hi → there. §A Hello! §B: Bye ***** now.\nBack."));
+        s.run("readAloud.settings", &json!({"chunk": "document"})).unwrap();
+        s.run("review.readAloud", &json!({})).unwrap();
+        let mut got = Vec::new();
+        for _ in 0..4 {
+            let r = s.run("readAloud.status", &json!({})).unwrap();
+            got.push((r["current"]["text"].as_str().unwrap().to_string(), r["voice"].as_str().unwrap().to_string()));
+            s.run("readAloud.next", &json!({})).unwrap();
+        }
+        assert_eq!(
+            got,
+            [
+                ("Hi there.".to_string(), "Narrator".to_string()),
+                ("Hello!".into(), "A".into()),
+                ("Bye now.".into(), "B".into()),
+                ("Back.".into(), "Narrator".into())
+            ]
+        );
+        // The highlight is on the words as written, marker excluded.
+        s.run("readAloud.previous", &json!({})).unwrap();
+        s.run("readAloud.previous", &json!({})).unwrap();
+        let u = s.read_aloud.current().unwrap();
+        assert_eq!(s.doc.para_at(&u.start).unwrap().text.get(u.start.off..u.end.off), Some("Hello!"));
+        // Markers that last to the next one carry Voice B into the next paragraph.
+        s.run("readAloud.settings", &json!({"voices": {"scope": "untilNext"}})).unwrap();
+        s.run("readAloud.stop", &json!({})).unwrap();
+        s.sel = crate::Selection::caret(Pos::body(1, 0));
+        let r = s.run("review.readAloud", &json!({})).unwrap();
+        assert_eq!((r["current"]["text"].as_str(), r["voice"].as_str()), (Some("Back."), Some("B")));
+    }
+
+    #[test]
+    fn settings_change_and_keep_the_place() {
+        let mut s = Session::new(Document::from_text("One. Two. Three."));
+        let r = s.run("readAloud.settings", &json!({})).unwrap();
+        assert_eq!(r["chunk"], "paragraph");
+        s.run("review.readAloud", &json!({})).unwrap();
+        s.run("readAloud.next", &json!({})).unwrap();
+        s.run("readAloud.playPause", &json!({})).unwrap();
+        let r = s.run("readAloud.settings", &json!({"chunk": "document"})).unwrap();
+        assert_eq!(r["chunk"], "document");
+        let st = s.run("readAloud.status", &json!({})).unwrap();
+        assert_eq!((st["current"]["text"].as_str(), st["state"].as_str(), st["chunk"].as_str()), (Some("Two."), Some("paused"), Some("document")));
+        // A bad value changes nothing.
+        assert!(s.run("readAloud.settings", &json!({"chunk": "page", "other": 1, "x": {}})).is_ok());
+        assert!(s.run("readAloud.settings", &json!({"chunk": "chapter"})).is_err());
+        assert_eq!(s.read_aloud.settings().chunk, crate::speech::Chunk::Page);
+        let r = s.run("readAloud.settings", &json!({"text": {"skipEmoji": true}})).unwrap();
+        assert_eq!(r["text"]["skipEmoji"], true);
     }
 
     #[test]

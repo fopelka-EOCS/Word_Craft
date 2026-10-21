@@ -16,12 +16,24 @@
 //! / `spd-say` (Linux, BSD) or the Windows speech synthesizer (PowerShell) for the current
 //! sentence, and moves on when it finishes. Commands only change the shared state and wake the
 //! worker, which stops the running sentence when the state changed under it.
+//!
+//! The document is read one chunk at a time ([`Chunk`]: a paragraph, a page or all of it): the
+//! queue holds the sentences of the current chunk only, and the next chunk is loaded when the
+//! player gets to the end of it.
+//! The text rules ([`clean`]) take odd characters out of the spoken text.
+//! Voice markers ([`voices`]) give sentences to voice roles.
 
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 
 use serde_json::{Value, json};
 use wordcraft_doc::para::{COLUMN_BREAK, LINE_BREAK, OBJ, PAGE_BREAK};
-use wordcraft_doc::{Document, InlineObject, Pos};
+use wordcraft_doc::{Document, InlineObject, Path, Pos, StoryRef};
+
+pub mod clean;
+pub mod settings;
+pub mod voices;
+
+pub use settings::{Chunk, Scope, SpeechSettings, TextRules, UrlMode, Voices};
 
 /// Longest sentence handed to the speech program (longer ones are split at a space).
 const MAX_SENTENCE: usize = 600;
@@ -63,25 +75,46 @@ pub struct Utterance {
     pub end: Pos,
     /// The language to speak it in (a BCP 47 tag), or `None` for the system's default voice.
     pub lang: Option<String>,
+    /// The voice role that reads it: 0 is the Narrator (see [`voices`]).
+    pub role: usize,
 }
 
 impl Utterance {
     pub fn to_json(&self) -> Value {
-        json!({"text": self.text, "start": crate::cmd::pos_json(&self.start), "end": crate::cmd::pos_json(&self.end)})
+        json!({"text": self.text, "start": crate::cmd::pos_json(&self.start), "end": crate::cmd::pos_json(&self.end), "role": self.role})
     }
+}
+
+/// How the text of a sentence is prepared.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ReadOptions<'a> {
+    /// Leave citation and bibliography fields out.
+    pub skip_citations: bool,
+    /// The text rules; `None` keeps the text as written (only spaces and citation leftovers tidied).
+    pub rules: Option<&'a TextRules>,
+    /// Voice markers; `None` reads everything with the Narrator.
+    pub voices: Option<&'a Voices>,
+}
+
+/// The citation and bibliography fields of `story` as (start, end) spans, both markers included.
+fn citation_spans(doc: &Document, story: StoryRef, skip: bool) -> Vec<(Pos, Pos)> {
+    if !skip {
+        return Vec::new();
+    }
+    doc.field_ranges(story).into_iter().filter(|r| is_citation_code(&r.instr)).map(|r| (r.start, r.end)).collect()
 }
 
 /// The sentences from `from` (to `to`, if given) in `from`'s story, in reading order.
 /// With `skip_citations`, citation and bibliography fields are left out.
 pub fn sentences(doc: &Document, from: &Pos, to: Option<&Pos>, skip_citations: bool) -> Vec<Utterance> {
+    sentences_with(doc, from, to, &ReadOptions { skip_citations, ..Default::default() })
+}
+
+/// [`sentences`] with the text rules and voice markers of `opts`. Markers last to the end of
+/// their paragraph here; [`Plan`] carries them on for [`Scope::UntilNext`].
+pub fn sentences_with(doc: &Document, from: &Pos, to: Option<&Pos>, opts: &ReadOptions) -> Vec<Utterance> {
     let story = from.story;
-    // Spans to leave out: whole range fields, both markers included.
-    let skipped: Vec<(Pos, Pos)> = if skip_citations {
-        doc.field_ranges(story).into_iter().filter(|r| is_citation_code(&r.instr)).map(|r| (r.start, r.end)).collect()
-    } else {
-        Vec::new()
-    };
-    let in_skipped = |p: &Pos| skipped.iter().any(|(a, b)| a <= p && p <= b);
+    let skipped = citation_spans(doc, story, opts.skip_citations);
     let mut out = Vec::new();
     for path in doc.para_paths(story) {
         if path < from.path {
@@ -92,60 +125,201 @@ pub fn sentences(doc: &Document, from: &Pos, to: Option<&Pos>, skip_citations: b
         {
             break;
         }
-        let Some(para) = doc.para(story, &path) else { continue };
-        // The spoken text, and for each char the paragraph offset it came from.
-        let mut text = String::new();
-        let mut map: Vec<(usize, usize)> = Vec::new(); // (start, end) offsets in the paragraph
-        let mut k = 0;
-        for (off, c) in para.text.char_indices() {
-            let end = off + c.len_utf8();
-            let obj = if c == OBJ {
-                k += 1;
-                para.objects.get(k - 1)
-            } else {
-                None
-            };
-            if (path == from.path && off < from.off) || to.is_some_and(|t| path == t.path && off >= t.off) {
-                continue;
-            }
-            let pos = Pos::new(story, path.clone(), off);
-            if in_skipped(&pos) {
-                continue;
-            }
-            match obj {
-                Some(InlineObject::Field { instr, .. }) if skip_citations && is_citation_code(instr) => {}
-                Some(o) => {
-                    for ch in o.plain_text().chars() {
-                        text.push(ch);
-                        map.push((off, end));
-                    }
-                }
-                None if c == OBJ => {}
-                None => {
-                    let ch = if matches!(c, LINE_BREAK | PAGE_BREAK | COLUMN_BREAK | '\t') { ' ' } else { c };
-                    text.push(ch);
-                    map.push((off, end));
-                }
-            }
+        let from_off = (path == from.path).then_some(from.off);
+        let to_off = to.filter(|t| t.path == path).map(|t| t.off);
+        para_sentences(doc, story, &path, (from_off, to_off), &skipped, opts, 0, &mut out);
+        if out.len() >= MAX_SENTENCES {
+            out.truncate(MAX_SENTENCES);
+            break;
         }
+    }
+    out
+}
+
+/// Add the sentences of the paragraph at `path` to `out`, from offset `range.0` up to `range.1`
+/// (the whole paragraph for `None`), the paragraph starting in voice role `role`. Gives the role
+/// it ends in.
+#[allow(clippy::too_many_arguments)]
+fn para_sentences(
+    doc: &Document,
+    story: StoryRef,
+    path: &Path,
+    range: (Option<usize>, Option<usize>),
+    skipped: &[(Pos, Pos)],
+    opts: &ReadOptions,
+    role: usize,
+    out: &mut Vec<Utterance>,
+) -> usize {
+    let Some(para) = doc.para(story, path) else { return role };
+    let in_skipped = |p: &Pos| skipped.iter().any(|(a, b)| a <= p && p <= b);
+    // The spoken text, and for each char the paragraph offset it came from and whether it is in range.
+    let mut chars: Vec<char> = Vec::new();
+    let mut map: Vec<(usize, usize)> = Vec::new(); // (start, end) offsets in the paragraph
+    let mut in_range: Vec<bool> = Vec::new();
+    let mut k = 0;
+    for (off, c) in para.text.char_indices() {
+        let end = off + c.len_utf8();
+        let obj = if c == OBJ {
+            k += 1;
+            para.objects.get(k - 1)
+        } else {
+            None
+        };
+        let inside = !(range.0.is_some_and(|f| off < f) || range.1.is_some_and(|t| off >= t));
+        if !skipped.is_empty() && in_skipped(&Pos::new(story, path.clone(), off)) {
+            continue;
+        }
+        let mut push = |ch: char| {
+            chars.push(ch);
+            map.push((off, end));
+            in_range.push(inside);
+        };
+        match obj {
+            Some(InlineObject::Field { instr, .. }) if opts.skip_citations && is_citation_code(instr) => {}
+            Some(o) => o.plain_text().chars().for_each(&mut push),
+            None if c == OBJ => {}
+            None => push(if matches!(c, LINE_BREAK | PAGE_BREAK | COLUMN_BREAK | '\t') { ' ' } else { c }),
+        }
+    }
+    let marked = match opts.voices {
+        Some(v) => voices::mark(&chars, v, role),
+        None => voices::Marked { roles: vec![role; chars.len()], spoken: vec![true; chars.len()], end: role },
+    };
+    // Runs of spoken, in-range characters read by one role: (role, indexes into `chars`).
+    let mut runs: Vec<(usize, Vec<usize>)> = Vec::new();
+    for i in 0..chars.len() {
+        if !in_range.get(i).copied().unwrap_or(false) || !marked.spoken.get(i).copied().unwrap_or(true) {
+            continue;
+        }
+        let r = marked.roles.get(i).copied().unwrap_or(role);
+        match runs.last_mut() {
+            Some((lr, idx)) if *lr == r => idx.push(i),
+            _ => runs.push((r, vec![i])),
+        }
+    }
+    for (r, idx) in runs {
+        let text: String = idx.iter().filter_map(|i| chars.get(*i)).collect();
         for (a, b) in split_sentences(&text) {
             if out.len() >= MAX_SENTENCES {
-                return out;
+                return marked.end;
             }
-            let chars: Vec<char> = text.chars().skip(a).take(b - a).collect();
-            let spoken = tidy(&chars.iter().collect::<String>());
+            let piece: String = text.chars().skip(a).take(b - a).collect();
+            let spoken = match opts.rules {
+                Some(rules) => clean::clean(&piece, rules),
+                None => tidy(&piece),
+            };
             if !spoken.chars().any(char::is_alphanumeric) {
                 continue;
             }
-            let (Some(first), Some(last)) = (map.get(a), map.get(b.saturating_sub(1))) else { continue };
+            let first = idx.get(a).and_then(|i| map.get(*i));
+            let last = b.checked_sub(1).and_then(|e| idx.get(e)).and_then(|i| map.get(*i));
+            let (Some(first), Some(last)) = (first, last) else { continue };
             // The language of the sentence's first character, through styles and the defaults.
             let run = para.props_of_char(first.0);
             let explicit = doc.styles.resolve_char(para.props.style.as_deref(), run).lang;
             let lang = speech_language(&spoken, explicit.as_deref(), run.lang_bidi.as_deref());
-            out.push(Utterance { text: spoken, start: Pos::new(story, path.clone(), first.0), end: Pos::new(story, path.clone(), last.1), lang });
+            out.push(Utterance {
+                text: spoken,
+                start: Pos::new(story, path.clone(), first.0),
+                end: Pos::new(story, path.clone(), last.1),
+                lang,
+                role: r,
+            });
         }
     }
-    out
+    marked.end
+}
+
+/// What a reading covers, split into chunks: the paragraphs from the reading's start to its end,
+/// and where each chunk (a paragraph, a page or all of them) starts.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Plan {
+    pub story: StoryRef,
+    pub paras: Vec<Path>,
+    /// Index in `paras` of each chunk's first paragraph: ascending, the first is 0.
+    pub starts: Vec<usize>,
+    pub from: Pos,
+    pub to: Option<Pos>,
+    /// The voice role each paragraph starts in (markers that last to the next marker); empty
+    /// when every paragraph starts with the Narrator.
+    pub roles: Vec<usize>,
+    skipped: Vec<(Pos, Pos)>,
+}
+
+impl Plan {
+    /// The plan of reading from `from` (to `to`) in chunks of `settings.chunk`. `page_of` gives
+    /// the page a position is on (from the layout), for [`Chunk::Page`].
+    pub fn new(
+        doc: &Document,
+        from: &Pos,
+        to: Option<&Pos>,
+        settings: &SpeechSettings,
+        skip_citations: bool,
+        page_of: &dyn Fn(&Pos) -> Option<usize>,
+    ) -> Plan {
+        let story = from.story;
+        let all = doc.para_paths(story);
+        let voices = &settings.voices;
+        let carry = voices.enabled && voices.scope == Scope::UntilNext;
+        let mut paras = Vec::new();
+        let mut roles = Vec::new();
+        let mut role = 0;
+        for path in all {
+            if to.is_some_and(|t| path > t.path) {
+                break;
+            }
+            let start_role = role;
+            if carry && let Some(p) = doc.para(story, &path) {
+                role = voices::end_role(&p.text, voices, role);
+            }
+            if path >= from.path {
+                paras.push(path);
+                if carry {
+                    roles.push(start_role);
+                }
+            }
+        }
+        let starts = match settings.chunk {
+            Chunk::Document => vec![0],
+            Chunk::Paragraph => (0..paras.len()).collect(),
+            Chunk::Page => {
+                // The page of the paragraph's first character after any breaks at its start.
+                let first = |p: &Path| {
+                    doc.para(story, p)
+                        .and_then(|para| {
+                            para.text.char_indices().find(|(_, c)| !matches!(*c, PAGE_BREAK | COLUMN_BREAK | LINE_BREAK)).map(|(i, _)| i)
+                        })
+                        .unwrap_or(0)
+                };
+                let pages: Vec<Option<usize>> = paras.iter().map(|p| page_of(&Pos::new(story, p.clone(), first(p)))).collect();
+                (0..paras.len()).filter(|&i| i == 0 || pages.get(i).copied().flatten().is_none() || pages.get(i) != pages.get(i - 1)).collect()
+            }
+        };
+        Plan { story, paras, starts, from: from.clone(), to: to.cloned(), roles, skipped: citation_spans(doc, story, skip_citations) }
+    }
+
+    /// The number of chunks.
+    pub fn chunks(&self) -> usize {
+        self.starts.len()
+    }
+
+    /// The sentences of chunk `c`.
+    pub fn sentences(&self, doc: &Document, c: usize, opts: &ReadOptions) -> Vec<Utterance> {
+        let a = self.starts.get(c).copied().unwrap_or(usize::MAX);
+        let b = self.starts.get(c + 1).copied().unwrap_or(self.paras.len());
+        let mut out = Vec::new();
+        for i in a..b.min(self.paras.len()) {
+            let Some(path) = self.paras.get(i) else { break };
+            let from_off = (*path == self.from.path).then_some(self.from.off);
+            let to_off = self.to.as_ref().filter(|t| t.path == *path).map(|t| t.off);
+            let role = self.roles.get(i).copied().unwrap_or(0);
+            para_sentences(doc, self.story, path, (from_off, to_off), &self.skipped, opts, role, &mut out);
+            if out.len() >= MAX_SENTENCES {
+                break;
+            }
+        }
+        out
+    }
 }
 
 /// The language of `text` from its script, as a BCP 47 primary tag: Cyrillic is Russian (Ukrainian
@@ -261,12 +435,15 @@ fn voice_language(lang: Option<&str>, default: &str) -> Option<String> {
     lang.and_then(primary_tag).filter(|p| !p.eq_ignore_ascii_case(default))
 }
 
-/// The arguments of `espeak-ng`/`espeak`: the speed, the voice for `lang` unless it's English
-/// (espeak's default voice), and `--stdin`.
+/// The arguments of `espeak-ng`/`espeak`: the speed, the `voice` the user named (a voice role's)
+/// or else the voice for `lang` unless it's English (espeak's default voice), and `--stdin`.
 #[cfg(any(all(unix, not(target_os = "macos")), test))]
-fn espeak_args(wpm: &str, lang: Option<&str>) -> Vec<String> {
+fn espeak_args(wpm: &str, lang: Option<&str>, voice: Option<&str>) -> Vec<String> {
     let mut a = vec!["-s".to_string(), wpm.to_string()];
-    if let Some(p) = voice_language(lang, "en") {
+    if let Some(v) = voice.filter(|v| !v.starts_with('-')) {
+        a.push("-v".into());
+        a.push(v.to_string());
+    } else if let Some(p) = voice_language(lang, "en") {
         a.push("-v".into());
         a.push(p);
     }
@@ -492,7 +669,15 @@ pub enum Backend {
     Instant,
 }
 
+/// What a reading reads: the document as it was when reading started, and the reading's plan.
+struct Source {
+    doc: Arc<Document>,
+    plan: Plan,
+    skip_citations: bool,
+}
+
 struct Shared {
+    /// The sentences of the current chunk.
     queue: Vec<Utterance>,
     index: usize,
     state: State,
@@ -503,6 +688,45 @@ struct Shared {
     /// A worker thread is running (cleared under the lock as it exits).
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     running: bool,
+    settings: Arc<SpeechSettings>,
+    /// `None` for a fixed queue ([`ReadAloud::start`]): one chunk.
+    source: Option<Source>,
+    chunk: usize,
+}
+
+impl Shared {
+    fn chunks(&self) -> usize {
+        self.source.as_ref().map_or(1, |s| s.plan.chunks())
+    }
+
+    /// Load the first chunk from `c` on that has something to read, going forwards (or
+    /// backwards), at its first (or last) sentence. False when there's none; nothing changes then.
+    fn load(&mut self, c: usize, forward: bool) -> bool {
+        let found = {
+            let Some(src) = &self.source else { return false };
+            let opts = ReadOptions { skip_citations: src.skip_citations, rules: Some(&self.settings.text), voices: Some(&self.settings.voices) };
+            let mut at = c;
+            loop {
+                if at >= src.plan.chunks() {
+                    break None;
+                }
+                let q = src.plan.sentences(&src.doc, at, &opts);
+                if !q.is_empty() {
+                    break Some((at, q));
+                }
+                match (forward, at.checked_sub(1)) {
+                    (true, _) => at += 1,
+                    (false, Some(p)) => at = p,
+                    (false, None) => break None,
+                }
+            }
+        };
+        let Some((at, q)) = found else { return false };
+        self.index = if forward { 0 } else { q.len().saturating_sub(1) };
+        self.queue = q;
+        self.chunk = at;
+        true
+    }
 }
 
 /// The Read Aloud player.
@@ -513,19 +737,33 @@ pub struct ReadAloud {
     pub skip_citations: bool,
     /// The player window is open (it stays open after the last sentence until closed).
     pub open: bool,
+    settings: SpeechSettings,
 }
 
 impl Default for ReadAloud {
     fn default() -> Self {
         let off = cfg!(test) || std::env::var("WORDCRAFT_SPEECH").is_ok_and(|v| v == "off");
+        let settings = SpeechSettings::default();
         ReadAloud {
             shared: Arc::new((
-                Mutex::new(Shared { queue: Vec::new(), index: 0, state: State::Stopped, rate: 1.0, generation: 0, error: None, running: false }),
+                Mutex::new(Shared {
+                    queue: Vec::new(),
+                    index: 0,
+                    state: State::Stopped,
+                    rate: 1.0,
+                    generation: 0,
+                    error: None,
+                    running: false,
+                    settings: Arc::new(settings.clone()),
+                    source: None,
+                    chunk: 0,
+                }),
                 Condvar::new(),
             )),
             backend: if off { Backend::Hold } else { Backend::System },
             skip_citations: true,
             open: false,
+            settings,
         }
     }
 }
@@ -555,7 +793,29 @@ impl ReadAloud {
             s.queue = queue;
             s.index = 0;
             s.error = None;
+            s.source = None;
+            s.chunk = 0;
         });
+    }
+
+    /// Start reading `doc` by `plan`, one chunk at a time, with the current settings. False
+    /// when there's nothing to read.
+    pub fn start_plan(&mut self, doc: Arc<Document>, plan: Plan) -> bool {
+        self.open = true;
+        let skip_citations = self.skip_citations;
+        let mut ok = false;
+        self.change(|s| {
+            s.source = Some(Source { doc, plan, skip_citations });
+            s.error = None;
+            ok = s.load(0, true);
+            if !ok {
+                s.queue.clear();
+                s.index = 0;
+                s.chunk = 0;
+            }
+            s.state = if ok { State::Playing } else { State::Stopped };
+        });
+        ok
     }
 
     /// Pause, or carry on (a finished reading starts again from the top).
@@ -565,7 +825,7 @@ impl ReadAloud {
                 State::Playing => State::Paused,
                 _ if s.queue.is_empty() => State::Stopped,
                 _ => {
-                    if s.index >= s.queue.len() {
+                    if s.index >= s.queue.len() && !(s.source.is_some() && s.load(0, true)) {
                         s.index = 0;
                     }
                     State::Playing
@@ -574,12 +834,22 @@ impl ReadAloud {
         });
     }
 
-    /// Move by `delta` sentences; a stopped player starts playing there.
+    /// Move by `delta` sentences, on into the next chunk or back into the previous one; a
+    /// stopped player starts playing there.
     pub fn skip(&mut self, delta: i64) {
         self.change(|s| {
-            let last = s.queue.len().saturating_sub(1) as i64;
-            let at = (s.index.min(s.queue.len()) as i64).saturating_add(delta).clamp(0, last.max(0));
-            s.index = at as usize;
+            let len = s.queue.len() as i64;
+            let at = (s.index.min(s.queue.len()) as i64).saturating_add(delta);
+            let moved = if at >= len && delta > 0 {
+                s.load(s.chunk.saturating_add(1), true)
+            } else if at < 0 && delta < 0 && s.chunk > 0 {
+                s.load(s.chunk - 1, false)
+            } else {
+                false
+            };
+            if !moved {
+                s.index = at.clamp(0, (len - 1).max(0)) as usize;
+            }
             if s.state == State::Stopped && !s.queue.is_empty() {
                 s.state = State::Playing;
             }
@@ -594,6 +864,23 @@ impl ReadAloud {
             self.change(|s| s.rate = r);
         } else {
             lock(&self.shared.0).rate = r;
+        }
+    }
+
+    /// The settings the next sentence is read with.
+    pub fn settings(&self) -> &SpeechSettings {
+        &self.settings
+    }
+
+    /// Use `settings` from the next sentence on (the current one restarts when reading).
+    pub fn set_settings(&mut self, settings: SpeechSettings) {
+        self.settings = settings.clone();
+        let reading = self.state() != State::Stopped;
+        let apply = |s: &mut Shared| s.settings = Arc::new(settings);
+        if reading {
+            self.change(apply);
+        } else {
+            apply(&mut lock(&self.shared.0));
         }
     }
 
@@ -614,14 +901,27 @@ impl ReadAloud {
         let s = lock(&self.shared.0);
         if s.state == State::Stopped { None } else { s.queue.get(s.index).cloned() }
     }
-    /// (index, number of sentences).
+    /// (index, number of sentences) in the current chunk.
     pub fn progress(&self) -> (usize, usize) {
         let s = lock(&self.shared.0);
         (s.index, s.queue.len())
     }
+    /// Where the reading in progress ends (a selection's end), if not at the end of its story.
+    pub fn reading_end(&self) -> Option<Pos> {
+        lock(&self.shared.0).source.as_ref().and_then(|src| src.plan.to.clone())
+    }
+    /// (current chunk, number of chunks).
+    pub fn chunk_progress(&self) -> (usize, usize) {
+        let s = lock(&self.shared.0);
+        (s.chunk, s.chunks())
+    }
     /// The last speech error (no speech program…), if any.
     pub fn error(&self) -> Option<String> {
         lock(&self.shared.0).error.clone()
+    }
+    /// The label of the voice role reading the current sentence.
+    pub fn voice(&self) -> Option<String> {
+        self.current().map(|u| self.settings.voices.label(u.role).to_string())
     }
 
     pub fn status(&self) -> Value {
@@ -632,9 +932,13 @@ impl ReadAloud {
             "open": self.open,
             "index": s.index,
             "count": s.queue.len(),
+            "chunk": s.settings.chunk.name(),
+            "chunkIndex": s.chunk,
+            "chunkCount": s.chunks(),
             "rate": s.rate,
             "skipCitations": self.skip_citations,
             "current": current.map(Utterance::to_json),
+            "voice": current.map(|u| s.settings.voices.label(u.role)),
             "error": s.error,
         })
     }
@@ -652,16 +956,18 @@ impl ReadAloud {
     #[cfg(not(target_arch = "wasm32"))]
     fn ensure_worker(&mut self) {
         let mut s = lock(&self.shared.0);
-        if s.state != State::Playing || s.running {
+        if s.state == State::Stopped {
             return;
         }
-        s.running = true;
-        let shared = Arc::clone(&self.shared);
-        let backend = self.backend;
-        if let Err(e) = std::thread::Builder::new().name("read-aloud".into()).spawn(move || worker(&shared, backend)) {
-            s.running = false;
-            s.state = State::Stopped;
-            s.error = Some(format!("couldn't start Read Aloud: {e}"));
+        if s.state == State::Playing && !s.running {
+            s.running = true;
+            let shared = Arc::clone(&self.shared);
+            let backend = self.backend;
+            if let Err(e) = std::thread::Builder::new().name("read-aloud".into()).spawn(move || worker(&shared, backend)) {
+                s.running = false;
+                s.state = State::Stopped;
+                s.error = Some(format!("couldn't start Read Aloud: {e}"));
+            }
         }
     }
 }
@@ -684,11 +990,17 @@ enum Spoken {
     Failed(String),
 }
 
+/// The speed of a sentence: the reading speed times its role's.
+fn role_rate(rate: f32, role: f32) -> f32 {
+    let r = rate * role;
+    if r.is_finite() { r.clamp(MIN_RATE, MAX_RATE) } else { 1.0 }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn worker(shared: &(Mutex<Shared>, Condvar), backend: Backend) {
     let (m, cv) = shared;
     loop {
-        let (text, lang, generation, rate) = {
+        let (u, generation, rate, settings) = {
             let mut s = lock(m);
             while s.state == State::Paused {
                 s = cv.wait(s).unwrap_or_else(PoisonError::into_inner);
@@ -698,7 +1010,7 @@ fn worker(shared: &(Mutex<Shared>, Condvar), backend: Backend) {
                 return;
             }
             match s.queue.get(s.index) {
-                Some(u) => (u.text.clone(), u.lang.clone(), s.generation, s.rate),
+                Some(u) => (u.clone(), s.generation, s.rate, Arc::clone(&s.settings)),
                 None => {
                     s.state = State::Stopped;
                     s.running = false;
@@ -707,8 +1019,11 @@ fn worker(shared: &(Mutex<Shared>, Condvar), backend: Backend) {
             }
         };
         let changed = || lock(m).generation != generation;
+        let (voice, factor) = settings.role_voice(u.role);
+        let rate = role_rate(rate, factor);
+        let voice = Some(voice).filter(|v| !v.is_empty());
         let outcome = match backend {
-            Backend::System => speak(&text, lang.as_deref(), rate, &changed),
+            Backend::System => speak(&u.text, u.lang.as_deref(), voice, rate, &changed),
             Backend::Instant => Spoken::Done,
             Backend::Hold => {
                 let mut s = lock(m);
@@ -726,9 +1041,12 @@ fn worker(shared: &(Mutex<Shared>, Condvar), backend: Backend) {
             Spoken::Done => {
                 s.index += 1;
                 if s.index >= s.queue.len() {
-                    s.state = State::Stopped;
-                    s.running = false;
-                    return;
+                    let next = s.chunk.saturating_add(1);
+                    if !s.load(next, true) {
+                        s.state = State::Stopped;
+                        s.running = false;
+                        return;
+                    }
                 }
             }
             Spoken::Interrupted => {}
@@ -766,18 +1084,23 @@ struct WindowsSpeech {
 }
 
 #[cfg(any(target_os = "windows", test))]
-fn windows_speech(system_root: Option<std::ffi::OsString>, rate: f32, lang: Option<&str>) -> WindowsSpeech {
+fn windows_speech(system_root: Option<std::ffi::OsString>, rate: f32, lang: Option<&str>, named: bool) -> WindowsSpeech {
     // SAPI rate: -10 (a third of normal speed) … 10 (three times).
     let r = ((rate.ln() / 3f32.ln()) * 10.0).round().clamp(-10.0, 10.0) as i64;
     // The voice of the sentence's language, when one is installed (the default voice would spell
     // out Cyrillic, Greek… letters one by one), but only when the user's default voice doesn't
     // speak that language already, in any region. The tag is `primary_tag`-clean, so it can't end
-    // the quote.
-    let voice = lang.and_then(primary_tag).map_or_else(String::new, |p| {
+    // the quote. A voice the user named (a voice role's) comes in the environment, so its name is
+    // never part of the script; a name SAPI doesn't know fails, and the default voice reads.
+    let voice = if named {
+        "if ($env:WORDCRAFT_VOICE) { try { $s.SelectVoice($env:WORDCRAFT_VOICE) } catch { exit 3 } }; ".to_string()
+    } else {
+        lang.and_then(primary_tag).map_or_else(String::new, |p| {
         format!(
             "if ($s.Voice.Culture.TwoLetterISOLanguageName -ne '{p}') {{ $v = $s.GetInstalledVoices() | Where-Object {{ $_.Enabled -and $_.VoiceInfo.Culture.TwoLetterISOLanguageName -eq '{p}' }} | Select-Object -First 1; if ($v) {{ $s.SelectVoice($v.VoiceInfo.Name) }} }}; "
-        )
-    });
+            )
+        })
+    };
     // The sentence arrives on stdin as UTF-8 bytes; `[Console]::In` would decode them with the
     // console's code page (Cyrillic became `?` and the voice read single letters), so read the raw
     // stream and decode it as UTF-8. The text itself is never part of the script.
@@ -793,21 +1116,22 @@ fn windows_speech(system_root: Option<std::ffi::OsString>, rate: f32, lang: Opti
     }
 }
 
-/// Speak one sentence with the system's speech program, stopping early when `changed()`. When
-/// the program fails with the sentence's voice, the default voice says it instead.
+/// Speak one sentence with the system's speech program, stopping early when `changed()`: in the
+/// `voice` the user named, else in `lang`'s voice. When the program fails with that voice, the
+/// default voice says it instead.
 #[cfg(not(target_arch = "wasm32"))]
-fn speak(text: &str, lang: Option<&str>, rate: f32, changed: &dyn Fn() -> bool) -> Spoken {
-    let (spoken, gave_voice, exited_ok) = speak_with(text, lang, rate, changed);
+fn speak(text: &str, lang: Option<&str>, voice: Option<&str>, rate: f32, changed: &dyn Fn() -> bool) -> Spoken {
+    let (spoken, gave_voice, exited_ok) = speak_with(text, lang, voice, rate, changed);
     if retry_without_voice(gave_voice, exited_ok) {
-        return speak_with(text, None, rate, changed).0;
+        return speak_with(text, None, None, rate, changed).0;
     }
     spoken
 }
 
-/// [`speak`] in `lang`'s voice once: how it ended, whether the program was given a voice, and
+/// [`speak`] in one voice once: how it ended, whether the program was given a voice, and
 /// whether it exited successfully (`None` when it didn't exit on its own).
 #[cfg(not(target_arch = "wasm32"))]
-fn speak_with(text: &str, lang: Option<&str>, rate: f32, changed: &dyn Fn() -> bool) -> (Spoken, bool, Option<bool>) {
+fn speak_with(text: &str, lang: Option<&str>, named: Option<&str>, rate: f32, changed: &dyn Fn() -> bool) -> (Spoken, bool, Option<bool>) {
     use std::io::Write;
     use std::process::{Command, Stdio};
     let wpm = ((BASE_WPM * rate).round() as i64).to_string();
@@ -818,7 +1142,10 @@ fn speak_with(text: &str, lang: Option<&str>, rate: f32, changed: &dyn Fn() -> b
     {
         let mut c = Command::new("say");
         c.args(["-r", &wpm]);
-        let voice = lang.and_then(|l| mac_voice(l, mac_voice_listing(), mac_default_voice_language()));
+        let voice = named
+            .filter(|v| !v.starts_with('-'))
+            .map(str::to_string)
+            .or_else(|| lang.and_then(|l| mac_voice(l, mac_voice_listing(), mac_default_voice_language())));
         if let Some(voice) = &voice {
             c.args(["-v", voice.as_str()]);
         }
@@ -826,23 +1153,26 @@ fn speak_with(text: &str, lang: Option<&str>, rate: f32, changed: &dyn Fn() -> b
     }
     #[cfg(target_os = "windows")]
     {
-        let w = windows_speech(std::env::var_os("SystemRoot"), rate, lang);
+        let w = windows_speech(std::env::var_os("SystemRoot"), rate, lang, named.is_some());
         let mut c = Command::new(&w.program);
         c.args(&w.args);
+        if let Some(v) = named {
+            c.env("WORDCRAFT_VOICE", v);
+        }
         std::os::windows::process::CommandExt::creation_flags(&mut c, w.creation_flags);
-        tries.push((c, lang.and_then(primary_tag).is_some()));
+        tries.push((c, named.is_some() || lang.and_then(primary_tag).is_some()));
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         for prog in ["espeak-ng", "espeak"] {
-            let args = espeak_args(&wpm, lang);
+            let args = espeak_args(&wpm, lang, named);
             let voiced = args.iter().any(|a| a == "-v");
             let mut c = Command::new(prog);
             c.args(args);
             tries.push((c, voiced));
         }
     }
-    let _ = (&wpm, lang);
+    let _ = (&wpm, lang, named);
     let mut child = None;
     let mut last_err = String::from("no speech program on this system");
     for (mut c, voiced) in tries {
@@ -901,12 +1231,12 @@ mod tests {
         // The flags `speak` passes to `creation_flags` (std can't read them back from the
         // `Command`): Win32's CREATE_NO_WINDOW (0x0800_0000), or every sentence flashes a
         // console (#1122).
-        let w = windows_speech(Some("D:\\Win".into()), 1.0, None);
+        let w = windows_speech(Some("D:\\Win".into()), 1.0, None, false);
         assert_eq!(w.creation_flags, 0x0800_0000);
         assert_eq!(w.program, windows_powershell(Some("D:\\Win".into())));
         assert_eq!(w.args[..3], ["-NoProfile", "-NonInteractive", "-Command"]);
         assert!(w.args[3].contains("$s.Rate = 0;"), "{}", w.args[3]);
-        assert!(windows_speech(None, 3.0, None).args[3].contains("$s.Rate = 10;"));
+        assert!(windows_speech(None, 3.0, None, false).args[3].contains("$s.Rate = 10;"));
     }
 
     #[test]
@@ -1007,6 +1337,43 @@ mod tests {
     }
 
     #[test]
+    fn a_plan_is_read_chunk_after_chunk() {
+        let doc = Document::from_text("One. Two.\n\nThree.");
+        let mut settings = SpeechSettings::default();
+        let plan = Plan::new(&doc, &Pos::body(0, 0), None, &settings, true, &|_| None);
+        assert_eq!(plan.chunks(), 3);
+        let mut r = ReadAloud::default();
+        r.backend = Backend::Instant;
+        assert!(r.start_plan(Arc::new(doc.clone()), plan));
+        for _ in 0..400 {
+            if r.state() == State::Stopped {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_eq!(r.state(), State::Stopped);
+        assert_eq!(r.chunk_progress(), (2, 3), "the last chunk with something to read");
+        // Play again starts from the first chunk.
+        r.backend = Backend::Hold;
+        r.play_pause();
+        assert_eq!((r.chunk_progress().0, r.current().map(|u| u.text)), (0, Some("One.".into())));
+        // Pages: a page per paragraph start, and a selection's end.
+        settings.chunk = Chunk::Page;
+        let plan = Plan::new(&doc, &Pos::body(0, 5), Some(&Pos::body(2, 3)), &settings, true, &|p| {
+            Some(p.path.0.first().copied().unwrap_or(0) as usize / 2)
+        });
+        assert_eq!((plan.chunks(), plan.paras.len()), (2, 3));
+        assert_eq!(texts(&plan.sentences(&doc, 0, &ReadOptions::default())), ["Two."]);
+        assert_eq!(texts(&plan.sentences(&doc, 1, &ReadOptions::default())), ["Thr"]);
+        assert!(plan.sentences(&doc, 99, &ReadOptions::default()).is_empty());
+        // Nothing to read: no reading.
+        let empty = Document::from_text("\n ?!");
+        let plan = Plan::new(&empty, &Pos::body(0, 0), None, &settings, true, &|_| None);
+        assert!(!r.start_plan(Arc::new(empty), plan));
+        assert_eq!(r.state(), State::Stopped);
+    }
+
+    #[test]
     fn empty_queue_does_not_play() {
         let mut r = ReadAloud::default();
         r.start(Vec::new());
@@ -1070,38 +1437,48 @@ mod tests {
 
     #[test]
     fn windows_script_reads_utf8_and_picks_the_voice() {
-        let w = windows_speech(None, 1.0, Some("ru"));
+        let w = windows_speech(None, 1.0, Some("ru"), false);
         let script = &w.args[3];
         assert!(script.contains("UTF8"), "{script}");
         assert!(script.contains("GetInstalledVoices") && script.contains("SelectVoice"), "{script}");
         assert!(script.contains("'ru'"), "{script}");
         // The default voice when the language is unknown, and no voice code at all.
-        let d = windows_speech(None, 1.0, None);
+        let d = windows_speech(None, 1.0, None, false);
         assert!(d.args[3].contains("UTF8") && !d.args[3].contains("SelectVoice"), "{}", d.args[3]);
         // The sentence is never in the script: it arrives on stdin.
-        assert!(!windows_speech(None, 1.0, Some("ru-RU")).args[3].contains("Привет"));
+        assert!(!windows_speech(None, 1.0, Some("ru-RU"), false).args[3].contains("Привет"));
         // A tag that isn't a plain language tag is dropped, not put in the script.
-        let h = windows_speech(None, 1.0, Some("ru'; Remove-Item x; '"));
+        let h = windows_speech(None, 1.0, Some("ru'; Remove-Item x; '"), false);
         assert!(!h.args[3].contains("Remove-Item"), "{}", h.args[3]);
     }
 
     #[test]
     fn espeak_gets_the_language() {
-        assert_eq!(espeak_args("180", Some("ru-RU")), ["-s", "180", "-v", "ru", "--stdin"]);
-        assert_eq!(espeak_args("180", Some("uk")), ["-s", "180", "-v", "uk", "--stdin"]);
-        assert_eq!(espeak_args("180", None), ["-s", "180", "--stdin"]);
-        assert_eq!(espeak_args("180", Some("--evil")), ["-s", "180", "--stdin"]);
+        assert_eq!(espeak_args("180", Some("ru-RU"), None), ["-s", "180", "-v", "ru", "--stdin"]);
+        assert_eq!(espeak_args("180", Some("uk"), None), ["-s", "180", "-v", "uk", "--stdin"]);
+        assert_eq!(espeak_args("180", None, None), ["-s", "180", "--stdin"]);
+        assert_eq!(espeak_args("180", Some("--evil"), None), ["-s", "180", "--stdin"]);
+    }
+
+    #[test]
+    fn a_voice_role_names_the_system_voice() {
+        // espeak: the role's voice wins over the language's, and never as an option.
+        assert_eq!(espeak_args("180", Some("ru"), Some("en-gb")), ["-s", "180", "-v", "en-gb", "--stdin"]);
+        assert_eq!(espeak_args("180", Some("ru"), Some("-x")), ["-s", "180", "-v", "ru", "--stdin"]);
+        // Windows: the name comes in the environment, never in the script.
+        let w = windows_speech(None, 1.0, Some("ru"), true);
+        assert!(w.args[3].contains("$env:WORDCRAFT_VOICE") && !w.args[3].contains("'ru'"), "{}", w.args[3]);
     }
 
     #[test]
     fn english_text_keeps_the_default_voice() {
         // Word writes `en-US` on almost every run: espeak's default voice is English already, so
         // no `-v` (as before #1843), and Word's language-less `x-none` is no voice either.
-        assert_eq!(espeak_args("180", Some("en-US")), ["-s", "180", "--stdin"]);
-        assert_eq!(espeak_args("180", Some("en-GB")), ["-s", "180", "--stdin"]);
-        assert_eq!(espeak_args("180", Some("x-none")), ["-s", "180", "--stdin"]);
+        assert_eq!(espeak_args("180", Some("en-US"), None), ["-s", "180", "--stdin"]);
+        assert_eq!(espeak_args("180", Some("en-GB"), None), ["-s", "180", "--stdin"]);
+        assert_eq!(espeak_args("180", Some("x-none"), None), ["-s", "180", "--stdin"]);
         // Windows: the user's default voice stays when it already speaks the language, any region.
-        let script = &windows_speech(None, 1.0, Some("en-US")).args[3];
+        let script = &windows_speech(None, 1.0, Some("en-US"), false).args[3];
         let guard = script.find("if ($s.Voice.Culture.TwoLetterISOLanguageName -ne 'en')");
         let pick = script.find("GetInstalledVoices");
         assert!(guard.is_some() && pick.is_some() && guard < pick, "{script}");

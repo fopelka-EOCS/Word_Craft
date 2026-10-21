@@ -981,6 +981,7 @@
 	Previous sentence	Предишно изречение
 	Play/Pause	Възпроизвеждане/пауза
 	Read Aloud Status	Състояние на четенето на глас
+	Read Aloud Settings	Настройки на четенето на глас
 	Reading Speed	Скорост на четене
 	Skip Citations and Bibliography	Пропускане на цитиранията и библиографията
 	Skip citations & bibliography	Пропускане на цитиранията и библиографията
@@ -2688,3 +2689,38 @@
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Въведете размер в произволна единица, например 5 cm или 300 px. Другата страна се променя съответно, така че картината запазва пропорциите си.
 
 	Import…	Импортиране…
+	Read at a time:	Четене наведнъж:
+	One paragraph	Един абзац
+	One page	Една страница
+	The whole document	Целият документ
+	Read Aloud settings…	Настройки на четенето на глас…
+	Read Aloud prepares and reads this much text, then goes on to the next part.	Четенето на глас подготвя и чете толкова текст, след което преминава към следващата част.
+	Read Aloud: text	Четене на глас: текст
+	Web addresses:	Уеб адреси:
+	Read the site name only	Четене само на името на сайта
+	Skip emoji	Пропускане на емоджи
+	Skip markup characters (* # _ ~ | ^ ` < > = \\)	Пропускане на знаци за маркиране (* # _ ~ | ^ ` < > = \\)
+	Skip repeated punctuation (*****, -----)	Пропускане на повтаряща се пунктуация (*****, -----)
+	Skip symbols (arrows, boxes, bullets, icon characters)	Пропускане на символи (стрелки, рамки, водещи знаци, знаци на икони)
+	Skip text in (parentheses)	Пропускане на текст в (кръгли скоби)
+	Skip text in [square brackets]	Пропускане на текст в [квадратни скоби]
+	Skip text that matches (regular expressions, one per line):	Пропускане на съвпадащ текст (регулярни изрази, по един на ред):
+	Characters to skip:	Знаци за пропускане:
+	Say instead (one per line, text = spoken as):	Произнасяне вместо това (по един на ред, текст = произношение):
+	The text on the page doesn't change. Only the spoken text does.	Текстът на страницата не се променя. Променя се само изговореният текст.
+	Write each replacement on its own line as: text = spoken as	Пишете всяка замяна на отделен ред: текст = произношение
+	Read all of the address	Четене на целия адрес
+	Skip	Пропускане
+	Read Aloud: voices	Четене на глас: гласове
+	Change the voice where a marker character starts the text	Смяна на гласа, където маркерен знак започва текста
+	Marker character:	Маркерен знак:
+	A marker changes the voice:	Маркерът сменя гласа:
+	To the end of the paragraph	До края на абзаца
+	Type the marker and the voice label before the text, for example {marker}A Hello. Use {marker}N or {marker}Narrator to go back to the narrator.	Въведете маркера и етикета на гласа преди текста, например {marker}A Здравей. Използвайте {marker}N или {marker}Narrator, за да се върнете към разказвача.
+	Label	Етикет
+	System voice	Системен глас
+	Narrator	Разказвач
+	Add a voice	Добавяне на глас
+	An empty voice uses the voice the engine has by default. The speed is relative to the reading speed.	Празен глас използва гласа по подразбиране на машината. Скоростта е спрямо скоростта на четене.
+	Voice:	Глас:
+	Until the next marker	До следващия маркер

@@ -892,6 +892,7 @@
 	Previous sentence	Előző mondat
 	Play/Pause	Lejátszás/szünet
 	Read Aloud Status	Felolvasás állapota
+	Read Aloud Settings	Felolvasás beállításai
 	Reading Speed	Olvasási sebesség
 	Skip Citations and Bibliography	Hivatkozások és irodalomjegyzék kihagyása
 	Skip citations & bibliography	Hivatkozások és irodalomjegyzék kihagyása
@@ -2695,3 +2696,38 @@
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Írj be egy méretet bármilyen mértékegységben, például 5 cm vagy 300 px. A másik oldal követi, így a kép megtartja az arányait.
 
 	Import…	Importálás…
+	Read at a time:	Egyszerre felolvasva:
+	One paragraph	Egy bekezdés
+	One page	Egy oldal
+	The whole document	A teljes dokumentum
+	Read Aloud settings…	Felolvasás beállításai…
+	Read Aloud prepares and reads this much text, then goes on to the next part.	A Felolvasás ennyi szöveget készít elő és olvas fel, majd a következő részre lép.
+	Read Aloud: text	Felolvasás: szöveg
+	Web addresses:	Webcímek:
+	Read the site name only	Csak a webhely nevének felolvasása
+	Skip emoji	Emojik kihagyása
+	Skip markup characters (* # _ ~ | ^ ` < > = \\)	Jelölőnyelvi karakterek kihagyása (* # _ ~ | ^ ` < > = \\)
+	Skip repeated punctuation (*****, -----)	Ismétlődő írásjelek kihagyása (*****, -----)
+	Skip symbols (arrows, boxes, bullets, icon characters)	Szimbólumok kihagyása (nyilak, keretek, felsorolásjelek, ikonkarakterek)
+	Skip text in (parentheses)	(Zárójeles) szöveg kihagyása
+	Skip text in [square brackets]	[Szögletes zárójeles] szöveg kihagyása
+	Skip text that matches (regular expressions, one per line):	Illeszkedő szöveg kihagyása (reguláris kifejezések, soronként egy):
+	Characters to skip:	Kihagyandó karakterek:
+	Say instead (one per line, text = spoken as):	Helyette mondja (soronként egy, szöveg = kiejtés):
+	The text on the page doesn't change. Only the spoken text does.	Az oldalon lévő szöveg nem változik. Csak a kimondott szöveg változik.
+	Write each replacement on its own line as: text = spoken as	Minden cserét külön sorba írjon: szöveg = kiejtés
+	Read all of the address	A teljes cím felolvasása
+	Skip	Kihagyás
+	Read Aloud: voices	Felolvasás: hangok
+	Change the voice where a marker character starts the text	Hang váltása, ahol jelölő karakter kezdi a szöveget
+	Marker character:	Jelölő karakter:
+	A marker changes the voice:	A jelölő váltja a hangot:
+	To the end of the paragraph	A bekezdés végéig
+	Type the marker and the voice label before the text, for example {marker}A Hello. Use {marker}N or {marker}Narrator to go back to the narrator.	Írja a jelölőt és a hangcímkét a szöveg elé, például {marker}A Szia. A narrátorhoz a {marker}N vagy a {marker}Narrator jelölővel térhet vissza.
+	Label	Címke
+	System voice	Rendszerhang
+	Narrator	Narrátor
+	Add a voice	Hang hozzáadása
+	An empty voice uses the voice the engine has by default. The speed is relative to the reading speed.	Üres hang esetén a motor alapértelmezett hangja szól. A sebesség a felolvasási sebességhez viszonyított.
+	Voice:	Hang:
+	Until the next marker	A következő jelölőig
