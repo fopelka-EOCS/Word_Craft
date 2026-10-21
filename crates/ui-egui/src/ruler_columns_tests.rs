@@ -1,0 +1,285 @@
+//! #2196: exercise the painted markers and real pointer drags through the whole window.
+use super::*;
+use wordcraft_doc::Document;
+use wordcraft_engine::Selection;
+
+type H = egui_kittest::Harness<'static, WordApp>;
+
+/// Advance enough frames for queued input and layout changes to reach the painted window.
+fn steps(h: &mut H, n: usize) {
+    for _ in 0..n {
+        h.step();
+    }
+}
+
+/// Build a full-window harness and finish its initial font and layout frames.
+fn window(a: WordApp) -> H {
+    let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+        |ui, app: &mut WordApp| {
+            let ctx = ui.ctx().clone();
+            app.logic(&ctx);
+            app.ui(ui);
+        },
+        a,
+    );
+    steps(&mut h, 6);
+    h
+}
+
+/// Move the caret without keyboard navigation and refresh the active page and ruler.
+fn focus(h: &mut H, pos: Pos) {
+    h.state_mut().session.sel = Selection::caret(pos);
+    steps(h, 3);
+}
+
+/// Read the three actual painted triangles, ordered by their vertical position on the bar.
+fn markers(h: &H) -> [f32; 3] {
+    let bottom = h.state().canvas.canvas_rect.unwrap().min.y;
+    let mut triangles: Vec<_> = h
+        .output()
+        .shapes
+        .iter()
+        .filter_map(|s| match &s.shape {
+            egui::Shape::Path(p) if p.points.len() == 3 && p.closed => {
+                let bounds = Rect::from_points(&p.points);
+                (bounds.min.y >= bottom - RULER && bounds.max.y < bottom).then_some((bounds.min.y, p.points[2].x))
+            }
+            _ => None,
+        })
+        .collect();
+    triangles.sort_by(|a, b| a.0.total_cmp(&b.0));
+    assert_eq!(triangles.len(), 3, "the first-line, left and right markers: {triangles:?}");
+    [triangles[0].1, triangles[1].1, triangles[2].1]
+}
+
+/// Convert a document x coordinate on the caret page to screen points.
+fn screen_x(h: &mut H, x: f32) -> f32 {
+    let pi = h.state().session.page_hint;
+    page_to_screen(h.state_mut(), pi, x, 72.0).unwrap().x
+}
+
+/// Assert the active ruler frame and all three painted indent marker positions.
+fn check(h: &mut H, x: f32, w: f32, rtl: bool, indents: [f32; 3]) {
+    let layout = h.state_mut().session.layout();
+    let actual = ruler_text_area(h.state(), &layout, h.state().session.page_hint).unwrap();
+    assert!((actual.0 - x).abs() < 0.01 && (actual.1 - w).abs() < 0.01, "ruler frame {actual:?}, expected ({x}, {w})");
+    let [left, first, right] = indents;
+    let at = |d| if rtl { x + w - d } else { x + d };
+    let expected = [screen_x(h, at(left + first)), screen_x(h, at(left)), screen_x(h, at(w - right))];
+    for (actual, expected) in markers(h).into_iter().zip(expected) {
+        assert!((actual - expected).abs() < 0.1, "painted marker {actual}, expected {expected}");
+    }
+}
+
+/// Drag an indent marker through real pointer events and finish its release frames.
+fn drag(h: &mut H, which: usize, delta: f32) {
+    let y = h.state().canvas.canvas_rect.unwrap().min.y - if which == 0 { 15.0 } else { 4.0 };
+    let from = pos2(markers(h)[which], y);
+    let to = from + vec2(delta, 0.0);
+    let button = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+    h.event(egui::Event::PointerMoved(from));
+    steps(h, 2);
+    h.event(button(from, true));
+    h.step();
+    for k in 1..=6 {
+        h.event(egui::Event::PointerMoved(from + (to - from) * (k as f32 / 6.0)));
+        h.step();
+    }
+    h.event(button(to, false));
+    steps(h, 3);
+}
+
+/// Exercise all indent drags across column widths, independent directions and zoom levels.
+#[test]
+fn column_ruler_paints_and_drags_all_indents_in_both_directions_at_each_zoom() {
+    for section_rtl in [false, true] {
+        for para_rtl in [false, true] {
+            for unequal in [false, true] {
+                for zoom in [0.6, 1.5] {
+                    // English in every case: language does not choose the section direction.
+                    let mut a = WordApp::new(wordcraft_engine::Session::new(Document::from_text("First\n\u{e}Second\nThird")), Default::default());
+                    a.run("select.all", json!({})).unwrap();
+                    a.run("para.rtl", json!({"value": para_rtl})).unwrap();
+                    a.run("para.indents", json!({"left": 9, "firstLine": 9, "right": 9})).unwrap();
+                    a.run("layout.sectionRtl", json!({"value": section_rtl})).unwrap();
+                    let columns = if unequal { json!({"widths": [[144, 36], [288, 0]]}) } else { json!({"count": 2, "space": 36}) };
+                    a.run("layout.columns", columns).unwrap();
+                    a.session.view.zoom = zoom;
+                    let mut h = window(a);
+                    let (first, second) = match (section_rtl, unequal) {
+                        (false, false) => ((72.0, 216.0), (324.0, 216.0)),
+                        (true, false) => ((324.0, 216.0), (72.0, 216.0)),
+                        (false, true) => ((72.0, 144.0), (252.0, 288.0)),
+                        (true, true) => ((396.0, 144.0), (72.0, 288.0)),
+                    };
+                    // Includes movement within the paragraph split by a column break. Looking
+                    // up its first placed piece or using the page's first column would fail.
+                    for (pos, (x, w)) in [(Pos::body(0, 0), first), (Pos::body(1, 1), second), (Pos::body(1, 0), first), (Pos::body(1, 1), second)] {
+                        focus(&mut h, pos);
+                        check(&mut h, x, w, para_rtl, [9.0, 9.0, 9.0]);
+                    }
+                    let scale = h.state().canvas.scale;
+                    let direction = if para_rtl { -1.0 } else { 1.0 };
+                    drag(&mut h, 1, direction * 18.0 * scale);
+                    check(&mut h, second.0, second.1, para_rtl, [27.0, 9.0, 9.0]);
+                    drag(&mut h, 0, direction * 18.0 * scale);
+                    check(&mut h, second.0, second.1, para_rtl, [27.0, 27.0, 9.0]);
+                    drag(&mut h, 2, -direction * 18.0 * scale);
+                    check(&mut h, second.0, second.1, para_rtl, [27.0, 27.0, 27.0]);
+                    let s = &h.state().session;
+                    let props = s.doc.styles.resolve_para(&s.doc.para_at(&s.sel.focus).unwrap().props);
+                    assert_eq!((props.indent_left, props.indent_first, props.indent_right), (27.0, 27.0, 27.0));
+                    assert_eq!(s.doc.last_section.rtl, section_rtl);
+                    focus(&mut h, Pos::body(0, 0));
+                    check(&mut h, first.0, first.1, para_rtl, [9.0, 9.0, 9.0]);
+                    focus(&mut h, Pos::body(1, 1));
+                    check(&mut h, second.0, second.1, para_rtl, [27.0, 27.0, 27.0]);
+                }
+            }
+        }
+    }
+}
+
+/// Preserve page-body fallback, invalid-page handling and table-cell precedence.
+#[test]
+fn column_ruler_preserves_single_column_and_cell_frames() {
+    let mut a = WordApp::new(wordcraft_engine::Session::new(Document::from_text("Single column")), Default::default());
+    let layout = a.session.layout();
+    assert_eq!(ruler_text_area(&a, &layout, 0), Some((72.0, 468.0)));
+    assert_eq!(ruler_text_area(&a, &layout, usize::MAX), None);
+    a.run("layout.columns", json!({"widths": [[144, 36], [288, 0]]})).unwrap();
+    a.run("insert.table", json!({"rows": 2, "cols": 2})).unwrap();
+    let layout = a.session.layout();
+    let cell = crate::table_ruler::text_area(&a, &layout, 0).unwrap();
+    assert!(cell.0 > 72.0, "the cell's own margins take precedence over its containing column");
+    assert_eq!(ruler_text_area(&a, &layout, 0), Some(cell));
+}
+
+/// Resolve columns from the caret section when consecutive sections share a page.
+#[test]
+fn column_ruler_uses_the_caret_section_on_a_continuous_section_page() {
+    let mut a = WordApp::new(wordcraft_engine::Session::new(Document::from_text("First\n\u{e}Second")), Default::default());
+    a.run("layout.columns", json!({"count": 2, "space": 36})).unwrap();
+    a.run("caret.docEnd", json!({})).unwrap();
+    a.run("layout.break", json!({"kind": "continuous"})).unwrap();
+    a.run("layout.columns", json!({"widths": [[108, 36], [324, 0]]})).unwrap();
+    a.run("text.insert", json!({"text": "Third"})).unwrap();
+    let mut h = window(a);
+    assert_eq!(h.state_mut().session.layout().pages.len(), 1);
+    check(&mut h, 72.0, 108.0, false, [0.0; 3]);
+    h.state_mut().run("select.text", json!({"text": "Second"})).unwrap();
+    steps(&mut h, 3);
+    check(&mut h, 324.0, 216.0, false, [0.0; 3]);
+}
+
+/// Keep table-cell ruler frames and pointer drags inside multicolumn sections.
+#[test]
+fn column_ruler_keeps_cell_indents_in_a_multicolumn_section() {
+    for rtl in [false, true] {
+        let mut h = crate::table_resize::tests::table_window();
+        h.state_mut().run("layout.columns", json!({"count": 2, "space": 36})).unwrap();
+        steps(&mut h, 3);
+        let cell = crate::table_resize::tests::cell(&mut h, 0, 1);
+        let inside = page_to_screen(h.state_mut(), 0, cell.x + cell.w / 2.0, cell.y + cell.h / 2.0).unwrap();
+        h.event(egui::Event::PointerMoved(inside));
+        crate::table_resize::tests::button(&h, inside, true);
+        h.step();
+        crate::table_resize::tests::button(&h, inside, false);
+        steps(&mut h, 3);
+        h.state_mut().run("para.rtl", json!({"value": rtl})).unwrap();
+        steps(&mut h, 3);
+        let (x, w) = (cell.x + 5.4, cell.w - 10.8);
+        check(&mut h, x, w, rtl, [0.0; 3]);
+        let scale = h.state().canvas.scale;
+        drag(&mut h, 1, if rtl { -18.0 * scale } else { 18.0 * scale });
+        check(&mut h, x, w, rtl, [18.0, 0.0, 0.0]);
+    }
+}
+
+/// #2093 moved label collision detection before painting. It must use the same active-column
+/// frame as the markers and tabs, in both paragraph directions.
+#[test]
+fn column_ruler_labels_keep_clear_of_active_column_indents_and_tabs() {
+    for rtl in [false, true] {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(Document::from_text("First\n\u{e}Second")), Default::default());
+        a.run("select.all", json!({})).unwrap();
+        a.run("para.rtl", json!({"value": rtl})).unwrap();
+        a.run("layout.sectionRtl", json!({"value": rtl})).unwrap();
+        a.run("layout.columns", json!({"count": 2, "space": 36})).unwrap();
+        let mut h = window(a);
+        focus(&mut h, Pos::body(1, 1));
+        let labels = |h: &H| {
+            let bottom = h.state().canvas.canvas_rect.unwrap().min.y;
+            h.output()
+                .shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    egui::Shape::Text(t) if t.pos.y >= bottom - RULER && t.pos.y < bottom => Some(t.galley.text().to_string()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert!(labels(&h).iter().any(|s| s == "4"));
+        assert!(labels(&h).iter().any(|s| s == "5"));
+        h.state_mut().run("para.indents", json!({"left": 36, "firstLine": 9})).unwrap();
+        h.state_mut().run("para.tabs", json!({"set": [{"pos": 108, "align": "left", "leader": "none"}]})).unwrap();
+        steps(&mut h, 3);
+        let labels = labels(&h);
+        assert!(!labels.iter().any(|s| s == "4"), "indent at 4: {labels:?}, rtl={rtl}");
+        assert!(!labels.iter().any(|s| s == "5"), "tab at 5: {labels:?}, rtl={rtl}");
+    }
+}
+
+/// The negative start-indent limit is the distance to the reading-start page edge, which
+/// differs from the physical left coordinate in an unequal RTL column.
+#[test]
+fn column_ruler_rtl_negative_indent_stops_at_the_right_page_edge() {
+    let mut a = WordApp::new(wordcraft_engine::Session::new(Document::from_text("First")), Default::default());
+    a.run("para.rtl", json!({"value": true})).unwrap();
+    a.run("layout.sectionRtl", json!({"value": true})).unwrap();
+    a.run("layout.columns", json!({"widths": [[144, 36], [288, 0]]})).unwrap();
+    let mut h = window(a);
+    check(&mut h, 396.0, 144.0, true, [0.0; 3]);
+    let scale = h.state().canvas.scale;
+    drag(&mut h, 1, 180.0 * scale);
+    check(&mut h, 396.0, 144.0, true, [-72.0, 0.0, 0.0]);
+}
+
+/// A continuous section's own margins and gutter set its column origin, including the
+/// translation already applied to an even mirrored page's placed lines.
+#[test]
+fn column_ruler_uses_continuous_section_margins_and_gutter() {
+    for mirrored in [false, true] {
+        for section_rtl in [false, true] {
+            let text = if mirrored { "\u{c}First\n\u{e}Second" } else { "First\n\u{e}Second" };
+            let mut a = WordApp::new(wordcraft_engine::Session::new(Document::from_text(text)), Default::default());
+            a.run("layout.margins", json!({"left": 72, "right": 108, "gutter": 18, "mirror": mirrored})).unwrap();
+            a.run("layout.sectionRtl", json!({"value": section_rtl})).unwrap();
+            a.run("layout.columns", json!({"count": 2, "space": 36})).unwrap();
+            a.run("caret.docEnd", json!({})).unwrap();
+            a.run("layout.break", json!({"kind": "continuous"})).unwrap();
+            a.run("layout.margins", json!({"left": 108, "right": 54, "gutter": 27})).unwrap();
+            a.run("layout.columns", json!({"widths": [[108, 36], [279, 0]]})).unwrap();
+            a.run("text.insert", json!({"text": "Third\n\u{e}Fourth"})).unwrap();
+            let mut h = window(a);
+            let pi = usize::from(mirrored);
+            assert_eq!(h.state_mut().session.layout().pages.len(), pi + 1);
+            let dx = if mirrored { 18.0 } else { 0.0 };
+            let (first, second) = if section_rtl { ((450.0 + dx, 108.0), (135.0 + dx, 279.0)) } else { ((135.0 + dx, 108.0), (279.0 + dx, 279.0)) };
+            for (text, (x, w)) in [("Third", first), ("Fourth", second)] {
+                h.state_mut().run("select.text", json!({"text": text})).unwrap();
+                h.state_mut().run("para.indents", json!({"left": 9, "firstLine": 9, "right": 9})).unwrap();
+                steps(&mut h, 3);
+                assert_eq!(h.state().session.page_hint, pi);
+                check(&mut h, x, w, false, [9.0; 3]);
+            }
+            let scale = h.state().canvas.scale;
+            drag(&mut h, 1, 18.0 * scale);
+            check(&mut h, second.0, second.1, false, [27.0, 9.0, 9.0]);
+            h.state_mut().run("select.text", json!({"text": "Second"})).unwrap();
+            steps(&mut h, 3);
+            let old_x = if section_rtl { 90.0 } else { 315.0 };
+            check(&mut h, old_x + dx, 189.0, false, [0.0; 3]);
+        }
+    }
+}
