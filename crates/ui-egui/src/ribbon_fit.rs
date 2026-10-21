@@ -373,7 +373,12 @@ mod ui_tests {
         assert_eq!(planned(&h.ctx, "Font"), Some(COLLAPSED), "Font folds at 760 pt");
         h.state_mut().run("text.insert", json!({"text": "quiet words"})).unwrap();
         h.state_mut().run("select.all", json!({})).unwrap();
-        h.get_by_role_and_label(Role::Button, "Font").click();
+        // The collapsed group and its editable font-arrow button both have the accessible label
+        // "Font"; select the group's full-height drop-down, not the smaller combo arrow.
+        h.query_all_by_role_and_label(Role::Button, "Font")
+            .find(|node| node.rect().height() > 60.0)
+            .expect("the collapsed Font group button")
+            .click();
         h.run_steps(3);
         let size = |h: &mut egui_kittest::Harness<'static, WordApp>| {
             h.state_mut().session.run("format.state", &json!({})).ok().and_then(|v| v.get("size").and_then(serde_json::Value::as_f64))
@@ -391,7 +396,12 @@ mod ui_tests {
         let text = h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body);
         assert!(!text.chars().any(|c| c.is_lowercase()), "UPPERCASE ran");
         assert!(shown(&h, "Increase Font Size"), "a menu inside counts as inside");
-        h.get_by_role_and_label(Role::Button, "Font").click();
+        // The collapsed group and its editable font-arrow button both have the accessible label
+        // "Font"; select the group's full-height drop-down, not the smaller combo arrow.
+        h.query_all_by_role_and_label(Role::Button, "Font")
+            .find(|node| node.rect().height() > 60.0)
+            .expect("the collapsed Font group button")
+            .click();
         h.run_steps(3);
         assert!(!shown(&h, "Increase Font Size"), "the button closes it again");
     }
