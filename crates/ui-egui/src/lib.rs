@@ -283,6 +283,10 @@ pub struct UiState {
     /// Read Aloud speed (1 = normal) and whether it skips citations and bibliographies.
     pub read_aloud_rate: f32,
     pub read_aloud_skip_citations: bool,
+    /// Read Aloud's voice engine, reading unit, text rules and voice roles, as
+    /// [`wordcraft_engine::speech::SpeechSettings::to_json`] writes them (a damaged entry keeps its
+    /// default).
+    pub read_aloud_settings: serde_json::Value,
     /// Show ribbon and Quick Access Toolbar KeyTips on Alt/F10 (#620).
     pub keytips_enabled: bool,
     /// Digits entered for a multi-key Quick Access Toolbar badge; never persisted.
@@ -380,6 +384,7 @@ impl Default for UiState {
             editing: wordcraft_engine::Prefs::default(),
             read_aloud_rate: 1.0,
             read_aloud_skip_citations: true,
+            read_aloud_settings: serde_json::Value::Object(Default::default()),
             keytips_enabled: true,
             keytip_prefix: String::new(),
             keytips: crate::keytips::Phase::Off,
@@ -598,6 +603,9 @@ pub struct WordApp {
     /// Read Aloud: the start of the sentence the caret was last moved to, and the last error shown.
     pub(crate) read_aloud_at: Option<wordcraft_engine::doc::Pos>,
     pub(crate) read_aloud_error: Option<String>,
+    /// The voices File › Options › Accessibility lists (`readAloud.voices`), asked for when the
+    /// pane first shows and again on "Find voices again" or a picked model.
+    pub(crate) read_aloud_voices: Option<serde_json::Value>,
     /// The file the document was last explicitly saved to in this session; AutoSave writes only
     /// there. A file that was merely opened isn't rewritten until the user saves it: saving drops
     /// whatever WordCraft can't represent (content controls, charts, macros…).
@@ -706,6 +714,7 @@ impl WordApp {
             ctx: None,
             read_aloud_at: None,
             read_aloud_error: None,
+            read_aloud_voices: None,
             autosave_path: None,
             saves_in_flight: Vec::new(),
             awaiting_save: None,
@@ -760,6 +769,7 @@ impl WordApp {
         ui.editing = self.session.prefs.clone();
         ui.read_aloud_rate = self.session.read_aloud.rate();
         ui.read_aloud_skip_citations = self.session.read_aloud.skip_citations;
+        ui.read_aloud_settings = self.session.read_aloud.settings().to_json();
         ui.dark_page = self.session.view.dark_mode;
         ui.nav_pane = self.session.view.nav_pane;
         ui.keyboard = self.session.keymap.clone();
@@ -805,6 +815,7 @@ impl WordApp {
         }
         self.session.read_aloud.set_rate(self.ui.read_aloud_rate);
         self.session.read_aloud.skip_citations = self.ui.read_aloud_skip_citations;
+        self.session.read_aloud.set_settings(wordcraft_engine::speech::SpeechSettings::load(&self.ui.read_aloud_settings));
         self.session.view.dark_mode = self.ui.dark_page;
         self.session.view.nav_pane = self.ui.nav_pane;
         // Keys for commands this version doesn't have are dropped.
@@ -2593,6 +2604,8 @@ pub(crate) fn works_without_document(id: &str) -> bool {
             | "font.remove"
             | "readAloud.speed"
             | "readAloud.skipCitations"
+            | "readAloud.settings"
+            | "readAloud.voices"
             | "tools.customizeKeyboard"
             | "tools.customizeRibbon"
             | "view.darkMode"

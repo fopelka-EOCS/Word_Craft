@@ -1710,6 +1710,8 @@ template	Letter	Pismo
 	Raised/lowered	Podignuto/spušteno
 	Read Aloud	Čitaj naglas
 	Read Aloud Status	Status čitanja naglas
+	Read Aloud Settings	Postavke čitanja naglas
+	Read Aloud Voices	Glasovi za čitanje naglas
 	Read Mode	Čitanje
 	Read\nAloud	Čitaj\nnaglas
 	Read\nMode	Čitanje
@@ -2699,3 +2701,53 @@ preview	Title	Naslov
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Upišite veličinu u bilo kojoj jedinici, npr. 5 cm ili 300 px. Druga se strana prilagođava pa slika zadržava svoje proporcije.
 
 	Import…	Uvezi…
+	Read at a time:	Čitaj odjednom:
+	One paragraph	Jedan odlomak
+	One page	Jedna stranica
+	The whole document	Cijeli dokument
+	Read Aloud settings…	Postavke čitanja naglas…
+	Read Aloud prepares and reads this much text, then goes on to the next part.	Čitanje naglas priprema i čita ovoliko teksta, a zatim prelazi na sljedeći dio.
+	Read Aloud: text	Čitanje naglas: tekst
+	Web addresses:	Web-adrese:
+	Read the site name only	Čitaj samo naziv web-mjesta
+	Skip emoji	Preskoči emojije
+	Skip markup characters (* # _ ~ | ^ ` < > = \\)	Preskoči znakove označavanja (* # _ ~ | ^ ` < > = \\)
+	Skip repeated punctuation (*****, -----)	Preskoči ponovljene interpunkcijske znakove (*****, -----)
+	Skip symbols (arrows, boxes, bullets, icon characters)	Preskoči simbole (strelice, okvire, grafičke oznake, znakove ikona)
+	Skip text in (parentheses)	Preskoči tekst u (oblim zagradama)
+	Skip text in [square brackets]	Preskoči tekst u [uglatim zagradama]
+	Skip text that matches (regular expressions, one per line):	Preskoči tekst koji odgovara (regularni izrazi, jedan po retku):
+	Characters to skip:	Znakovi za preskakanje:
+	Say instead (one per line, text = spoken as):	Izgovori umjesto toga (jedno po retku, tekst = izgovor):
+	The text on the page doesn't change. Only the spoken text does.	Tekst na stranici se ne mijenja. Mijenja se samo izgovoreni tekst.
+	Write each replacement on its own line as: text = spoken as	Svaku zamjenu napišite u zasebnom retku: tekst = izgovor
+	Read all of the address	Čitaj cijelu adresu
+	Skip	Preskoči
+	Read Aloud: voices	Čitanje naglas: glasovi
+	Change the voice where a marker character starts the text	Promijeni glas gdje znak oznake započinje tekst
+	Marker character:	Znak oznake:
+	A marker changes the voice:	Oznaka mijenja glas:
+	To the end of the paragraph	Do kraja odlomka
+	Type the marker and the voice label before the text, for example {marker}A Hello. Use {marker}N or {marker}Narrator to go back to the narrator.	Upišite oznaku i naziv glasa ispred teksta, na primjer {marker}A Bok. Za povratak pripovjedaču koristite {marker}N ili {marker}Narrator.
+	Label	Naziv
+	System voice	Sistemski glas
+	Narrator	Pripovjedač
+	Add a voice	Dodaj glas
+	An empty voice uses the voice the engine has by default. The speed is relative to the reading speed.	Prazan glas koristi zadani glas pogona. Brzina je relativna u odnosu na brzinu čitanja.
+	Voice:	Glas:
+	Until the next marker	Do sljedeće oznake
+	System voice (on this computer)	Sistemski glas (na ovom računalu)
+	The speech program of your operating system.	Govorni program vašeg operacijskog sustava.
+	Neural voice on this computer (Piper)	Neuronski glas na ovom računalu (Piper)
+	A natural voice that runs on this computer. Install Piper and a voice model first.	Prirodan glas koji radi na ovom računalu. Najprije instalirajte Piper i model glasa.
+	Neural voice	Neuronski glas
+	Default voice	Zadani glas
+	No voices found	Nema pronađenih glasova
+	Pick a voice	Odaberite glas
+	Find voices again	Ponovno pronađi glasove
+	Ask the speech program and the voice folders for their voices again	Ponovno zatraži glasove od govornog programa i mapa s glasovima
+	A neural voice renders this text ahead.	Neuronski glas unaprijed generira ovaj tekst.
+	Program:	Program:
+	Voice model:	Model glasa:
+	Arguments (one per line):	Argumenti (jedan po retku):
+	The voice model is the path of a Piper .onnx file. In the arguments, {voice}, {output}, {rate} and {lengthScale} are filled in for each sentence.	Model glasa je putanja do Piper .onnx datoteke. U argumentima se {voice}, {output}, {rate} i {lengthScale} popunjavaju za svaku rečenicu.

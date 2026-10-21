@@ -910,6 +910,8 @@
 	Raised/lowered	Zvýšené/snížené
 	Read Aloud	Číst nahlas
 	Read Aloud Status	Stav čtení nahlas
+	Read Aloud Settings	Nastavení čtení nahlas
+	Read Aloud Voices	Hlasy čtení nahlas
 	Read Mode	Režim čtení
 	Read\nAloud	Číst\nnahlas
 	Read\nMode	Režim\nčtení
@@ -2691,3 +2693,53 @@ preview	Title	Ukázka
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Zadejte velikost v libovolné jednotce, například 5 cm nebo 300 px. Druhá strana se přizpůsobí, takže obrázek zachová své proporce.
 
 	Import…	Importovat…
+	Read at a time:	Číst najednou:
+	One paragraph	Jeden odstavec
+	One page	Jedna stránka
+	The whole document	Celý dokument
+	Read Aloud settings…	Nastavení čtení nahlas…
+	Read Aloud prepares and reads this much text, then goes on to the next part.	Čtení nahlas připraví a přečte tolik textu a pak přejde na další část.
+	Read Aloud: text	Čtení nahlas: text
+	Web addresses:	Webové adresy:
+	Read the site name only	Číst jen název webu
+	Skip emoji	Přeskakovat emoji
+	Skip markup characters (* # _ ~ | ^ ` < > = \\)	Přeskakovat znaky formátování (* # _ ~ | ^ ` < > = \\)
+	Skip repeated punctuation (*****, -----)	Přeskakovat opakovanou interpunkci (*****, -----)
+	Skip symbols (arrows, boxes, bullets, icon characters)	Přeskakovat symboly (šipky, rámečky, odrážky, znaky ikon)
+	Skip text in (parentheses)	Přeskakovat text v (kulatých závorkách)
+	Skip text in [square brackets]	Přeskakovat text v [hranatých závorkách]
+	Skip text that matches (regular expressions, one per line):	Přeskakovat odpovídající text (regulární výrazy, jeden na řádek):
+	Characters to skip:	Znaky k přeskočení:
+	Say instead (one per line, text = spoken as):	Vyslovit místo toho (jedno na řádek, text = výslovnost):
+	The text on the page doesn't change. Only the spoken text does.	Text na stránce se nemění. Mění se jen vyslovený text.
+	Write each replacement on its own line as: text = spoken as	Každou náhradu napište na samostatný řádek: text = výslovnost
+	Read all of the address	Číst celou adresu
+	Skip	Přeskočit
+	Read Aloud: voices	Čtení nahlas: hlasy
+	Change the voice where a marker character starts the text	Měnit hlas tam, kde text začíná znakem značky
+	Marker character:	Znak značky:
+	A marker changes the voice:	Značka mění hlas:
+	To the end of the paragraph	Do konce odstavce
+	Type the marker and the voice label before the text, for example {marker}A Hello. Use {marker}N or {marker}Narrator to go back to the narrator.	Před text napište značku a popisek hlasu, například {marker}A Ahoj. Zpět k vypravěči se vrátíte pomocí {marker}N nebo {marker}Narrator.
+	Label	Popisek
+	System voice	Systémový hlas
+	Narrator	Vypravěč
+	Add a voice	Přidat hlas
+	An empty voice uses the voice the engine has by default. The speed is relative to the reading speed.	Prázdný hlas použije výchozí hlas modulu. Rychlost je vzhledem k rychlosti čtení.
+	Voice:	Hlas:
+	Until the next marker	Do další značky
+	System voice (on this computer)	Systémový hlas (na tomto počítači)
+	The speech program of your operating system.	Program pro řeč vašeho operačního systému.
+	Neural voice on this computer (Piper)	Neuronový hlas na tomto počítači (Piper)
+	A natural voice that runs on this computer. Install Piper and a voice model first.	Přirozený hlas, který běží na tomto počítači. Nejprve nainstalujte Piper a model hlasu.
+	Neural voice	Neuronový hlas
+	Default voice	Výchozí hlas
+	No voices found	Nenalezeny žádné hlasy
+	Pick a voice	Vyberte hlas
+	Find voices again	Znovu najít hlasy
+	Ask the speech program and the voice folders for their voices again	Znovu zjistit hlasy z programu pro řeč a ze složek s hlasy
+	A neural voice renders this text ahead.	Neuronový hlas tento text vytvoří předem.
+	Program:	Program:
+	Voice model:	Model hlasu:
+	Arguments (one per line):	Argumenty (jeden na řádek):
+	The voice model is the path of a Piper .onnx file. In the arguments, {voice}, {output}, {rate} and {lengthScale} are filled in for each sentence.	Model hlasu je cesta k souboru Piper .onnx. V argumentech se {voice}, {output}, {rate} a {lengthScale} vyplní pro každou větu.

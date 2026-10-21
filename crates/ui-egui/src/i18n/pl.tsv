@@ -876,6 +876,8 @@
 	Previous sentence	Poprzednie zdanie
 	Play/Pause	Odtwórz/wstrzymaj
 	Read Aloud Status	Stan czytania na głos
+	Read Aloud Settings	Ustawienia czytania na głos
+	Read Aloud Voices	Głosy czytania na głos
 	Reading Speed	Szybkość czytania
 	Skip Citations and Bibliography	Pomijaj cytaty i bibliografię
 	Skip citations & bibliography	Pomijaj cytaty i bibliografię
@@ -2704,3 +2706,53 @@ preview	Title	Tytuł
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Wpisz rozmiar w dowolnej jednostce, np. 5 cm lub 300 px. Druga strona dopasuje się, więc obraz zachowa proporcje.
 
 	Import…	Importuj…
+	Read at a time:	Czytaj naraz:
+	One paragraph	Jeden akapit
+	One page	Jedna strona
+	The whole document	Cały dokument
+	Read Aloud settings…	Ustawienia czytania na głos…
+	Read Aloud prepares and reads this much text, then goes on to the next part.	Czytanie na głos przygotowuje i czyta tyle tekstu, a potem przechodzi do następnej części.
+	Read Aloud: text	Czytanie na głos: tekst
+	Web addresses:	Adresy internetowe:
+	Read the site name only	Czytaj tylko nazwę witryny
+	Skip emoji	Pomijaj emoji
+	Skip markup characters (* # _ ~ | ^ ` < > = \\)	Pomijaj znaki formatowania (* # _ ~ | ^ ` < > = \\)
+	Skip repeated punctuation (*****, -----)	Pomijaj powtarzaną interpunkcję (*****, -----)
+	Skip symbols (arrows, boxes, bullets, icon characters)	Pomijaj symbole (strzałki, ramki, punktory, znaki ikon)
+	Skip text in (parentheses)	Pomijaj tekst w (nawiasach okrągłych)
+	Skip text in [square brackets]	Pomijaj tekst w [nawiasach kwadratowych]
+	Skip text that matches (regular expressions, one per line):	Pomijaj pasujący tekst (wyrażenia regularne, jedno w wierszu):
+	Characters to skip:	Znaki do pominięcia:
+	Say instead (one per line, text = spoken as):	Mów zamiast tego (jedno w wierszu, tekst = wymowa):
+	The text on the page doesn't change. Only the spoken text does.	Tekst na stronie się nie zmienia. Zmienia się tylko wypowiadany tekst.
+	Write each replacement on its own line as: text = spoken as	Każdą zamianę wpisz w osobnym wierszu: tekst = wymowa
+	Read all of the address	Czytaj cały adres
+	Skip	Pomijaj
+	Read Aloud: voices	Czytanie na głos: głosy
+	Change the voice where a marker character starts the text	Zmieniaj głos, gdy tekst zaczyna się od znaku znacznika
+	Marker character:	Znak znacznika:
+	A marker changes the voice:	Znacznik zmienia głos:
+	To the end of the paragraph	Do końca akapitu
+	Type the marker and the voice label before the text, for example {marker}A Hello. Use {marker}N or {marker}Narrator to go back to the narrator.	Wpisz znacznik i etykietę głosu przed tekstem, na przykład {marker}A Cześć. Aby wrócić do lektora, użyj {marker}N lub {marker}Narrator.
+	Label	Etykieta
+	System voice	Głos systemowy
+	Narrator	Lektor
+	Add a voice	Dodaj głos
+	An empty voice uses the voice the engine has by default. The speed is relative to the reading speed.	Pusty głos oznacza domyślny głos silnika. Szybkość jest względna wobec szybkości czytania.
+	Voice:	Głos:
+	Until the next marker	Do następnego znacznika
+	System voice (on this computer)	Głos systemowy (na tym komputerze)
+	The speech program of your operating system.	Program mowy Twojego systemu operacyjnego.
+	Neural voice on this computer (Piper)	Głos neuronowy na tym komputerze (Piper)
+	A natural voice that runs on this computer. Install Piper and a voice model first.	Naturalny głos działający na tym komputerze. Najpierw zainstaluj Piper i model głosu.
+	Neural voice	Głos neuronowy
+	Default voice	Głos domyślny
+	No voices found	Nie znaleziono głosów
+	Pick a voice	Wybierz głos
+	Find voices again	Znajdź głosy ponownie
+	Ask the speech program and the voice folders for their voices again	Ponownie zapytaj program mowy i foldery głosów o głosy
+	A neural voice renders this text ahead.	Głos neuronowy generuje ten tekst z wyprzedzeniem.
+	Program:	Program:
+	Voice model:	Model głosu:
+	Arguments (one per line):	Argumenty (jeden w wierszu):
+	The voice model is the path of a Piper .onnx file. In the arguments, {voice}, {output}, {rate} and {lengthScale} are filled in for each sentence.	Model głosu to ścieżka do pliku Piper .onnx. W argumentach {voice}, {output}, {rate} i {lengthScale} są wypełniane dla każdego zdania.

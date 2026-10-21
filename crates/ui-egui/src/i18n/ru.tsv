@@ -900,6 +900,8 @@ preview	Title	Пример
 	Previous sentence	Предыдущее предложение
 	Play/Pause	Воспроизведение/пауза
 	Read Aloud Status	Состояние чтения вслух
+	Read Aloud Settings	Параметры чтения вслух
+	Read Aloud Voices	Голоса чтения вслух
 	Reading Speed	Скорость чтения
 	Skip Citations and Bibliography	Пропускать ссылки и список литературы
 	Skip citations & bibliography	Пропускать ссылки и список литературы
@@ -2697,3 +2699,53 @@ preview	Title	Пример
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Введите размер в любых единицах, например 5 cm или 300 px. Другая сторона изменится вместе с ней, и рисунок сохранит пропорции.
 
 	Import…	Импорт…
+	Read at a time:	Читать за раз:
+	One paragraph	Один абзац
+	One page	Одна страница
+	The whole document	Весь документ
+	Read Aloud settings…	Параметры чтения вслух…
+	Read Aloud prepares and reads this much text, then goes on to the next part.	Чтение вслух готовит и читает столько текста, затем переходит к следующей части.
+	Read Aloud: text	Чтение вслух: текст
+	Web addresses:	Веб-адреса:
+	Read the site name only	Читать только имя сайта
+	Skip emoji	Пропускать эмодзи
+	Skip markup characters (* # _ ~ | ^ ` < > = \\)	Пропускать символы разметки (* # _ ~ | ^ ` < > = \\)
+	Skip repeated punctuation (*****, -----)	Пропускать повторяющуюся пунктуацию (*****, -----)
+	Skip symbols (arrows, boxes, bullets, icon characters)	Пропускать значки (стрелки, рамки, маркеры списков, символы значков)
+	Skip text in (parentheses)	Пропускать текст в (круглых скобках)
+	Skip text in [square brackets]	Пропускать текст в [квадратных скобках]
+	Skip text that matches (regular expressions, one per line):	Пропускать совпадающий текст (регулярные выражения, по одному в строке):
+	Characters to skip:	Пропускать символы:
+	Say instead (one per line, text = spoken as):	Произносить иначе (по одному в строке, текст = как произносить):
+	The text on the page doesn't change. Only the spoken text does.	Текст на странице не меняется. Меняется только произносимый текст.
+	Write each replacement on its own line as: text = spoken as	Пишите каждую замену на отдельной строке: текст = как произносить
+	Read all of the address	Читать адрес полностью
+	Skip	Пропускать
+	Read Aloud: voices	Чтение вслух: голоса
+	Change the voice where a marker character starts the text	Менять голос, если текст начинается с символа-маркера
+	Marker character:	Символ-маркер:
+	A marker changes the voice:	Маркер меняет голос:
+	To the end of the paragraph	До конца абзаца
+	Type the marker and the voice label before the text, for example {marker}A Hello. Use {marker}N or {marker}Narrator to go back to the narrator.	Введите маркер и метку голоса перед текстом, например {marker}A Привет. Чтобы вернуться к рассказчику, используйте {marker}N или {marker}Narrator.
+	Label	Метка
+	System voice	Системный голос
+	Narrator	Рассказчик
+	Add a voice	Добавить голос
+	An empty voice uses the voice the engine has by default. The speed is relative to the reading speed.	Если голос не указан, используется голос движка по умолчанию. Скорость задаётся относительно скорости чтения.
+	Voice:	Голос:
+	Until the next marker	До следующего маркера
+	System voice (on this computer)	Системный голос (на этом компьютере)
+	The speech program of your operating system.	Программа речи вашей операционной системы.
+	Neural voice on this computer (Piper)	Нейронный голос на этом компьютере (Piper)
+	A natural voice that runs on this computer. Install Piper and a voice model first.	Естественный голос, который работает на этом компьютере. Сначала установите Piper и модель голоса.
+	Neural voice	Нейронный голос
+	Default voice	Голос по умолчанию
+	No voices found	Голоса не найдены
+	Pick a voice	Выберите голос
+	Find voices again	Найти голоса снова
+	Ask the speech program and the voice folders for their voices again	Снова запросить голоса у программы речи и в папках голосов
+	A neural voice renders this text ahead.	Нейронный голос озвучивает этот текст заранее.
+	Program:	Программа:
+	Voice model:	Модель голоса:
+	Arguments (one per line):	Аргументы (по одному в строке):
+	The voice model is the path of a Piper .onnx file. In the arguments, {voice}, {output}, {rate} and {lengthScale} are filled in for each sentence.	Модель голоса — путь к файлу Piper .onnx. В аргументах {voice}, {output}, {rate} и {lengthScale} заполняются для каждого предложения.

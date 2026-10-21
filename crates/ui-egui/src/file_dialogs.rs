@@ -48,6 +48,7 @@ pub fn open_filters(purpose: &str) -> &'static [(&'static str, &'static [&'stati
         "picture" => &[("Pictures", PICTURES)],
         "font" => &[("Fonts", wordcraft_fonts::FONT_FILE_EXTS)],
         "sources" => &[("Word sources", &["xml"]), ("All files", &["*"])],
+        "voiceModel" => &[("Voice models", &["onnx"]), ("All files", &["*"])],
         "recipients" => &[("Recipient lists", wordcraft_engine::cmd::mailings::RECIPIENT_EXTENSIONS), ("All files", &["*"])],
         _ => &[("Documents", DOCUMENTS), ("Word document", &["docx"]), ("All files", &["*"])],
     }
@@ -78,6 +79,9 @@ pub(crate) enum AfterPick {
     ForDialog,
     /// Put the picked document into the Compare dialog (original or revised, #412).
     ComparePath { revised: bool },
+    /// Use the picked Piper model as Read Aloud's neural voice: the default one (`None`) or a
+    /// voice role's.
+    VoiceModel { role: Option<usize> },
 }
 
 /// What to do once Save As has written the document.
@@ -283,6 +287,26 @@ impl WordApp {
             AfterPick::Recipients => {
                 let Some(path) = picked else { return Ok(json!({"cancelled": true})) };
                 self.load_recipients(json!({"path": path}))
+            }
+            AfterPick::VoiceModel { role } => {
+                let Some(path) = picked.filter(|p| !p.is_empty()) else { return Ok(json!({"cancelled": true})) };
+                let params = match role {
+                    None => json!({"local": {"voice": path}}),
+                    Some(i) => {
+                        let all = self.session.read_aloud.settings().to_json();
+                        let mut roles: Vec<Value> = std::iter::once(all["voices"]["narrator"].clone())
+                            .chain(all["voices"]["roles"].as_array().cloned().unwrap_or_default())
+                            .collect();
+                        if let Some(r) = roles.get_mut(i) {
+                            r["local"] = json!(path);
+                        }
+                        json!({"voices": {"narrator": roles.first(), "roles": roles.get(1..).unwrap_or(&[])}})
+                    }
+                };
+                // The model's folder is searched from now on.
+                self.read_aloud_voices = None;
+                // The user picked the file: any path (a command takes plain paths only).
+                wordcraft_engine::cmd::speech::apply_user_settings(&mut self.session, &params).map_err(|e| e.to_string())
             }
             AfterPick::ComparePath { revised } => {
                 let Some(path) = picked else { return Ok(json!({"cancelled": true})) };
