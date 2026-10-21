@@ -403,6 +403,16 @@ impl Writer {
                     let a = esc(a);
                     out.push_str(&format!("{{\\*\\bkmkstart {a}}}{{\\*\\bkmkend {a}}}"));
                 }
+                // The mark and the note as Word writes them: `\chftn` is the automatic number, a custom
+                // mark is written out, and `\ftnalt` makes the note an endnote. The note's text goes
+                // through the run writer, so deleted and inserted text keep their revision marks.
+                Inline::NoteMark { label, custom, runs, endnote, .. } => {
+                    let alt = if *endnote { "\\ftnalt" } else { "" };
+                    let mark = if *custom { format!("\\super {}", esc(label)) } else { "\\super\\chftn".to_string() };
+                    let mut body = String::new();
+                    self.inlines(runs, &mut body);
+                    out.push_str(&format!("{{{mark}{{\\footnote{alt}\\pard\\plain {{{mark}}} {body}\\par}}}}"));
+                }
                 Inline::Figure(_) | Inline::Equation { .. } => {}
             }
         }

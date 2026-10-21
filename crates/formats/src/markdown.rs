@@ -1176,6 +1176,7 @@ fn inlines_md_impl(inlines: &[Inline], in_table: bool) -> String {
             }
             Inline::Figure(alt) => pieces.push((String::new(), Fmt::default(), Some(format!("![{}]()", escape(alt))))),
             Inline::Equation { .. } => {}
+            Inline::NoteMark { n, .. } => pieces.push((String::new(), Fmt::default(), Some(format!("[^{n}]")))),
         }
     }
     let mut out = String::new();
@@ -1309,6 +1310,13 @@ pub fn export(doc: &Document) -> String {
     }
     if !s.ends_with('\n') {
         s.push('\n');
+    }
+    let notes = model::flow_notes(&flow);
+    if !notes.is_empty() {
+        s.push('\n');
+        for n in &notes {
+            s.push_str(&format!("[^{}]: {}\n", n.n, escape(&n.text)));
+        }
     }
     s
 }
