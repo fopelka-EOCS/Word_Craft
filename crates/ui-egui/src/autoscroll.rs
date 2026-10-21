@@ -137,21 +137,29 @@ impl AutoScroll {
         vec2(0.0, scroll_delta(displacement, dt))
     }
 
-    /// Draw a marker at the anchor, above the pages, and the up-down cursor. Run after the
-    /// canvas has set its own cursor.
+    /// Draw a marker at the current pointer, above the pages, and the up-down cursor. Run
+    /// after the canvas has set its own cursor.
     pub(crate) fn paint(&self, ui: &egui::Ui, viewport: egui::Rect) {
         let Some(anchor) = self.anchor else { return };
+        let pointer = ui.ctx().pointer_hover_pos().unwrap_or(anchor);
+
         let painter = ui.painter().with_clip_rect(viewport);
         let ink = ui.visuals().text_color();
-        painter.circle(anchor, 13.0, ui.visuals().window_fill(), Stroke::new(1.0, ink));
-        painter.circle_filled(anchor, 2.0, ink);
+
+        painter.circle(pointer, 13.0, ui.visuals().window_fill(), Stroke::new(1.0, ink));
+        painter.circle_filled(pointer, 2.0, ink);
         for direction in [-1.0, 1.0] {
             painter.add(egui::Shape::convex_polygon(
-                vec![anchor + vec2(-4.0, direction * 6.0), anchor + vec2(4.0, direction * 6.0), anchor + vec2(0.0, direction * 10.0)],
+                vec![
+                    pointer + vec2(-4.0, direction * 6.0),
+                    pointer + vec2(4.0, direction * 6.0),
+                    pointer + vec2(0.0, direction * 10.0),
+                ],
                 ink,
                 Stroke::NONE,
             ));
         }
+
         ui.ctx().set_cursor_icon(CursorIcon::ResizeVertical);
     }
 }
