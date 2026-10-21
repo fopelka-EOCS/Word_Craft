@@ -1031,6 +1031,9 @@ impl Exporter<'_> {
                     paint: rgb::Color::new(c.0, c.1, c.2).into(),
                     width: if stroke_width.is_finite() { stroke_width.clamp(0.25, 200.0) } else { 0.75 },
                     dash: (!dash.is_empty()).then(|| StrokeDash { array: dash.clone(), offset: 0.0 }),
+                    // Match the raster renderer's kurbo::Stroke::new defaults.
+                    line_cap: LineCap::Round,
+                    line_join: LineJoin::Round,
                     ..Default::default()
                 }));
                 if f.is_some() && can_fill || stroke.is_some() {
@@ -1765,3 +1768,6 @@ fn load_image_within(data: &Arc<Vec<u8>>, budget: u64) -> Option<Image> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod tests_shape_stroke;
