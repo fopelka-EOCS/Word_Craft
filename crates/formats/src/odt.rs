@@ -494,19 +494,21 @@ impl Writer {
                 FBlock::Para(p) if p.list.is_some() => {
                     let start = i;
                     let mut kinds = [p.list.map(|l| l.ordered).unwrap_or(false); 9];
+                    let mut starts = [p.list.map(|l| l.start).unwrap_or(1); 9];
                     let mut seen = [false; 9];
                     while let Some(FBlock::Para(q)) = blocks.get(i) {
                         let Some(li) = q.list else { break };
                         let l = li.level.min(8) as usize;
-                        // A top-level item of the other kind starts a new list.
-                        if l == 0 && seen[0] && kinds[0] != li.ordered {
+                        // A top-level item of the other kind or different start number starts a new list.
+                        if l == 0 && seen[0] && (kinds[0] != li.ordered || (li.ordered && starts[0] != li.start)) {
                             break;
                         }
-                        if let (Some(s), Some(k)) = (seen.get_mut(l), kinds.get_mut(l))
+                        if let (Some(s), Some(k), Some(st)) = (seen.get_mut(l), kinds.get_mut(l), starts.get_mut(l))
                             && !*s
                         {
                             *s = true;
                             *k = li.ordered;
+                            *st = li.start;
                         }
                         i += 1;
                     }
@@ -550,13 +552,22 @@ impl Writer {
                             }
                             stack.push(false);
                         }
+                        let is_first = stack.last().copied() == Some(false);
                         if let Some(top) = stack.last_mut() {
                             if *top {
                                 out.push_str("</text:list-item>");
                             }
                             *top = true;
                         }
-                        out.push_str("<text:list-item>");
+                        if let Some(li) = q.list
+                            && is_first
+                            && li.ordered
+                            && li.start != 1
+                        {
+                            out.push_str(&format!("<text:list-item text:start-value=\"{}\">", li.start));
+                        } else {
+                            out.push_str("<text:list-item>");
+                        }
                         self.para_in(q, chain(start + qi), out);
                     }
                     while let Some(open) = stack.pop() {
@@ -3366,5 +3377,43 @@ mod tests {
             let back = import(&export(&d).unwrap()).unwrap();
             assert_eq!(back.plain_text(wordcraft_doc::StoryRef::Body).trim_end_matches('\n'), t);
         }
+    }
+
+    /// #3494: ODT export preserves ordered-list start numbers.
+    #[test]
+    fn odt_export_preserves_ordered_list_start_numbers() {
+        let mut flow = Flow::default();
+        let p1 = Para {
+            list: Some(ListInfo { ordered: true, level: 0, start: 5 }),
+            inlines: vec![Inline::Text("five".into(), Fmt::default())],
+            ..Default::default()
+        };
+        let p2 = Para {
+            list: Some(ListInfo { ordered: true, level: 0, start: 5 }),
+            inlines: vec![Inline::Text("six".into(), Fmt::default())],
+            ..Default::default()
+        };
+        flow.blocks.push(FBlock::Para(p1));
+        flow.blocks.push(FBlock::Para(p2));
+
+        let doc = crate::model::to_doc(&flow);
+        let bytes = export(&doc).unwrap();
+        let xml = String::from_utf8(read_entry(&mut archive(&bytes), "content.xml").unwrap()).unwrap();
+        assert!(xml.contains("text:start-value=\"5\""), "expected text:start-value=\"5\" in content.xml:\n{xml}");
+
+        // Document with start_overrides on a numbering instance
+        let mut doc2 = wordcraft_doc::Document::from_text("first item\nsecond item");
+        let list_id = doc2.numbering.add_list(wordcraft_doc::numbering::ListKind::Numbered);
+        if let Some(num) = doc2.numbering.nums.iter_mut().find(|x| x.id == list_id) {
+            num.start_overrides = vec![(0, 7)];
+        }
+        for path in doc2.para_paths(wordcraft_doc::StoryRef::Body) {
+            if let Ok(p) = doc2.para_mut(wordcraft_doc::StoryRef::Body, &path) {
+                p.props.numbering = Some(wordcraft_doc::props::NumRef { num: list_id, level: 0 });
+            }
+        }
+        let bytes2 = export(&doc2).unwrap();
+        let xml2 = String::from_utf8(read_entry(&mut archive(&bytes2), "content.xml").unwrap()).unwrap();
+        assert!(xml2.contains("text:start-value=\"7\""), "expected text:start-value=\"7\" from start_overrides in content.xml:\n{xml2}");
     }
 }
