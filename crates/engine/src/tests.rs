@@ -8491,3 +8491,23 @@ fn rtf_list_round_trip_keeps_text() {
         assert_eq!(d.plain_text(StoryRef::Body), "first\nsecond", "{cmd}");
     }
 }
+
+/// A Hebrew interface starts its blank document right to left (`w:pPrDefault/w:bidi`), without an
+/// undo step; a document that has been written in keeps its direction.
+#[test]
+fn a_right_to_left_interface_starts_the_blank_document_right_to_left() {
+    let mut s = s();
+    s.set_default_direction(true);
+    assert_eq!(s.doc.styles.default_para.bidi, Some(true));
+    assert!(!s.dirty, "nothing to save");
+    s.set_default_direction(false);
+    assert_eq!(s.doc.styles.default_para.bidi, None, "back to left to right");
+    run(&mut s, "text.insert", json!({"text": "Hello"}));
+    s.set_default_direction(true);
+    assert_eq!(s.doc.styles.default_para.bidi, None, "a touched document keeps its direction");
+    run(&mut s, "file.new", json!({}));
+    assert_eq!(s.doc.styles.default_para.bidi, Some(true), "File › New starts right to left too");
+    s.set_default_direction(false);
+    run(&mut s, "file.new", json!({}));
+    assert_eq!(s.doc.styles.default_para.bidi, None, "and left to right again after switching back");
+}

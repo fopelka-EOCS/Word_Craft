@@ -557,16 +557,16 @@ pub fn borders(app: &mut WordApp, ui: &mut Ui, f: &mut BordersForm) -> bool {
             lines(ui, "para", &mut f.para, &theme, Rgb::parse(&f.fill), Target::from(to_text));
             ui.horizontal(|ui| {
                 ui.label(tl!("Apply to:"));
-                ui.radio_value(&mut f.to_text, false, tl!("Paragraph"));
-                ui.radio_value(&mut f.to_text, true, tl!("Text"));
+                crate::widgets::radio_value(ui, &mut f.to_text, false, tl!("Paragraph"));
+                crate::widgets::radio_value(ui, &mut f.to_text, true, tl!("Text"));
             });
         }
         1 => {
             lines(ui, "page", &mut f.page, &theme, None, Target::Page);
             ui.horizontal(|ui| {
                 ui.label(tl!("Apply to:"));
-                ui.radio_value(&mut f.whole_doc, true, tl!("Whole document"));
-                ui.radio_value(&mut f.whole_doc, false, tl!("This section"));
+                crate::widgets::radio_value(ui, &mut f.whole_doc, true, tl!("Whole document"));
+                crate::widgets::radio_value(ui, &mut f.whole_doc, false, tl!("This section"));
             });
         }
         _ => {
@@ -577,8 +577,8 @@ pub fn borders(app: &mut WordApp, ui: &mut Ui, f: &mut BordersForm) -> bool {
             preview(ui, &LineForm::read(None), fill, Target::from(f.fill_to_text));
             ui.horizontal(|ui| {
                 ui.label(tl!("Apply to:"));
-                ui.radio_value(&mut f.fill_to_text, false, tl!("Paragraph"));
-                ui.radio_value(&mut f.fill_to_text, true, tl!("Text"));
+                crate::widgets::radio_value(ui, &mut f.fill_to_text, false, tl!("Paragraph"));
+                crate::widgets::radio_value(ui, &mut f.fill_to_text, true, tl!("Text"));
             });
         }
     }
@@ -613,7 +613,7 @@ fn lines(ui: &mut Ui, id: &str, l: &mut LineForm, theme: &[Rgb], fill: Option<Rg
             for (s, label) in
                 [(Setting::None, "None"), (Setting::Box, "Box"), (Setting::Shadow, "Shadow"), (Setting::ThreeD, "3-D"), (Setting::Custom, "Custom")]
             {
-                if ui.radio(l.setting == s, tl!(label)).clicked() {
+                if crate::widgets::radio(ui, l.setting == s, tl!(label)).clicked() {
                     l.apply_setting(s);
                 }
             }

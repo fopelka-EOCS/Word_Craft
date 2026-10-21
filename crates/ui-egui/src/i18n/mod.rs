@@ -52,7 +52,7 @@ pub struct LangInfo {
 }
 
 /// The registry. English first: it is the fallback and the source language.
-pub static LANGUAGES: [LangInfo; 23] = [
+pub static LANGUAGES: [LangInfo; 24] = [
     LangInfo { code: "en", name: "English", source: "", prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
     // Simplified Chinese; `zh`, `zh-CN`, `zh-SG` and `zh-Hans-*` resolve here (see `candidates`).
     LangInfo {
@@ -165,6 +165,9 @@ pub static LANGUAGES: [LangInfo; 23] = [
     LangInfo { code: "sv", name: "Svenska", source: include_str!("sv.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
     // Croatian; `hr`, `hr-HR` and `hr_HR.UTF-8` resolve here.
     LangInfo { code: "hr", name: "Hrvatski", source: include_str!("hr.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    // Hebrew, written right to left: the interface is mirrored for it ([`Lang::is_rtl`]); `he`,
+    // `he-IL` and the older `iw` (Java, Android) resolve here.
+    LangInfo { code: "he", name: "עברית", source: include_str!("he.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
 ];
 
 impl LangInfo {
@@ -210,6 +213,17 @@ impl Lang {
 
     pub fn prefers_hans(self) -> bool {
         self.0.prefer_hans
+    }
+
+    /// The language's catalog text (empty for English): the letters its interface draws, which
+    /// the interface fonts must cover.
+    pub fn catalog_text(self) -> &'static str {
+        self.0.source
+    }
+
+    /// Is the interface written right to left (Hebrew), so it is laid out mirrored?
+    pub fn is_rtl(self) -> bool {
+        matches!(self.0.code, "he")
     }
 
     pub fn prefers_korean(self) -> bool {
@@ -275,6 +289,9 @@ fn candidates(tag: &str) -> Vec<String> {
     let base = tag.split(['.', '@']).next().unwrap_or("").replace('_', "-").to_ascii_lowercase();
     let parts: Vec<&str> = base.split('-').filter(|p| !p.is_empty()).collect();
     let Some(&primary) = parts.first() else { return Vec::new() };
+    // `iw` is the code older Java and Android systems report for Hebrew.
+    let primary = if primary == "iw" { "he" } else { primary };
+    let parts: Vec<&str> = std::iter::once(primary).chain(parts.iter().skip(1).copied()).collect();
     let mut out = Vec::new();
     for n in (1..=parts.len()).rev() {
         out.push(parts.get(..n).unwrap_or_default().join("-"));

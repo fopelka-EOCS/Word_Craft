@@ -2020,60 +2020,11 @@ fn has_rtl(text: &str) -> bool {
     text.chars().any(|c| matches!(unicode_bidi::bidi_class(c), unicode_bidi::BidiClass::R | unicode_bidi::BidiClass::AL))
 }
 
-/// The row `line` of paragraph `p` of `para` in display order, for egui: the bidi runs left to
-/// right as they are shown, and inside a right-to-left run its words reversed. The letters of each
-/// word stay in logical order, because egui's shaper already runs an Arabic word right to left.
-fn visual_row(info: &unicode_bidi::BidiInfo, p: &unicode_bidi::ParagraphInfo, para: &str, line: std::ops::Range<usize>) -> String {
-    // `visual_runs` indexes the line's first byte: an empty line (an empty last row) would panic.
-    if line.start >= line.end || line.end > p.range.end {
-        return String::new();
-    }
-    let (levels, runs) = info.visual_runs(p, line);
-    let mut out = String::new();
-    for run in runs {
-        let rtl = levels.get(run.start).is_some_and(|l| l.is_rtl());
-        // Runs lie on character boundaries; a missing slice is skipped, never a panic.
-        let Some(piece) = para.get(run) else { continue };
-        if rtl {
-            let mut words: Vec<&str> = piece.split_inclusive(char::is_whitespace).collect();
-            words.reverse();
-            for w in words {
-                // The space that followed a word now goes before it.
-                let word = w.trim_end_matches(char::is_whitespace);
-                out.push_str(w.get(word.len()..).unwrap_or_default());
-                out.extend(word.chars().map(mirrored));
-            }
-        } else {
-            out.push_str(piece);
-        }
-    }
-    out
-}
-
-/// `c` as drawn in a right-to-left run: brackets face the other way (Unicode's Bidi_Mirrored
-/// pairs that interface text uses), since egui draws the character it is given.
-fn mirrored(c: char) -> char {
-    match c {
-        '(' => ')',
-        ')' => '(',
-        '[' => ']',
-        ']' => '[',
-        '{' => '}',
-        '}' => '{',
-        '<' => '>',
-        '>' => '<',
-        '«' => '»',
-        '»' => '«',
-        '‹' => '›',
-        '›' => '‹',
-        _ => c,
-    }
-}
-
-/// A read-only balloon's text, wrapped to `width`. egui joins Arabic letters but places them left
-/// to right, so a right-to-left comment read its words backwards. Each wrapped row is put into
-/// display order (Unicode bidi, per paragraph) and a right-to-left paragraph's rows are set against
-/// the right edge. Text without right-to-left letters is laid out exactly as before.
+/// A read-only balloon's text, wrapped to `width`. The text layout puts right-to-left text in
+/// display order (epaint's bidi pass, `vendor/epaint`); the rows of a right-to-left paragraph are
+/// set against the right edge. Each row is laid out as its own line, so it starts with a
+/// right-to-left mark: a row that begins with a Latin name keeps its paragraph's direction. Text
+/// without right-to-left letters is laid out exactly as before.
 fn balloon_text(painter: &egui::Painter, text: String, font: egui::FontId, color: Color32, width: f32) -> std::sync::Arc<egui::Galley> {
     if !has_rtl(&text) {
         return painter.layout(text, font, color, width);
@@ -2088,9 +2039,13 @@ fn balloon_text(painter: &egui::Painter, text: String, font: egui::FontId, color
         }
         for p in &info.paragraphs {
             let rtl = p.level.is_rtl();
-            // Wrap in logical order at spaces, by the words' widths (the order doesn't change a word's
-            // width), then put each row in display order. egui's own rows can't be used: it draws a
-            // lam-alef pair as one glyph, so its glyph count isn't the character count.
+            let row = |range: std::ops::Range<usize>| {
+                let row = para.get(range).unwrap_or_default().trim();
+                if rtl { format!("\u{200F}{row}") } else { row.to_string() }
+            };
+            // Wrap in logical order at spaces, by the words' widths. egui's own rows can't be
+            // used: it draws a lam-alef pair as one glyph, so its glyph count isn't the
+            // character count.
             let mut start = p.range.start;
             let mut end = start;
             let mut used = 0.0;
@@ -2098,14 +2053,14 @@ fn balloon_text(painter: &egui::Painter, text: String, font: egui::FontId, color
                 let w = painter.layout_no_wrap(word.trim_end().to_string(), font.clone(), color).size().x;
                 let gap = painter.layout_no_wrap(word.get(word.trim_end().len()..).unwrap_or_default().to_string(), font.clone(), color).size().x;
                 if end > start && used + w > width {
-                    rows.push((visual_row(&info, p, para, start..end).trim().to_string(), rtl));
+                    rows.push((row(start..end), rtl));
                     start = end;
                     used = 0.0;
                 }
                 used += w + gap;
                 end += word.len();
             }
-            rows.push((visual_row(&info, p, para, start..end).trim().to_string(), rtl));
+            rows.push((row(start..end), rtl));
         }
     }
     let last = rows.len().saturating_sub(1);
@@ -4179,8 +4134,9 @@ mod tests {
         let g = balloon_glyphs("الربط (APIs) هنا", 400.0).unwrap();
         assert!(x(&g, 'A') < x(&g, 's'));
         assert!(x(&g, 'ط') > x(&g, 'A') && x(&g, 'A') > x(&g, 'ه'), "{g:?}");
-        // The opening bracket, on the right in Arabic, is drawn mirrored: `(APIs)` on screen.
-        assert!(x(&g, '(') < x(&g, 'A') && x(&g, ')') > x(&g, 's'), "brackets face the word: {g:?}");
+        // The opening bracket sits on the word's right in Arabic and is drawn mirrored (the
+        // glyphs keep their characters for the caret and copying): `(APIs)` on screen.
+        assert!(x(&g, '(') > x(&g, 's') && x(&g, ')') < x(&g, 'A'), "brackets face the word: {g:?}");
         // A paragraph that starts in Latin runs left to right.
         let g = balloon_glyphs("@Ahmed برجاء مراجعة", 400.0).unwrap();
         assert!(x(&g, '@') < x(&g, 'ب') && x(&g, '@') < 50.0, "{g:?}");
@@ -4192,25 +4148,10 @@ mod tests {
     }
 
     #[test]
-    fn balloon_rows_put_right_to_left_words_in_display_order() {
-        let row = |text: &str| {
-            let info = unicode_bidi::BidiInfo::new(text, None);
-            let p = info.paragraphs.first().unwrap();
-            visual_row(&info, p, text, p.range.clone())
-        };
-        // Words swap, each word's letters stay as they are (egui shapes the word).
-        assert_eq!(row("شركة اي للكهرباء"), "للكهرباء اي شركة");
-        // A Latin name and a number inside Arabic keep their own order.
-        assert_eq!(row("يجب ربط Odoo 19 هنا"), "هنا Odoo 19 ربط يجب");
-        assert_eq!(row("Should include Meters system API"), "Should include Meters system API");
+    fn right_to_left_letters_are_detected() {
         assert!(!has_rtl("Should include Meters system API"));
         assert!(has_rtl("נא לבדוק"));
-        // An empty row at the end of the text (egui's last row after a wrap) is empty, not a panic.
-        let text = "شركة اي";
-        let info = unicode_bidi::BidiInfo::new(text, None);
-        let p = info.paragraphs.first().unwrap();
-        assert_eq!(visual_row(&info, p, text, text.len()..text.len()), "");
-        assert_eq!(visual_row(&info, p, text, 0..text.len() + 5), "");
+        assert!(has_rtl("شركة اي"));
     }
 
     #[test]

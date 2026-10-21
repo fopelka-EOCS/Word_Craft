@@ -119,8 +119,7 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
             }
         });
         let mut skip = app.session.read_aloud.skip_citations;
-        if ui
-            .checkbox(&mut skip, tl!("Skip citations & bibliography"))
+        if crate::widgets::checkbox(ui, &mut skip, tl!("Skip citations & bibliography"))
             .on_hover_text(tl!("Don't read Zotero, Mendeley or EndNote citations and bibliographies"))
             .changed()
         {

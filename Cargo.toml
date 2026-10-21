@@ -2,6 +2,8 @@
 resolver = "3"
 members = ["crates/*", "apps/*", "xtask"]
 default-members = ["crates/*", "apps/wordcraft", "apps/wordcraft-cli", "xtask"]
+# Vendored third-party crates are patched in below, not workspace members (no fmt/clippy/tests).
+exclude = ["vendor/egui", "vendor/epaint"]
 
 [workspace.package]
 version = "0.9.0"
@@ -104,3 +106,10 @@ debug = 0
 # Required by craft-pdf: the backend rejects writers that failed during unwinding.
 [patch.crates-io]
 krilla = { git = "https://github.com/storytold/craft-libs", rev = "c3487320b2d1de657b860b3c8abb44e1f2b32bd8" }
+# epaint with bidirectional text (Hebrew, Arabic): right-to-left runs in interface text are
+# reordered for display, brackets mirrored, carets and hit-testing follow. Vendored from epaint
+# 0.36.2; see vendor/epaint/VENDORED.md.
+epaint = { path = "vendor/epaint" }
+# egui whose Grid can run right to left (first column rightmost), for mirrored dialogs and
+# panes. Vendored from egui 0.36.2; see vendor/egui/VENDORED.md.
+egui = { path = "vendor/egui" }

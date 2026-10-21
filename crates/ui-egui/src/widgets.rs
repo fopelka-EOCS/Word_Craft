@@ -280,11 +280,14 @@ pub fn small(ui: &mut Ui, app: &mut WordApp, icon: &str, label: Option<&str>, ti
     keytip_badge(ui, r, id, tip);
     let on = enabled(app, id);
     bg(ui, r, &resp, checked, &t);
-    let ic = Rect::from_center_size(pos2(r.min.x + 12.0, r.center().y), vec2(17.0, 17.0));
+    // Mirrored in a right-to-left interface: the icon on the right, the label before it.
+    let rtl = crate::i18n::current().is_rtl();
+    let ic = Rect::from_center_size(pos2(if rtl { r.max.x - 12.0 } else { r.min.x + 12.0 }, r.center().y), vec2(17.0, 17.0));
     let (c, a) = if on { (t.icon, t.accent) } else { (t.text_disabled, t.text_disabled) };
     icons::paint(ui.painter(), ic, icon, c, a);
     if let Some(l) = label {
-        ui.painter().text(pos2(r.min.x + 24.0, r.center().y), Align2::LEFT_CENTER, l, regular(11.5), if on { t.text } else { t.text_disabled });
+        let (x, anchor) = if rtl { (r.max.x - 24.0, Align2::RIGHT_CENTER) } else { (r.min.x + 24.0, Align2::LEFT_CENTER) };
+        ui.painter().text(pos2(x, r.center().y), anchor, l, regular(11.5), if on { t.text } else { t.text_disabled });
     }
     let resp = tooltip(app, resp, tip, id);
     command_menu(&resp, app, id);
@@ -423,6 +426,11 @@ pub fn group(ui: &mut Ui, title: &str, launcher: Option<&str>, app: &mut WordApp
 pub fn group_titled(ui: &mut Ui, id_title: &str, title: &str, launcher: Option<&str>, app: &mut WordApp, add: impl FnOnce(&mut Ui, &mut WordApp)) {
     let t = Tokens::get(ui.ctx());
     let start = ui.cursor().min;
+    // A right-to-left interface (Hebrew) lays the groups out from the right: the cursor advances
+    // leftwards, so widths and the separator are measured from its right edge.
+    let rtl = crate::i18n::current().is_rtl();
+    let edge = |ui: &Ui| if rtl { ui.cursor().max.x } else { ui.cursor().min.x };
+    let start_x = edge(ui);
     // #662: the window may be too narrow for the tab; the plan says how this group fits.
     let position = crate::ribbon_fit::position(ui.ctx());
     let level = crate::ribbon_fit::level(ui.ctx(), id_title);
@@ -432,10 +440,10 @@ pub fn group_titled(ui: &mut Ui, id_title: &str, title: &str, launcher: Option<&
         // Not folded: a drop-down left open while it was folded doesn't come back by itself.
         ui.data_mut(|d| d.remove::<bool>(collapsed_open_id(ui, id_title, position)));
         let label_w = ui.ctx().fonts_mut(|f| f.layout_no_wrap(title.to_string(), regular(11.0), t.group_label).size().x);
-        let inner = ui.vertical(|ui| {
+        let inner = column(ui, |ui| {
             ui.set_min_width(label_w + if launcher.is_some() { 22.0 } else { 10.0 });
             crate::ribbon_fit::set_compact(ui.ctx(), level == crate::ribbon_fit::COMPACT);
-            let content = ui.allocate_ui_with_layout(vec2(ui.available_width(), CONTENT_H), egui::Layout::left_to_right(egui::Align::Min), |ui| {
+            let content = ui.allocate_ui_with_layout(vec2(ui.available_width(), CONTENT_H), ribbon_row_layout(egui::Align::Min), |ui| {
                 ui.spacing_mut().item_spacing = vec2(1.0, 1.0);
                 add(ui, app);
             });
@@ -448,9 +456,10 @@ pub fn group_titled(ui: &mut Ui, id_title: &str, title: &str, launcher: Option<&
             let _ = content;
         });
         let r = inner.response.rect;
+        let (left, right) = if rtl { (r.min.x, start_x) } else { (start.x, r.max.x) };
         title_row(
             ui,
-            Rect::from_min_max(pos2(start.x, start.y + CONTENT_H), pos2(r.max.x, start.y + CONTENT_H + LABEL_H)),
+            Rect::from_min_max(pos2(left, start.y + CONTENT_H), pos2(right, start.y + CONTENT_H + LABEL_H)),
             id_title,
             title,
             launcher,
@@ -458,10 +467,49 @@ pub fn group_titled(ui: &mut Ui, id_title: &str, title: &str, launcher: Option<&
         );
     }
     ui.add_space(5.0);
-    let x = ui.cursor().min.x;
+    let x = edge(ui);
     ui.painter().line_segment([pos2(x, start.y + 4.0), pos2(x, start.y + CONTENT_H + LABEL_H - 4.0)], Stroke::new(1.0, t.border));
     ui.add_space(6.0);
-    crate::ribbon_fit::record(ui.ctx(), id_title, level, ui.cursor().min.x - start.x);
+    crate::ribbon_fit::record(ui.ctx(), id_title, level, (edge(ui) - start_x).abs());
+}
+
+/// A ribbon column (`ui.vertical`). In a right-to-left interface it hugs its right edge, so the
+/// rows inside it flow from the right too and the group mirrors as a whole.
+pub fn column<R>(ui: &mut Ui, add_contents: impl FnOnce(&mut Ui) -> R) -> egui::InnerResponse<R> {
+    let align = if crate::i18n::current().is_rtl() { egui::Align::Max } else { egui::Align::Min };
+    ui.scope_builder(egui::UiBuilder::new().layout(egui::Layout::top_down(align)), add_contents)
+}
+
+/// A panel on the side where reading starts: the left, or the right in a right-to-left
+/// interface (Hebrew), so side panes swap sides with the text direction.
+pub fn leading_panel(id: &'static str) -> egui::Panel {
+    if crate::i18n::current().is_rtl() { egui::Panel::right(id) } else { egui::Panel::left(id) }
+}
+
+/// A panel on the side where reading ends: the right, or the left in a right-to-left interface.
+pub fn trailing_panel(id: &'static str) -> egui::Panel {
+    if crate::i18n::current().is_rtl() { egui::Panel::left(id) } else { egui::Panel::right(id) }
+}
+
+/// `add_contents` laid out from the right in a right-to-left interface: labels hug the right edge
+/// and the rows inside flow from the right. Left to right it runs directly in `ui`, unchanged.
+pub fn mirrored<R>(ui: &mut Ui, add_contents: impl FnOnce(&mut Ui) -> R) -> R {
+    if crate::i18n::current().is_rtl() {
+        ui.scope_builder(egui::UiBuilder::new().layout(egui::Layout::top_down(egui::Align::Max)), add_contents).inner
+    } else {
+        add_contents(ui)
+    }
+}
+
+/// The row a header's or a dialog's trailing controls sit in: from the right edge, or from the
+/// left edge in a right-to-left interface.
+pub fn trailing_row(align: egui::Align) -> egui::Layout {
+    if crate::i18n::current().is_rtl() { egui::Layout::left_to_right(align) } else { egui::Layout::right_to_left(align) }
+}
+
+/// The direction ribbon rows flow in: from the right in a right-to-left interface.
+pub fn ribbon_row_layout(align: egui::Align) -> egui::Layout {
+    if crate::i18n::current().is_rtl() { egui::Layout::right_to_left(align) } else { egui::Layout::left_to_right(align) }
 }
 
 /// A group's title row (`r`): the centred title and, with a `launcher`, its dialog launcher.
@@ -470,7 +518,9 @@ fn title_row(ui: &mut Ui, r: Rect, id_title: &str, title: &str, launcher: Option
     let title_y = r.center().y;
     ui.painter().text(pos2(r.center().x, title_y), Align2::CENTER_CENTER, title, regular(11.0), t.group_label);
     if let Some(cmd) = launcher {
-        let lr = Rect::from_center_size(pos2(r.max.x - 6.0, title_y), vec2(11.0, 11.0));
+        // The launcher sits in the group's trailing corner: bottom left when mirrored.
+        let lx = if crate::i18n::current().is_rtl() { r.min.x + 6.0 } else { r.max.x - 6.0 };
+        let lr = Rect::from_center_size(pos2(lx, title_y), vec2(11.0, 11.0));
         let resp = ui.interact(lr, ui.id().with(("launch", id_title)), Sense::click());
         if resp.hovered() {
             ui.painter().rect_filled(lr.expand(2.0), 2.0, t.hover);
@@ -1245,19 +1295,22 @@ fn icon_text_button_with(ui: &mut Ui, icon: &str, text: &str, font: egui::FontId
     let st = drawn_state(ui, &resp, true);
     let r = r.expand(st.expansion);
     ui.painter().rect(r, ui.visuals().widgets.inactive.corner_radius, st.fill, st.stroke, egui::StrokeKind::Inside);
+    // Laid out from the right edge in a right-to-left interface: icon, text, then the marker.
+    let rtl = crate::i18n::current().is_rtl();
+    let at = |offset: f32, w: f32| if rtl { r.max.x - offset - w } else { r.min.x + offset };
     icons::paint(
         ui.painter(),
-        Rect::from_center_size(pos2(r.min.x + pad.x + icon_w / 2.0, r.center().y), vec2(icon_w, icon_w)),
+        Rect::from_min_size(pos2(at(pad.x, icon_w), r.center().y - icon_w / 2.0), vec2(icon_w, icon_w)),
         icon,
         t.icon,
         t.accent,
     );
-    let text_x = r.min.x + pad.x + icon_w + if show_text { 4.0 } else { 0.0 };
+    let text_offset = pad.x + icon_w + if show_text { 4.0 } else { 0.0 };
     if show_text {
-        ui.painter().galley(pos2(text_x, r.center().y - galley.size().y / 2.0), galley, st.text);
+        ui.painter().galley(pos2(at(text_offset, text_w), r.center().y - galley.size().y / 2.0), galley, st.text);
     }
     if marker {
-        let c = pos2(text_x + text_w + 4.0 + DROPDOWN / 2.0, r.center().y);
+        let c = pos2(at(text_offset + text_w + 4.0, DROPDOWN) + DROPDOWN / 2.0, r.center().y);
         icons::paint(ui.painter(), Rect::from_center_size(c, vec2(DROPDOWN, DROPDOWN)), "dropdown", st.text, st.text);
     }
     resp
@@ -1285,6 +1338,134 @@ pub fn icon_menu_item(ui: &mut Ui, icon: &str, text: &str, shortcut: &str, min_w
         ui.painter().galley(pos2(r.max.x - pad.x - g.size().x, r.center().y - g.size().y / 2.0), g, t.text_disabled);
     }
     resp
+}
+
+/// `egui::Grid` that stays usable in a right-to-left layout. egui's Grid places its cells left to
+/// right inside an inner `ui.horizontal`, which a right-to-left parent (a mirrored dialog or pane)
+/// turns into a right-to-left row: the cells land in the wrong places, the grid never settles its
+/// sizes and keeps hiding itself, and the dialog holding it disappears. Under such a parent the grid
+/// runs in a left-to-right column, with its columns mirrored (the first one rightmost, cells
+/// aligned right: `Grid::right_to_left` in vendor/egui); anywhere else it is egui's Grid, unchanged.
+pub struct Grid(egui::Grid);
+
+impl Grid {
+    pub fn new(id_salt: impl egui::AsIdSalt) -> Self {
+        Self(egui::Grid::new(id_salt))
+    }
+    pub fn num_columns(self, num_columns: usize) -> Self {
+        Self(self.0.num_columns(num_columns))
+    }
+    pub fn spacing(self, spacing: impl Into<egui::Vec2>) -> Self {
+        Self(self.0.spacing(spacing))
+    }
+    pub fn striped(self, striped: bool) -> Self {
+        Self(self.0.striped(striped))
+    }
+    pub fn min_col_width(self, width: f32) -> Self {
+        Self(self.0.min_col_width(width))
+    }
+    pub fn min_row_height(self, height: f32) -> Self {
+        Self(self.0.min_row_height(height))
+    }
+    pub fn max_col_width(self, width: f32) -> Self {
+        Self(self.0.max_col_width(width))
+    }
+    pub fn show<R>(self, ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui) -> R) -> egui::InnerResponse<R> {
+        if ui.layout().prefer_right_to_left() {
+            // egui's grid lays itself out in a left-to-right row, so it runs in one, with its
+            // columns mirrored inside it instead.
+            let layout = egui::Layout::top_down(egui::Align::Min);
+            let grid = self.0.right_to_left(true);
+            ui.scope_builder(egui::UiBuilder::new().layout(layout), |ui| grid.show(ui, add_contents)).inner
+        } else {
+            self.0.show(ui, add_contents)
+        }
+    }
+}
+
+/// `ui.checkbox`, with the box on the right of its label under a right-to-left parent (a mirrored
+/// dialog or pane), as right-to-left interfaces draw it; clicking the label still toggles it.
+/// Anywhere else it is egui's checkbox unchanged.
+pub fn checkbox(ui: &mut egui::Ui, checked: &mut bool, text: impl Into<egui::WidgetText>) -> egui::Response {
+    let text = text.into();
+    // Without a label there is nothing to put the box beside (and no empty label to add).
+    if !ui.layout().prefer_right_to_left() || text.is_empty() {
+        return ui.checkbox(checked, text);
+    }
+    ui.horizontal(|ui| {
+        let mut b = ui.checkbox(checked, "");
+        let label = ui.add(egui::Label::new(text).sense(egui::Sense::click()));
+        if label.clicked() {
+            *checked = !*checked;
+            b.mark_changed();
+        }
+        b.union(label)
+    })
+    .inner
+}
+
+/// `ui.radio`, with the button on the right of its label under a right-to-left parent.
+pub fn radio(ui: &mut egui::Ui, selected: bool, text: impl Into<egui::WidgetText>) -> egui::Response {
+    let text = text.into();
+    if !ui.layout().prefer_right_to_left() || text.is_empty() {
+        return ui.radio(selected, text);
+    }
+    ui.horizontal(|ui| {
+        let b = ui.radio(selected, "");
+        let label = ui.add(egui::Label::new(text).sense(egui::Sense::click()));
+        b.union(label)
+    })
+    .inner
+}
+
+/// `ui.radio_value`, with the button on the right of its label under a right-to-left parent.
+pub fn radio_value<V: PartialEq>(ui: &mut egui::Ui, current: &mut V, alternative: V, text: impl Into<egui::WidgetText>) -> egui::Response {
+    if !ui.layout().prefer_right_to_left() {
+        return ui.radio_value(current, alternative, text);
+    }
+    let mut r = radio(ui, *current == alternative, text);
+    if r.clicked() && *current != alternative {
+        *current = alternative;
+        r.mark_changed();
+    }
+    r
+}
+
+/// `egui::Checkbox` (for `ui.add` / `ui.add_enabled`), with the box on the right of its label
+/// under a right-to-left parent; clicking the label still toggles it. Elsewhere it is egui's.
+pub struct Checkbox<'a> {
+    checked: &'a mut bool,
+    text: egui::WidgetText,
+    indeterminate: bool,
+}
+
+impl<'a> Checkbox<'a> {
+    pub fn new(checked: &'a mut bool, text: impl Into<egui::WidgetText>) -> Self {
+        Self { checked, text: text.into(), indeterminate: false }
+    }
+    pub fn indeterminate(mut self, indeterminate: bool) -> Self {
+        self.indeterminate = indeterminate;
+        self
+    }
+}
+
+impl egui::Widget for Checkbox<'_> {
+    fn ui(self, ui: &mut egui::Ui) -> egui::Response {
+        let Self { checked, text, indeterminate } = self;
+        if !ui.layout().prefer_right_to_left() || text.is_empty() {
+            return ui.add(egui::Checkbox::new(checked, text).indeterminate(indeterminate));
+        }
+        ui.horizontal(|ui| {
+            let mut b = ui.add(egui::Checkbox::new(checked, "").indeterminate(indeterminate));
+            let label = ui.add(egui::Label::new(text).sense(egui::Sense::click()));
+            if label.clicked() && ui.is_enabled() {
+                *checked = !*checked;
+                b.mark_changed();
+            }
+            b.union(label)
+        })
+        .inner
+    }
 }
 
 #[cfg(test)]

@@ -194,15 +194,15 @@ impl LineNumbersForm {
 }
 
 fn line_numbers_ui(app: &mut WordApp, ui: &mut Ui, f: &mut LineNumbersForm) -> bool {
-    ui.checkbox(&mut f.on, tl!("Add line numbering"));
+    crate::widgets::checkbox(ui, &mut f.on, tl!("Add line numbering"));
     ui.add_enabled_ui(f.on, |ui| {
-        egui::Grid::new("lnum").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
+        crate::widgets::Grid::new("lnum").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
             ui.label(tl!("Start at:"));
             ui.add(egui::DragValue::new(&mut f.start).range(1..=32_767));
             ui.end_row();
             ui.label(tl!("From text:"));
             ui.horizontal(|ui| {
-                ui.checkbox(&mut f.auto_distance, tl!("Auto"));
+                crate::widgets::checkbox(ui, &mut f.auto_distance, tl!("Auto"));
                 ui.add_enabled(
                     !f.auto_distance,
                     egui::DragValue::new(&mut f.distance).speed(0.01).range(0.0..=22.0 * 72.0 / unit().pt_per_unit()).measure(unit()).max_decimals(2),
@@ -215,7 +215,7 @@ fn line_numbers_ui(app: &mut WordApp, ui: &mut Ui, f: &mut LineNumbersForm) -> b
         });
         heading(ui, "Numbering:");
         for (v, l) in [("restartPage", "Restart Each Page"), ("restartSection", "Restart Each Section"), ("continuous", "Continuous")] {
-            ui.radio_value(&mut f.restart, v.to_string(), tl!(l));
+            crate::widgets::radio_value(ui, &mut f.restart, v.to_string(), tl!(l));
         }
     });
     let (ok, cancel) = buttons(ui, "OK", true);
@@ -256,9 +256,9 @@ impl HyphenationForm {
 }
 
 fn hyphenation_ui(app: &mut WordApp, ui: &mut Ui, f: &mut HyphenationForm) -> bool {
-    ui.checkbox(&mut f.auto, tl!("Automatically hyphenate document"));
-    ui.checkbox(&mut f.caps, tl!("Hyphenate words in CAPS"));
-    egui::Grid::new("hyph").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
+    crate::widgets::checkbox(ui, &mut f.auto, tl!("Automatically hyphenate document"));
+    crate::widgets::checkbox(ui, &mut f.caps, tl!("Hyphenate words in CAPS"));
+    crate::widgets::Grid::new("hyph").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
         ui.label(tl!("Hyphenation zone:"));
         ui.add(egui::DragValue::new(&mut f.zone).speed(0.01).range(0.0..=22.0 * 72.0 / unit().pt_per_unit()).measure(unit()).max_decimals(2));
         ui.end_row();
@@ -483,8 +483,8 @@ fn language_ui(app: &mut WordApp, ui: &mut Ui, f: &mut LanguageForm) -> bool {
         });
     });
     ui.add_space(4.0);
-    ui.checkbox(&mut f.no_proof, tl!("Do not check spelling or grammar"));
-    ui.checkbox(&mut f.detect, tl!("Detect language automatically"));
+    crate::widgets::checkbox(ui, &mut f.no_proof, tl!("Do not check spelling or grammar"));
+    crate::widgets::checkbox(ui, &mut f.detect, tl!("Detect language automatically"));
     ui.add_space(4.0);
     let set_default = ui.button(tl!("Set As Default")).clicked();
     if set_default && run(app, "review.language", json!({"lang": f.lang, "default": true, "detect": f.detect})) {
@@ -530,7 +530,7 @@ fn envelopes_ui(app: &mut WordApp, ui: &mut Ui, f: &mut EnvelopeForm) -> bool {
     ui.add(egui::TextEdit::multiline(&mut f.delivery).desired_rows(4).desired_width(340.0));
     ui.horizontal(|ui| {
         ui.label(tl!("Return address:"));
-        ui.checkbox(&mut f.omit_return, tl!("Omit"));
+        crate::widgets::checkbox(ui, &mut f.omit_return, tl!("Omit"));
     });
     ui.add_enabled(!f.omit_return, egui::TextEdit::multiline(&mut f.ret).desired_rows(3).desired_width(340.0));
     ui.horizontal(|ui| {
@@ -645,7 +645,7 @@ fn product_label(i: usize) -> String {
 fn labels_ui(app: &mut WordApp, ui: &mut Ui, f: &mut LabelsForm) -> bool {
     let has_recipients = !app.session.merge.rows.is_empty();
     if has_recipients {
-        ui.checkbox(&mut f.recipients, tl!("One label per recipient"));
+        crate::widgets::checkbox(ui, &mut f.recipients, tl!("One label per recipient"));
     }
     ui.add_enabled_ui(!(has_recipients && f.recipients && !f.single), |ui| {
         ui.label(tl!("Address:"));
@@ -661,9 +661,9 @@ fn labels_ui(app: &mut WordApp, ui: &mut Ui, f: &mut LabelsForm) -> bool {
     });
     let (rows, cols) = LABEL_PRODUCTS.get(f.product).map_or((1, 1), |p| (p.rows, p.cols));
     heading(ui, "Print");
-    ui.radio_value(&mut f.single, false, tl!("Full page of the same label"));
+    crate::widgets::radio_value(ui, &mut f.single, false, tl!("Full page of the same label"));
     ui.horizontal(|ui| {
-        ui.radio_value(&mut f.single, true, tl!("Single label"));
+        crate::widgets::radio_value(ui, &mut f.single, true, tl!("Single label"));
         ui.add_enabled_ui(f.single, |ui| {
             ui.label(tl!("Row:"));
             ui.add(egui::DragValue::new(&mut f.row).range(1..=rows));
@@ -808,14 +808,14 @@ fn sort_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SortForm) -> bool {
             }
         });
         ui.vertical(|ui| {
-            ui.radio_value(&mut f.descending, false, tl!("Ascending"));
-            ui.radio_value(&mut f.descending, true, tl!("Descending"));
+            crate::widgets::radio_value(ui, &mut f.descending, false, tl!("Ascending"));
+            crate::widgets::radio_value(ui, &mut f.descending, true, tl!("Descending"));
         });
     });
     heading(ui, "My list has");
     ui.horizontal(|ui| {
-        ui.radio_value(&mut f.header, true, tl!("Header row"));
-        ui.radio_value(&mut f.header, false, tl!("No header row"));
+        crate::widgets::radio_value(ui, &mut f.header, true, tl!("Header row"));
+        crate::widgets::radio_value(ui, &mut f.header, false, tl!("No header row"));
     });
     let (ok, cancel) = buttons(ui, "OK", true);
     if ok {
@@ -934,7 +934,7 @@ fn alert(ui: &mut Ui, text: &Option<String>) {
 fn split_cells_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SplitCellsForm) -> bool {
     // Several cells split one by one keep their rows.
     let rows_on = !(f.cells > 1 && !f.merge_first);
-    egui::Grid::new("split_cells").num_columns(2).show(ui, |ui| {
+    crate::widgets::Grid::new("split_cells").num_columns(2).show(ui, |ui| {
         ui.label(tl!("Number of columns:"));
         ui.add(egui::DragValue::new(&mut f.columns).range(1..=63));
         ui.end_row();
@@ -943,7 +943,7 @@ fn split_cells_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SplitCellsForm) -> boo
         ui.end_row();
     });
     let mut merge = f.merge_first;
-    if ui.add_enabled(f.several, egui::Checkbox::new(&mut merge, tl!("Merge cells before split"))).changed() {
+    if ui.add_enabled(f.several, crate::widgets::Checkbox::new(&mut merge, tl!("Merge cells before split"))).changed() {
         f.set_merge(merge);
     }
     alert(ui, &f.error);
@@ -1060,7 +1060,7 @@ impl TextToTableForm {
 fn text_to_table_ui(app: &mut WordApp, ui: &mut Ui, f: &mut TextToTableForm) -> bool {
     let before = (f.separator.clone(), f.other_char.clone(), f.columns);
     heading(ui, "Table size");
-    egui::Grid::new("text_to_table").num_columns(2).show(ui, |ui| {
+    crate::widgets::Grid::new("text_to_table").num_columns(2).show(ui, |ui| {
         ui.label(tl!("Number of columns:"));
         ui.add(egui::DragValue::new(&mut f.columns).range(1..=63));
         ui.end_row();
@@ -1070,19 +1070,19 @@ fn text_to_table_ui(app: &mut WordApp, ui: &mut Ui, f: &mut TextToTableForm) -> 
     });
     heading(ui, "AutoFit behavior");
     ui.horizontal(|ui| {
-        ui.radio_value(&mut f.autofit, "initial".to_string(), tl!("Initial column width:"));
+        crate::widgets::radio_value(ui, &mut f.autofit, "initial".to_string(), tl!("Initial column width:"));
         ui.add_enabled(f.autofit == "initial", egui::TextEdit::singleline(&mut f.width).desired_width(72.0));
     });
-    ui.radio_value(&mut f.autofit, "contents".to_string(), tl!("AutoFit to contents"));
-    ui.radio_value(&mut f.autofit, "window".to_string(), tl!("AutoFit to window"));
+    crate::widgets::radio_value(ui, &mut f.autofit, "contents".to_string(), tl!("AutoFit to contents"));
+    crate::widgets::radio_value(ui, &mut f.autofit, "window".to_string(), tl!("AutoFit to window"));
     heading(ui, "Separate text at");
-    egui::Grid::new("text_to_table_sep").num_columns(2).show(ui, |ui| {
-        ui.radio_value(&mut f.separator, "paragraph".to_string(), tl!("Paragraphs"));
-        ui.radio_value(&mut f.separator, "comma".to_string(), tl!("Commas"));
+    crate::widgets::Grid::new("text_to_table_sep").num_columns(2).show(ui, |ui| {
+        crate::widgets::radio_value(ui, &mut f.separator, "paragraph".to_string(), tl!("Paragraphs"));
+        crate::widgets::radio_value(ui, &mut f.separator, "comma".to_string(), tl!("Commas"));
         ui.end_row();
-        ui.radio_value(&mut f.separator, "tab".to_string(), tl!("Tabs"));
+        crate::widgets::radio_value(ui, &mut f.separator, "tab".to_string(), tl!("Tabs"));
         ui.horizontal(|ui| {
-            ui.radio_value(&mut f.separator, "other".to_string(), tl!("Other:"));
+            crate::widgets::radio_value(ui, &mut f.separator, "other".to_string(), tl!("Other:"));
             let r = ui.add(egui::TextEdit::singleline(&mut f.other_char).char_limit(1).desired_width(24.0));
             if r.changed() {
                 f.separator = "other".into();
@@ -1270,7 +1270,7 @@ fn size_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SizeForm) -> bool {
         (changed && v != was).then_some(v)
     };
     heading(ui, "Size");
-    egui::Grid::new("size_lengths").num_columns(4).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
+    crate::widgets::Grid::new("size_lengths").num_columns(4).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
         if let Some(h) = length(ui, "Height:", f.height) {
             f.set_height(h);
         }
@@ -1281,7 +1281,7 @@ fn size_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SizeForm) -> bool {
     });
     heading(ui, "Scale");
     let (sw, sh) = f.scale();
-    egui::Grid::new("size_scale").num_columns(4).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
+    crate::widgets::Grid::new("size_scale").num_columns(4).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
         if let Some(p) = percent(ui, "Height:", sh) {
             f.set_scale_height(p);
         }
@@ -1290,8 +1290,8 @@ fn size_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SizeForm) -> bool {
         }
         ui.end_row();
     });
-    ui.checkbox(&mut f.lock, tl!("Lock aspect ratio"));
-    ui.add_enabled(f.original.is_some(), egui::Checkbox::new(&mut f.relative, tl!("Relative to original picture size")));
+    crate::widgets::checkbox(ui, &mut f.lock, tl!("Lock aspect ratio"));
+    ui.add_enabled(f.original.is_some(), crate::widgets::Checkbox::new(&mut f.relative, tl!("Relative to original picture size")));
     if let Some((w, h)) = f.uncropped {
         heading(ui, "Original size");
         ui.horizontal(|ui| {

@@ -202,6 +202,11 @@ fn normal_document(s: &Session) -> Document {
     if let Some(lang) = &s.editing_lang {
         d.styles.default_chr.lang = Some(lang.clone());
     }
+    // ...and in its direction: right to left under a Hebrew interface.
+    if s.default_rtl {
+        d.styles.default_para.bidi = Some(true);
+        d.styles.default_para_present = true;
+    }
     d
 }
 

@@ -331,7 +331,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     })
                     .collect();
                 let plan = plan_strip(&specs, button_levels, ui.available_width(), MORE_TABS_W + 2.0);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // Share, Editing and Comments sit at the trailing edge: the right, or the left in a
+                // right-to-left interface, so that File starts the tabs at the right edge there.
+                ui.with_layout(crate::widgets::trailing_row(egui::Align::Center), |ui| {
                     // No document open (#1129): nothing to share, edit or comment on — but only
                     // these buttons. Disabling the whole line took the tab strip with it: the
                     // tabs took clicks that did nothing, so the empty window had no way back to
@@ -384,7 +386,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         }
                     });
                     ui.add_space(8.0);
-                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    // A right-to-left interface (Hebrew) lays the tabs out from the right.
+                    ui.with_layout(crate::widgets::ribbon_row_layout(egui::Align::Center), |ui| {
                         // The tabs that don't fit go into a » menu at the end of the strip (#897, #2026).
                         for (i, ((tab, custom), _)) in tabs.iter().zip(&plan.fits).enumerate().filter(|(_, (_, fits))| **fits) {
                             let (tab, custom) = (tab.as_str(), *custom);
@@ -492,7 +495,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             let entry = user_tabs.iter().find(|e| e.name == app.ui.tab);
             crate::ribbon_fit::begin(ui.ctx(), &app.ui.tab, ui.available_width() - 4.0);
             let scroll = egui::ScrollArea::horizontal().scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).show(ui, |ui| {
-                ui.horizontal_top(|ui| {
+                // The groups flow from the right in a right-to-left interface.
+                ui.with_layout(crate::widgets::ribbon_row_layout(egui::Align::Min), |ui| {
                     ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
                     match entry {
                         // Every tab hidden: nothing to show.
@@ -621,7 +625,7 @@ fn esc_cancelled(ui: &Ui, r: &egui::Response, id: egui::Id) -> bool {
 }
 
 fn stack(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
-    ui.vertical(|ui| {
+    crate::widgets::column(ui, |ui| {
         ui.spacing_mut().item_spacing = vec2(1.0, 0.0);
         add(ui);
     });
@@ -1354,7 +1358,7 @@ fn insert(app: &mut WordApp, ui: &mut Ui) {
                 }
             }
             items.truncate(30);
-            egui::Grid::new("syms").show(ui, |ui| {
+            crate::widgets::Grid::new("syms").show(ui, |ui| {
                 for (i, (c, font)) in items.iter().enumerate() {
                     let b = ui.button(egui::RichText::new(c).size(16.0));
                     let b = if font.is_empty() { b } else { b.on_hover_text(font) };
@@ -1689,7 +1693,7 @@ fn layout(app: &mut WordApp, ui: &mut Ui) {
                 ui.label(text);
             });
         };
-        egui::Grid::new("layout_para").spacing(vec2(4.0, 1.5)).min_row_height(FIELD.y).show(ui, |ui| {
+        crate::widgets::Grid::new("layout_para").spacing(vec2(4.0, 1.5)).min_row_height(FIELD.y).show(ui, |ui| {
             ui.label(egui::RichText::new(tl!("Indent")).small().strong());
             ui.label("");
             spaced(ui, egui::RichText::new(tl!("Spacing")).small().strong());
@@ -2113,21 +2117,21 @@ fn view(app: &mut WordApp, ui: &mut Ui) {
         // Three rows fill the group's height; a fourth check box would run into its label.
         stack(ui, |ui| {
             let mut r = v.ruler;
-            if ui.checkbox(&mut r, tl!("Ruler")).changed() {
+            if crate::widgets::checkbox(ui, &mut r, tl!("Ruler")).changed() {
                 let _ = app.run("view.ruler", json!({"value": r}));
             }
             let mut g = v.gridlines;
-            if ui.checkbox(&mut g, tl!("Gridlines")).changed() {
+            if crate::widgets::checkbox(ui, &mut g, tl!("Gridlines")).changed() {
                 let _ = app.run("view.gridlines", json!({"value": g}));
             }
             let mut n = v.nav_pane;
-            if ui.checkbox(&mut n, tl!("Navigation Pane")).changed() {
+            if crate::widgets::checkbox(ui, &mut n, tl!("Navigation Pane")).changed() {
                 let _ = app.run("view.navigationPane", json!({"value": n}));
             }
         });
         stack(ui, |ui| {
             let mut w = v.hide_white_space;
-            if ui.checkbox(&mut w, tl!("Hide White Space")).changed() {
+            if crate::widgets::checkbox(ui, &mut w, tl!("Hide White Space")).changed() {
                 let _ = app.run("view.hideWhiteSpace", json!({"value": w}));
             }
         });
@@ -2214,11 +2218,11 @@ fn outlining(app: &mut WordApp, ui: &mut Ui) {
             ui.add_space(3.0);
             crate::widgets::row(ui, |ui| {
                 let mut f = !o.hide_formatting;
-                if ui.checkbox(&mut f, tl!("Show Text Formatting")).changed() {
+                if crate::widgets::checkbox(ui, &mut f, tl!("Show Text Formatting")).changed() {
                     let _ = app.run("outline.showFormatting", json!({ "value": f }));
                 }
                 let mut first = o.first_line_only;
-                if ui.checkbox(&mut first, tl!("Show First Line Only")).changed() {
+                if crate::widgets::checkbox(ui, &mut first, tl!("Show First Line Only")).changed() {
                     let _ = app.run("outline.firstLineOnly", json!({ "value": first }));
                 }
             });
@@ -2258,7 +2262,7 @@ fn smart_art_design(app: &mut WordApp, ui: &mut Ui) {
     });
     group(ui, "Layouts", None, app, |ui, app| {
         let t = Tokens::get(ui.ctx());
-        egui::Grid::new("smart_art_layout_gallery").spacing(vec2(2.0, 2.0)).show(ui, |ui| {
+        crate::widgets::Grid::new("smart_art_layout_gallery").spacing(vec2(2.0, 2.0)).show(ui, |ui| {
             for (k, layout) in SmartArtLayout::ALL.into_iter().enumerate() {
                 let (r, resp) = ui.allocate_exact_size(vec2(46.0, 31.0), Sense::click());
                 let on = g.layout == layout;
@@ -2688,7 +2692,7 @@ fn table_design(app: &mut WordApp, ui: &mut Ui) {
     let look = app.session.sel.focus.path.cell().and_then(|(tp, _, _)| app.session.doc.table(app.session.sel.focus.story, &tp).map(|t| t.props.look));
     group(ui, "Table Style Options", None, app, |ui, app| {
         let Some(l) = look else { return };
-        egui::Grid::new("look").show(ui, |ui| {
+        crate::widgets::Grid::new("look").show(ui, |ui| {
             for (row, items) in [
                 [("Header Row", "headerRow", l.header_row), ("First Column", "firstColumn", l.first_column)],
                 [("Total Row", "totalRow", l.total_row), ("Last Column", "lastColumn", l.last_column)],
@@ -2700,7 +2704,7 @@ fn table_design(app: &mut WordApp, ui: &mut Ui) {
                 let _ = row;
                 for (label, key, val) in items {
                     let mut v = *val;
-                    if ui.checkbox(&mut v, tl!(label)).changed() {
+                    if crate::widgets::checkbox(ui, &mut v, tl!(label)).changed() {
                         let _ = app.run("table.look", json!({ *key: v }));
                     }
                 }
@@ -2897,7 +2901,7 @@ fn table_layout(app: &mut WordApp, ui: &mut Ui) {
         });
     });
     group(ui, "Alignment", None, app, |ui, app| {
-        egui::Grid::new("cellalign").spacing(vec2(1.0, 1.0)).show(ui, |ui| {
+        crate::widgets::Grid::new("cellalign").spacing(vec2(1.0, 1.0)).show(ui, |ui| {
             for row in [
                 [("topLeft", "Align Top Left"), ("topCenter", "Align Top Center"), ("topRight", "Align Top Right")],
                 [("centerLeft", "Align Center Left"), ("center", "Align Center"), ("centerRight", "Align Center Right")],

@@ -85,13 +85,13 @@ pub fn note_options(app: &mut WordApp, ui: &mut Ui, f: &mut NoteForm) -> bool {
     };
     heading(ui, "Location");
     let mut convert = None;
-    egui::Grid::new("notes_location").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
-        ui.radio_value(&mut f.endnote, false, tl!("Footnotes"));
+    crate::widgets::Grid::new("notes_location").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
+        crate::widgets::radio_value(ui, &mut f.endnote, false, tl!("Footnotes"));
         ui.add_enabled_ui(!f.endnote, |ui| {
             choice(ui, "notes_fpos", &mut f.pos[0], &[("pageBottom", "Bottom of Page"), ("beneathText", "Below text")], true);
         });
         ui.end_row();
-        ui.radio_value(&mut f.endnote, true, tl!("Endnotes"));
+        crate::widgets::radio_value(ui, &mut f.endnote, true, tl!("Endnotes"));
         ui.add_enabled_ui(f.endnote, |ui| {
             choice(ui, "notes_epos", &mut f.pos[1], &[("sectEnd", "End of section"), ("docEnd", "End of document")], true);
         });
@@ -114,7 +114,7 @@ pub fn note_options(app: &mut WordApp, ui: &mut Ui, f: &mut NoteForm) -> bool {
     }
     heading(ui, "Format");
     let k = usize::from(f.endnote);
-    egui::Grid::new("notes_format").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
+    crate::widgets::Grid::new("notes_format").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
         ui.label(tl!("Number format"));
         if let Some(v) = f.fmt.get_mut(k) {
             choice(ui, "notes_fmt", v, &FORMATS, false);

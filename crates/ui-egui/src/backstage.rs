@@ -38,7 +38,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         app.ui.backstage_page = "home".into();
     }
     let mac = app.integrated_titlebar;
-    egui::Panel::left("backstage_nav")
+    crate::widgets::leading_panel("backstage_nav")
         .exact_size(200.0)
         // Fixed width, as in Word: without this egui shows a resize handle that does nothing (#502).
         .resizable(false)
@@ -188,7 +188,7 @@ fn recovery_page(app: &mut WordApp, ui: &mut Ui) {
         ui.label(tl!("No recovery copies."));
     }
     let busy = app.session.recovery_busy();
-    egui::Grid::new("recovery_documents").min_col_width(180.0).spacing(vec2(24.0, 16.0)).show(ui, |ui| {
+    crate::widgets::Grid::new("recovery_documents").min_col_width(180.0).spacing(vec2(24.0, 16.0)).show(ui, |ui| {
         if !documents.is_empty() {
             ui.strong(tl!("Document"));
             ui.strong(tl!("Recovery copy"));
@@ -441,7 +441,7 @@ fn info_page(app: &mut WordApp, ui: &mut Ui) {
         let mut props = app.session.doc.core.clone();
         let mut edited = None;
         let mut focused = None;
-        egui::Grid::new("props").num_columns(2).spacing(vec2(12.0, 6.0)).show(ui, |ui| {
+        crate::widgets::Grid::new("props").num_columns(2).spacing(vec2(12.0, 6.0)).show(ui, |ui| {
             for (l, v) in [("Title", &mut props.title), ("Subject", &mut props.subject), ("Author", &mut props.creator), ("Keywords", &mut props.keywords), ("Category", &mut props.category)] {
                 let label = ui.label(tl!(l));
                 let r = ui.add(egui::TextEdit::singleline(v).id_salt(("info-prop", l))).labelled_by(label.id);
@@ -497,8 +497,7 @@ fn export_page(app: &mut WordApp, ui: &mut Ui) {
         heading(ui, "Print");
         // Print Markup (a print setting, as in Word): the comments beside each page.
         let mut markup = app.session.prefs.print_markup;
-        if ui
-            .checkbox(&mut markup, tl!("Print Markup"))
+        if crate::widgets::checkbox(ui, &mut markup, tl!("Print Markup"))
             .on_hover_text(tl!(
                 "Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text."
             ))

@@ -550,6 +550,8 @@ pub struct WordApp {
     /// The document (id, revision) whose comment text [`WordApp::ensure_comment_fonts`] last
     /// looked at.
     comment_fonts_for: Option<(u64, u64)>,
+    /// The interface language whose catalog [`WordApp::ensure_interface_fonts`] last covered.
+    interface_fonts_for: Option<i18n::Lang>,
     fonts_frames: u32,
     /// The effective interface theme last installed in egui ([`theme::apply`]).
     applied_theme: Option<theme::Appearance>,
@@ -679,6 +681,7 @@ impl WordApp {
             fonts_system_cjk: false,
             want_system_cjk: false,
             comment_fonts_for: None,
+            interface_fonts_for: None,
             fonts_frames: 0,
             applied_theme: None,
             native_scale: 1.0,
@@ -1082,6 +1085,8 @@ impl WordApp {
             return;
         }
         self.font_generation = generation;
+        // A face added now may have the interface language's letters (Hebrew): look again.
+        self.interface_fonts_for = None;
         self.session.relayout();
         self.previews.fonts_changed(ctx, db.user_fonts().iter().flat_map(|f| f.families()));
         ctx.request_repaint();
@@ -1880,6 +1885,29 @@ impl WordApp {
         }
     }
 
+    /// The interface faces (Inter) have no Hebrew, Arabic, Thai …: an interface language in such a
+    /// script would draw its labels as `?`. Borrow the document fonts' fallback faces for the
+    /// letters of the language's catalog, as the caption does; once per language, and again after
+    /// fonts are added or removed (`watch_fonts`). CJK interfaces use the CJK UI fonts instead.
+    fn ensure_interface_fonts(&mut self, lang: i18n::Lang) {
+        if self.interface_fonts_for == Some(lang) {
+            return;
+        }
+        self.interface_fonts_for = Some(lang);
+        if lang.uses_cjk() {
+            return;
+        }
+        let letters: std::collections::BTreeSet<char> = lang.catalog_text().chars().filter(|c| !c.is_ascii()).collect();
+        let text: String = letters.into_iter().collect();
+        let new = theme::faces_for_preedit(&text, &self.canvas.ime_faces, theme::caption_char_covered, |c| {
+            wordcraft_fonts::FontDb::global().fallback_for(c, u32::MAX)
+        });
+        if !new.is_empty() {
+            self.canvas.ime_faces.extend(new);
+            self.styled = false;
+        }
+    }
+
     /// Comment balloons and the Comments pane draw comment text and author names with the
     /// interface faces, which have no Arabic, Hebrew, Thai …: each such letter was drawn as a box.
     /// Borrow the document fonts' fallback faces for them, as the caption does. Looked at once per
@@ -1946,6 +1974,8 @@ impl WordApp {
         // (a Polish interface: Polish spelling, grammar and hyphenation from the first word).
         if self.applied_editing != Some(lang) {
             self.session.set_editing_language(lang.editing_lang());
+            // ...and a right-to-left interface (Hebrew) starts it right to left.
+            self.session.set_default_direction(lang.is_rtl());
             self.applied_editing = Some(lang);
         }
         options::sync(self);
@@ -1956,6 +1986,7 @@ impl WordApp {
         // in this frame (dialog, drop, control channel) is picked up again at the end.
         self.ensure_caption_fonts();
         self.ensure_comment_fonts();
+        self.ensure_interface_fonts(lang);
         self.install_ui_fonts(ctx, lang);
         if let Some(answer) = self.desktop_theme.take_change() {
             self.desktop_dark = Some(answer);
@@ -2066,6 +2097,7 @@ impl WordApp {
         // The open above may have changed the file name the caption draws.
         self.ensure_caption_fonts();
         self.ensure_comment_fonts();
+        self.ensure_interface_fonts(lang);
         self.install_ui_fonts(ctx, lang);
         self.report_dirty();
     }
@@ -2699,6 +2731,26 @@ mod tests {
 
     fn mod_key(key: egui::Key) -> egui::Event {
         egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::COMMAND }
+    }
+
+    /// A Hebrew interface draws its labels with an installed face that has Hebrew letters: the
+    /// interface faces (Inter) have none, so labels showed as `?` whenever the caption had no
+    /// Hebrew to borrow a face for. Skipped where no installed font has Hebrew.
+    #[test]
+    fn a_hebrew_interface_borrows_a_face_for_its_letters() {
+        if wordcraft_fonts::FontDb::global().fallback_for('ש', u32::MAX).is_none() {
+            return;
+        }
+        let mut app = WordApp::new(Session::new(wordcraft_engine::sample::sample_document()), Services::default());
+        let he = i18n::Lang::from_code("he").unwrap();
+        app.ensure_interface_fonts(he);
+        for c in ['ש', 'ל', 'ו', 'ם', 'ע', 'ב', 'ר', 'י', 'ת'] {
+            assert!(app.canvas.ime_faces.iter().any(|f| f.covers(c)), "no interface face draws {c:?}");
+        }
+        // Once per language: a second call adds nothing.
+        let n = app.canvas.ime_faces.len();
+        app.ensure_interface_fonts(he);
+        assert_eq!(app.canvas.ime_faces.len(), n);
     }
 
     /// Issue #14: Mod+- (optional hyphen) also zoomed the whole window out, so it read as "zoom out".

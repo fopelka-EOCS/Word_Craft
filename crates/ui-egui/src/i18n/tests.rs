@@ -991,8 +991,9 @@ fn polish_covers_every_key_of_every_other_catalog() {
     // Hungarian and Bulgarian also name the citation styles, and Bulgarian has a few one-line
     // pieces of gallery labels. Polish matches every other catalog, including the built-in style
     // names, citation styles and equation gallery. French carries newer strings (paper sizes,
-    // bookmarks, printing) the Polish catalog hasn't caught up with yet.
-    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "pl" | "it" | "hu" | "bg" | "vi" | "sv" | "hr" | "fr")) {
+    // bookmarks, printing) the Polish catalog hasn't caught up with yet. Hebrew has every key of
+    // every catalog (see `hebrew_covers_every_key_of_every_other_catalog`).
+    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "pl" | "it" | "hu" | "bg" | "vi" | "sv" | "hr" | "fr" | "he")) {
         let mut missing: Vec<String> = keys(other.0.source).difference(&polish).cloned().collect();
         missing.sort();
         assert!(missing.is_empty(), "pl lacks {}'s {missing:?}", other.code());
@@ -1336,8 +1337,9 @@ fn croatian_covers_the_entire_existing_interface_catalog_and_keeps_count_labels_
     use std::collections::HashSet;
     let keys = |source| parse_entries(source).0.into_iter().map(|e| e.source).collect::<HashSet<_>>();
     let hr = lang("hr");
-    // Every key of every other catalog, and no catalog errors.
-    for other in Lang::all().filter(|l| *l != Lang::EN && l.code() != "hr") {
+    // Every key of every other catalog, and no catalog errors. Hebrew also translates newer strings
+    // no other catalog has yet (see `hebrew_covers_every_key_of_every_other_catalog`).
+    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "hr" | "he")) {
         let mut missing: Vec<String> = keys(other.0.source).difference(&keys(hr.0.source)).cloned().collect();
         missing.sort();
         // Italian and Hungarian still carry "Style: APA", which the interface no longer shows.
@@ -1509,7 +1511,9 @@ fn vietnamese_covers_existing_catalog_keys_with_an_explicit_preview_fallback() {
     assert_eq!(trc(vi, "preview", "Title"), tr(vi, "Title"));
     // Compare complete (context, source) keys so a contextual entry cannot hide a missing plain
     // translation, or silently satisfy another context's key.
-    for other in Lang::all().filter(|l| *l != Lang::EN && l.code() != "vi") {
+    // Hebrew has every key of every catalog, more than Vietnamese (see
+    // `hebrew_covers_every_key_of_every_other_catalog`).
+    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "vi" | "he")) {
         let (entries, errors) = parse_entries(other.0.source);
         assert!(errors.is_empty(), "{}: {errors:?}", other.code());
         let keys: HashSet<_> = entries.into_iter().map(|e| (e.context, e.source)).collect();
@@ -1559,4 +1563,25 @@ fn bundled_interface_fonts_cover_vietnamese_letters() {
         }
     }
     assert!(!lang("vi").uses_cjk());
+}
+
+#[test]
+fn hebrew_covers_every_key_of_every_other_catalog() {
+    use std::collections::HashSet;
+    let he = lang("he");
+    assert!(he.is_rtl(), "Hebrew is laid out right to left");
+    assert!(Lang::all().filter(|l| l.is_rtl()).all(|l| l == he));
+    assert_eq!(he.name(), "עברית");
+    assert_eq!(lang_from_tag("he-IL"), Some(he));
+    assert_eq!(lang_from_tag("iw_IL.UTF-8"), Some(he), "the older code Java and Android report");
+    let (entries, errors) = parse_entries(he.0.source);
+    assert!(errors.is_empty(), "{errors:?}");
+    let he_keys: HashSet<_> = entries.into_iter().map(|e| (e.context, e.source)).collect();
+    for other in Lang::all().filter(|l| *l != Lang::EN && *l != he) {
+        let keys: HashSet<_> = parse_entries(other.0.source).0.into_iter().map(|e| (e.context, e.source)).collect();
+        let mut missing: Vec<_> = keys.difference(&he_keys).cloned().collect();
+        missing.sort();
+        assert!(missing.is_empty(), "he lacks {}'s {missing:?}", other.code());
+    }
+    assert_eq!(tr(he, "Paste"), "הדבק");
 }

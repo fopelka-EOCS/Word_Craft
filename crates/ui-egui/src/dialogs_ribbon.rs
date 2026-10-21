@@ -326,7 +326,7 @@ fn tree_rows_ui(app: &mut WordApp, ui: &mut Ui, f: &mut RibbonForm, rows: &[Row]
             ui.add_space(if row.depth == 0 { 0.0 } else { 24.0 + f32::from(row.depth.saturating_sub(1)) * 16.0 });
             if let Some(shown) = row.shown {
                 let mut on = shown;
-                if ui.checkbox(&mut on, "").changed() {
+                if crate::widgets::checkbox(ui, &mut on, "").changed() {
                     let key = if on { "show" } else { "hide" };
                     change(app, f, json!({ key: row.item.tab }));
                 }
@@ -377,7 +377,7 @@ fn qat_page(app: &mut WordApp, ui: &mut Ui, f: &mut RibbonForm, h: f32) {
         // The same switch as the toolbar menu's Hide Quick Access Toolbar (#1945).
         ui.add_space(4.0);
         let mut shown = app.ui.quick_access_toolbar;
-        if ui.checkbox(&mut shown, tl!("Show Quick Access Toolbar")).changed() {
+        if crate::widgets::checkbox(ui, &mut shown, tl!("Show Quick Access Toolbar")).changed() {
             let _ = app.run("ui.quickAccessToolbar", json!({"value": shown}));
         }
     });

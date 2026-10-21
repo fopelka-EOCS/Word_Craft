@@ -182,7 +182,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
 
                 if native {
                     if app.ui.print.copies > 1 {
-                        ui.add_enabled(!app.printing.busy(), egui::Checkbox::new(&mut app.ui.print.collate, tl!("Collate copies")));
+                        ui.add_enabled(!app.printing.busy(), crate::widgets::Checkbox::new(&mut app.ui.print.collate, tl!("Collate copies")));
                     }
                 } else {
                     ui.label(egui::RichText::new(tl!("Copies")).font(medium(13.0)));
@@ -191,7 +191,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         ui.add(egui::DragValue::new(&mut n).range(1..=wordcraft_engine::print::MAX_COPIES).speed(0.2));
                         app.ui.print.copies = n.clamp(1, wordcraft_engine::print::MAX_COPIES);
                         if app.ui.print.copies > 1 {
-                            ui.checkbox(&mut app.ui.print.collate, tl!("Collate copies"));
+                            crate::widgets::checkbox(ui, &mut app.ui.print.collate, tl!("Collate copies"));
                         }
                     });
                 }
