@@ -1064,6 +1064,8 @@
 	Previous sentence	Föregående mening
 	Play/Pause	Spela upp/pausa
 	Read Aloud Status	Status för uppläsning
+	Read Aloud Settings	Inställningar för uppläsning
+	Read Aloud Voices	Röster för uppläsning
 	Reading Speed	Läshastighet
 	Skip Citations and Bibliography	Hoppa över källhänvisningar och källförteckning
 	Skip citations & bibliography	Hoppa över källhänvisningar och källförteckning
@@ -2714,3 +2716,61 @@ preview	Title	Titel
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Skriv en storlek i valfri enhet, till exempel 5 cm eller 300 px. Den andra sidan följer med, så att bilden behåller sina proportioner.
 
 	Import…	Importera…
+	Read at a time:	Läs åt gången:
+	One paragraph	Ett stycke
+	One page	En sida
+	The whole document	Hela dokumentet
+	Read Aloud settings…	Inställningar för uppläsning…
+	Read Aloud prepares and reads this much text, then goes on to the next part.	Uppläsning förbereder och läser så här mycket text och går sedan vidare till nästa del.
+	Read Aloud: text	Uppläsning: text
+	Web addresses:	Webbadresser:
+	Read the site name only	Läs bara webbplatsens namn
+	Skip emoji	Hoppa över emoji
+	Skip markup characters (* # _ ~ | ^ ` < > = \\)	Hoppa över märkningstecken (* # _ ~ | ^ ` < > = \\)
+	Skip repeated punctuation (*****, -----)	Hoppa över upprepade skiljetecken (*****, -----)
+	Skip symbols (arrows, boxes, bullets, icon characters)	Hoppa över symboler (pilar, rutor, punkter, ikontecken)
+	Skip text in (parentheses)	Hoppa över text inom (parenteser)
+	Skip text in [square brackets]	Hoppa över text inom [hakparenteser]
+	Skip text that matches (regular expressions, one per line):	Hoppa över text som matchar (reguljära uttryck, ett per rad):
+	Characters to skip:	Tecken att hoppa över:
+	Say instead (one per line, text = spoken as):	Säg i stället (en per rad, text = uttal):
+	The text on the page doesn't change. Only the spoken text does.	Texten på sidan ändras inte. Bara den upplästa texten ändras.
+	Write each replacement on its own line as: text = spoken as	Skriv varje ersättning på en egen rad: text = uttal
+	Read all of the address	Läs hela adressen
+	Skip	Hoppa över
+	Read Aloud: voices	Uppläsning: röster
+	Change the voice where a marker character starts the text	Byt röst där ett markörtecken inleder texten
+	Marker character:	Markörtecken:
+	A marker changes the voice:	En markör byter röst:
+	To the end of the paragraph	Till slutet av stycket
+	Type the marker and the voice label before the text, for example {marker}A Hello. Use {marker}N or {marker}Narrator to go back to the narrator.	Skriv markören och röstens etikett före texten, till exempel {marker}A Hej. Använd {marker}N eller {marker}Narrator för att gå tillbaka till berättaren.
+	Label	Etikett
+	System voice	Systemröst
+	Narrator	Berättare
+	Add a voice	Lägg till en röst
+	An empty voice uses the voice the engine has by default. The speed is relative to the reading speed.	En tom röst använder motorns standardröst. Hastigheten är relativ till läshastigheten.
+	Voice:	Röst:
+	Until the next marker	Till nästa markör
+	System voice (on this computer)	Systemröst (på den här datorn)
+	The speech program of your operating system.	Operativsystemets talprogram.
+	Neural voice on this computer (Piper)	Neural röst på den här datorn (Piper)
+	A natural voice that runs on this computer. Install Piper and a voice model first.	En naturlig röst som körs på den här datorn. Installera Piper och en röstmodell först.
+	Neural voice	Neural röst
+	Default voice	Standardröst
+	No voices found	Inga röster hittades
+	Pick a voice	Välj en röst
+	Find voices again	Sök röster igen
+	Ask the speech program and the voice folders for their voices again	Fråga talprogrammet och röstmapparna efter röster igen
+	A neural voice renders this text ahead.	En neural röst renderar texten i förväg.
+	Program:	Program:
+	Voice model:	Röstmodell:
+	Arguments (one per line):	Argument (ett per rad):
+	The voice model is the path of a Piper .onnx file. In the arguments, {voice}, {output}, {rate} and {lengthScale} are filled in for each sentence.	Röstmodellen är sökvägen till en Piper .onnx-fil. I argumenten fylls {voice}, {output}, {rate} och {lengthScale} i för varje mening.
+	Cloud voice	Molnröst
+	Cloud voice (sends the text to a service)	Molnröst (skickar texten till en tjänst)
+	A natural voice from an OpenAI-compatible speech service. The text being read is sent to that service.	En naturlig röst från en OpenAI-kompatibel taltjänst. Texten som läses skickas till tjänsten.
+	Model:	Modell:
+	API key variable:	Variabel för API-nyckel:
+	The API key is set.	API-nyckeln är angiven.
+	The API key is not set. Set it in this environment variable before you start WordCraft.	API-nyckeln är inte angiven. Ange den i den här miljövariabeln innan du startar WordCraft.
+	The cloud voice sends the text being read to the address above. WordCraft never saves the API key.	Molnrösten skickar texten som läses till adressen ovan. WordCraft sparar aldrig API-nyckeln.

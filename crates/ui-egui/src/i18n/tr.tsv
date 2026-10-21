@@ -907,6 +907,8 @@ preview	Title	Örnek
 	Previous sentence	Önceki cümle
 	Play/Pause	Oynat/Duraklat
 	Read Aloud Status	Sesli Okuma Durumu
+	Read Aloud Settings	Sesli Okuma Ayarları
+	Read Aloud Voices	Sesli Okuma Sesleri
 	Reading Speed	Okuma Hızı
 	Skip Citations and Bibliography	Atıfları ve Kaynakçayı Atla
 	Skip citations & bibliography	Atıfları ve kaynakçayı atla
@@ -2696,3 +2698,61 @@ preview	Title	Örnek
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Herhangi bir birimde bir boyut yazın, örneğin 5 cm veya 300 px. Diğer kenar da buna uyar, böylece resim oranlarını korur.
 
 	Import…	İçe aktar…
+	Read at a time:	Bir seferde oku:
+	One paragraph	Bir paragraf
+	One page	Bir sayfa
+	The whole document	Belgenin tamamı
+	Read Aloud settings…	Sesli Okuma ayarları…
+	Read Aloud prepares and reads this much text, then goes on to the next part.	Sesli Okuma bu kadar metni hazırlar ve okur, sonra sonraki bölüme geçer.
+	Read Aloud: text	Sesli Okuma: metin
+	Web addresses:	Web adresleri:
+	Read the site name only	Yalnızca site adını oku
+	Skip emoji	Emojileri atla
+	Skip markup characters (* # _ ~ | ^ ` < > = \\)	İşaretleme karakterlerini atla (* # _ ~ | ^ ` < > = \\)
+	Skip repeated punctuation (*****, -----)	Yinelenen noktalama işaretlerini atla (*****, -----)
+	Skip symbols (arrows, boxes, bullets, icon characters)	Simgeleri atla (oklar, kutular, madde işaretleri, simge karakterleri)
+	Skip text in (parentheses)	(Parantez) içindeki metni atla
+	Skip text in [square brackets]	[Köşeli parantez] içindeki metni atla
+	Skip text that matches (regular expressions, one per line):	Eşleşen metni atla (düzenli ifadeler, satır başına bir tane):
+	Characters to skip:	Atlanacak karakterler:
+	Say instead (one per line, text = spoken as):	Bunun yerine söyle (satır başına bir tane, metin = söyleniş):
+	The text on the page doesn't change. Only the spoken text does.	Sayfadaki metin değişmez. Yalnızca söylenen metin değişir.
+	Write each replacement on its own line as: text = spoken as	Her değiştirmeyi ayrı bir satıra yazın: metin = söyleniş
+	Read all of the address	Adresin tamamını oku
+	Skip	Atla
+	Read Aloud: voices	Sesli Okuma: sesler
+	Change the voice where a marker character starts the text	Metin bir işaretçi karakterle başladığında sesi değiştir
+	Marker character:	İşaretçi karakter:
+	A marker changes the voice:	İşaretçi sesi değiştirir:
+	To the end of the paragraph	Paragrafın sonuna kadar
+	Type the marker and the voice label before the text, for example {marker}A Hello. Use {marker}N or {marker}Narrator to go back to the narrator.	Metnin önüne işaretçiyi ve ses etiketini yazın, örneğin {marker}A Merhaba. Anlatıcıya dönmek için {marker}N veya {marker}Narrator kullanın.
+	Label	Etiket
+	System voice	Sistem sesi
+	Narrator	Anlatıcı
+	Add a voice	Ses ekle
+	An empty voice uses the voice the engine has by default. The speed is relative to the reading speed.	Boş bir ses, motorun varsayılan sesini kullanır. Hız, okuma hızına görelidir.
+	Voice:	Ses:
+	Until the next marker	Sonraki işaretçiye kadar
+	System voice (on this computer)	Sistem sesi (bu bilgisayarda)
+	The speech program of your operating system.	İşletim sisteminizin konuşma programı.
+	Neural voice on this computer (Piper)	Bu bilgisayarda sinirsel ses (Piper)
+	A natural voice that runs on this computer. Install Piper and a voice model first.	Bu bilgisayarda çalışan doğal bir ses. Önce Piper'ı ve bir ses modelini yükleyin.
+	Neural voice	Sinirsel ses
+	Default voice	Varsayılan ses
+	No voices found	Ses bulunamadı
+	Pick a voice	Bir ses seçin
+	Find voices again	Sesleri yeniden bul
+	Ask the speech program and the voice folders for their voices again	Sesleri konuşma programından ve ses klasörlerinden yeniden iste
+	A neural voice renders this text ahead.	Sinirsel ses bu metni önceden oluşturur.
+	Program:	Program:
+	Voice model:	Ses modeli:
+	Arguments (one per line):	Bağımsız değişkenler (satır başına bir tane):
+	The voice model is the path of a Piper .onnx file. In the arguments, {voice}, {output}, {rate} and {lengthScale} are filled in for each sentence.	Ses modeli, bir Piper .onnx dosyasının yoludur. Bağımsız değişkenlerde {voice}, {output}, {rate} ve {lengthScale} her cümle için doldurulur.
+	Cloud voice	Bulut sesi
+	Cloud voice (sends the text to a service)	Bulut sesi (metni bir hizmete gönderir)
+	A natural voice from an OpenAI-compatible speech service. The text being read is sent to that service.	OpenAI uyumlu bir konuşma hizmetinden doğal bir ses. Okunan metin bu hizmete gönderilir.
+	Model:	Model:
+	API key variable:	API anahtarı değişkeni:
+	The API key is set.	API anahtarı ayarlı.
+	The API key is not set. Set it in this environment variable before you start WordCraft.	API anahtarı ayarlı değil. WordCraft'ı başlatmadan önce bu ortam değişkeninde ayarlayın.
+	The cloud voice sends the text being read to the address above. WordCraft never saves the API key.	Bulut sesi, okunan metni yukarıdaki adrese gönderir. WordCraft API anahtarını asla kaydetmez.
