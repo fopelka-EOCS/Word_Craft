@@ -30,6 +30,9 @@ pub fn specs() -> Vec<CommandSpec> {
             .when(near_equation)
             .params(r#"{"pos"?: {"path": [[node, child]…], "off": n}, "extend"?: bool (select from where the caret was, as a drag or Shift+click)}"#),
         CommandSpec::new("equation.exit", "Leave Equation", "Equation", exit).pure().when(editing).params(r#"{"before"?: bool}"#),
+        CommandSpec::new("equation.moveTo", "Move Equation", "Equation", move_to)
+            .when(near_equation)
+            .params(r#"{"to": {"story", "path", "off"} (where to drop it), "copy"?: bool (keep the original, as Ctrl+drag)}"#),
         CommandSpec::new("equation.type", "Type in Equation", "Equation", type_text).when(editing).params(r#"{"text": string}"#),
         CommandSpec::new("equation.insertStructure", "Insert Structure", "Equation › Structures", insert_structure)
             .params(r#"{"id"?: string (see equation.gallery), "linear"?: string, "latex"?: string}"#),
@@ -256,6 +259,47 @@ fn edit(s: &mut Session, v: &Value) -> CmdResult {
     };
     s.sel = Selection::caret(at.clone());
     s.math = Some(MathEdit { pos: me::clamp(&nodes, &pos), at, anchor });
+    result(s)
+}
+
+/// Drag the equation by its frame's grip and drop it at `to` (Word): it moves there in one step
+/// and is edited where it landed. Dropped on itself it stays.
+fn move_to(s: &mut Session, v: &Value) -> CmdResult {
+    let to: Pos = v.get("to").and_then(|p| serde_json::from_value(p.clone()).ok()).ok_or_else(|| CmdError::Params("`to` required".into()))?;
+    let at = s
+        .math
+        .as_ref()
+        .map(|m| m.at.clone())
+        .or_else(|| equation_at_caret(s))
+        .ok_or_else(|| CmdError::Disabled("no equation at the caret".into()))?;
+    let n = OBJ.len_utf8();
+    let same_para = to.story == at.story && to.path == at.path;
+    if same_para && to.off >= at.off && to.off <= at.off + n {
+        return result(s);
+    }
+    if s.doc.para_at(&to).is_none_or(|p| to.off > p.len() || !p.text.is_char_boundary(to.off)) {
+        return Err(CmdError::Params("`to` is not a position in the document".into()));
+    }
+    let inner = s.math.as_ref().map(|m| m.pos.clone()).unwrap_or_default();
+    let frag = s.doc.copy_range(&at, &Pos { off: at.off + n, ..at.clone() });
+    // The copy goes in first (tracked, as a paste would), then the original comes out.
+    s.math = None;
+    s.sel = Selection::caret(to.clone());
+    super::paste::insert(s, frag)?;
+    let mut new_at = to;
+    if !p::bool(v, "copy").unwrap_or(false) {
+        let from = if same_para && new_at.off <= at.off { Pos { off: at.off + n, ..at.clone() } } else { at.clone() };
+        s.sel = Selection { anchor: from.clone(), focus: Pos { off: from.off + n, ..from.clone() } };
+        delete_selection(s)?;
+        // Without tracked changes the original leaves the text before the drop point; tracked, it
+        // stays there as a deletion.
+        if same_para && from.off < new_at.off && !s.doc.settings.track_changes {
+            new_at.off -= n;
+        }
+    }
+    let nodes = nodes_of(s, &new_at).ok_or_else(|| CmdError::Failed("the equation didn't land".into()))?;
+    s.sel = Selection::caret(new_at.clone());
+    s.math = Some(MathEdit { pos: me::clamp(&nodes, &inner), at: new_at, anchor: None });
     result(s)
 }
 
@@ -736,6 +780,51 @@ mod tests {
         s.run("equation.move", &json!({"dir": "home"})).unwrap();
         assert_eq!(s.math.as_ref().unwrap().pos, MathPos::new(vec![], 0));
         s
+    }
+
+    /// Dragging the frame's grip moves the equation where it's dropped, in one undo step, and
+    /// it is edited there; tracked, the move is a deletion and an insertion.
+    #[test]
+    fn the_grip_moves_the_equation_where_it_is_dropped() {
+        let text_of = |s: &Session| s.doc.para_at(&Pos::body(0, 0)).map(|p| p.text.replace(OBJ, "[eq]")).unwrap_or_default();
+        let mut s = session();
+        s.run("text.insert", &json!({"text": "Before after."})).unwrap();
+        s.sel = Selection::caret(Pos::body(0, 7));
+        s.run("insert.equation", &json!({"linear": "a/b"})).unwrap();
+        assert_eq!(text_of(&s), "Before [eq]after.");
+        // Forward, past the end of "after".
+        s.run("equation.moveTo", &json!({"to": Pos::body(0, 15)})).unwrap();
+        assert_eq!(text_of(&s), "Before after[eq].");
+        let m = s.math.clone().unwrap();
+        assert_eq!(m.at, Pos::body(0, 12));
+        assert_eq!(linear(&s), "a/b");
+        // Back to the start; then one undo puts it back.
+        s.run("equation.moveTo", &json!({"to": Pos::body(0, 0)})).unwrap();
+        assert_eq!(text_of(&s), "[eq]Before after.");
+        s.run("edit.undo", &json!({})).unwrap();
+        assert_eq!(text_of(&s), "Before after[eq].");
+        // Dropped on itself it stays; a position outside the document is refused.
+        s.run("equation.edit", &json!({})).unwrap();
+        s.run("equation.moveTo", &json!({"to": Pos::body(0, 12)})).unwrap();
+        assert_eq!(text_of(&s), "Before after[eq].");
+        assert!(s.run("equation.moveTo", &json!({"to": Pos::body(5, 0)})).is_err());
+        assert!(s.run("equation.moveTo", &json!({"to": Pos::body(0, 99)})).is_err());
+        // Ctrl+drag copies.
+        s.run("equation.moveTo", &json!({"to": Pos::body(0, 0), "copy": true})).unwrap();
+        assert_eq!(text_of(&s), "[eq]Before after[eq].");
+        // Tracked: the original stays as a deletion, the new one is an insertion.
+        let mut s = session();
+        s.run("insert.equation", &json!({"linear": "x"})).unwrap();
+        s.run("equation.exit", &json!({})).unwrap();
+        s.run("text.insert", &json!({"text": " tail"})).unwrap();
+        s.doc.settings.track_changes = true;
+        s.sel = Selection::caret(Pos::body(0, 0));
+        s.run("equation.edit", &json!({})).unwrap();
+        s.run("equation.moveTo", &json!({"to": Pos::body(0, 8)})).unwrap();
+        let p = s.doc.para_at(&Pos::body(0, 0)).unwrap();
+        assert_eq!(p.text.matches(OBJ).count(), 2, "{:?}", p.text);
+        assert!(p.runs.iter().any(|r| r.props.del.is_some()) && p.runs.iter().any(|r| r.props.ins.is_some()));
+        assert_eq!(s.math.as_ref().map(|m| m.at.off), Some(8));
     }
 
     /// Shift+arrows select inside an equation; moving without Shift ends the selection.

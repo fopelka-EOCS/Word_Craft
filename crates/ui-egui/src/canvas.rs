@@ -69,6 +69,8 @@ pub struct CanvasState {
     dragging: bool,
     /// The drag started inside the equation being edited: it selects part of the equation.
     math_drag: bool,
+    /// A press on the equation frame's grip: a drag moves the equation, a click selects it.
+    eq_grip: Option<GripDrag>,
     /// Alt+drag: where the column (block) selection started (page, x, y) and its last end.
     column_drag: Option<((usize, f32, f32), (usize, f32, f32))>,
     /// The last primary press on the page (time, screen point, clicks in a row), to count
@@ -219,6 +221,7 @@ impl CanvasState {
     pub(crate) fn cancel_text_drag(&mut self) {
         self.dragging = false;
         self.math_drag = false;
+        self.eq_grip = None;
         self.column_drag = None;
         self.unit_drag = None;
     }
@@ -262,6 +265,7 @@ impl Default for CanvasState {
             caret_bg: None,
             dragging: false,
             math_drag: false,
+            eq_grip: None,
             column_drag: None,
             last_press: None,
             hf_press_switched: false,
@@ -1220,6 +1224,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     // to full speed at the edge, through the same offset the wheel writes.
     let (down, released, pointer, dt) = ui.input(|i| (i.pointer.primary_down(), i.pointer.primary_released(), i.pointer.latest_pos(), i.stable_dt));
     // A release `mouse` returned before seeing (double-click paths, off the canvas) ends the drag here (#1019).
+    if !down && !released {
+        app.canvas.eq_grip = None;
+    }
     if app.canvas.dragging && !down && !released {
         app.canvas.dragging = false;
         app.canvas.math_drag = false;
@@ -1634,6 +1641,20 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 );
             }
             app.canvas.eq_options = Some(frame);
+            // Dragging the grip: a dotted caret where the equation will land.
+            if let Some(to) = app.canvas.eq_grip.as_ref().and_then(|g| g.drop.clone())
+                && let Some(c) = layout.caret_on(&to, app.session.page_hint)
+                && let Some(dr) = rects.get(c.page)
+            {
+                let scale = layout.pages.get(c.page).map_or(s, |page| page_screen_scale(*dr, page, s));
+                let x = (dr.min.x + c.x * scale).round() + 0.5;
+                let (y0, y1) = (dr.min.y + c.top * scale, dr.min.y + (c.top + c.height) * scale);
+                let mut y = y0;
+                while y < y1 {
+                    painter.line_segment([pos2(x, y), pos2(x, (y + 2.0).min(y1))], Stroke::new(1.5, t.equation_box));
+                    y += 4.0;
+                }
+            }
             if let Some(slot) = ml.slot(&m.pos.path, m.pos.off) {
                 let x = (pr.min.x + (ex + slot.x) * s).round() + 0.5;
                 let y0 = pr.min.y + (base - slot.y - slot.a) * s;
@@ -1931,8 +1952,13 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     }
     // The standalone selection toolbar stands down while the context popup owns the pointer.
     app.canvas.context_menu_open = shown;
+    let over_grip = ui.input(|i| i.pointer.latest_pos()).is_some_and(|p| app.canvas.eq_options.is_some_and(|f| f.grip.contains(p)));
     if let Some(c) = crate::ink::cursor(app).filter(|_| resp.hovered() || app.canvas.ink.is_some()) {
         ui.ctx().set_cursor_icon(c);
+    } else if app.canvas.eq_grip.as_ref().is_some_and(|g| g.moved) {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+    } else if resp.hovered() && over_grip {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
     } else if resp.hovered() || app.canvas.obj_drag.is_some() {
         let latest = ui.input(|i| i.pointer.latest_pos());
         let over_object = latest.and_then(|p| crate::objects::cursor(app, &layout, &rects, geo.scale, p));
@@ -2670,9 +2696,12 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         return;
     }
     let pressed = ui.input(|i| i.pointer.primary_pressed()) && resp.contains_pointer() && !over_balloon(app, p);
-    // The equation frame's grip and options strip stay in the equation (the strip's click opens
-    // its menu, in `show`).
+    // The equation frame's grip and options strip stay in the equation: the grip drags it (or a
+    // click selects it), the strip's click opens its menu (in `show`).
     if pressed && on_frame {
+        if app.canvas.eq_options.is_some_and(|f| f.grip.contains(p)) {
+            app.canvas.eq_grip = Some(GripDrag { start: p, moved: false, drop: None });
+        }
         return;
     }
     if pressed {
@@ -2828,6 +2857,31 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         app.session.page_hint = page;
         app.canvas.dragging = true;
         // Format painter applies on mouse up.
+    } else if let Some(g) = app.canvas.eq_grip.as_mut() {
+        if ui.input(|i| i.pointer.primary_down()) {
+            // Dragging the grip: the equation will land at the text position under the pointer.
+            g.moved |= (p - g.start).length() > 3.0;
+            if g.moved {
+                g.drop = layout.hit(page, x, y, story);
+            }
+        } else if let Some(g) = app.canvas.eq_grip.take() {
+            match g.drop {
+                // Ctrl (Option on the Mac) copies it there instead, as when dragging text in Word.
+                Some(to) if g.moved => {
+                    let copy = if cfg!(target_os = "macos") { mods.alt } else { mods.ctrl };
+                    let _ = app.run("equation.moveTo", json!({"to": to, "copy": copy}));
+                }
+                // A click on the grip selects the whole equation.
+                _ if !g.moved => {
+                    if let Some(m) = app.session.math.clone() {
+                        let _ = app.run("equation.exit", json!({"before": true}));
+                        let end = Pos { off: m.at.off + wordcraft_doc::para::OBJ.len_utf8(), ..m.at.clone() };
+                        app.session.sel = wordcraft_engine::Selection { anchor: m.at, focus: end };
+                    }
+                }
+                _ => {}
+            }
+        }
     } else if app.canvas.math_drag && ui.input(|i| i.pointer.primary_down()) {
         // Dragging from inside the equation being edited selects part of it, up to the caret
         // position nearest the pointer, even with the pointer outside the equation.
@@ -3641,6 +3695,15 @@ pub(crate) fn caret_contrast(bg: wordcraft_doc::props::Rgb) -> Color32 {
     let l = 0.2126 * lin(bg.0) + 0.7152 * lin(bg.1) + 0.0722 * lin(bg.2);
     // Contrast with black (l + 0.05) / 0.05 against with white 1.05 / (l + 0.05).
     if (l + 0.05) * (l + 0.05) >= 0.05 * 1.05 { Color32::BLACK } else { Color32::WHITE }
+}
+
+/// A press on the equation frame's grip: where it began, whether the pointer has moved off it
+/// (a drag, not a click), and the text position the equation would be dropped at.
+#[derive(Clone, Debug)]
+pub struct GripDrag {
+    start: Pos2,
+    moved: bool,
+    drop: Option<Pos>,
 }
 
 /// The frame around the equation being edited, on screen: Word's outline, the grip at its top
