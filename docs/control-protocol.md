@@ -81,9 +81,11 @@ The local macOS ChatGPT prototype also accepts `provider: "chatgpt"` (or any exi
 ID), `model: "<available model slug>"`, `chatgpt: "signIn" | "cancel" | "disconnect" |
 "acknowledgeUsage"`, and `consent: true | false` on `ui.assistant`. These are explicit user
 actions: never grant consent or acknowledge usage on the user's behalf. Every response adds
-`documentConsent` and sanitized `chatgpt` connection status (`connected`, `busy`, `account`,
+`documentConsent` and sanitized `chatgpt` connection status (`connected`, `busy`, `disconnecting`, `account`,
 `usageAcknowledged`, `verifiedRequest`, `error`, `generation`), or null when unsupported.
 Tokens, authorization URLs/codes and provider settings are never returned. Consent does not
-survive document/account changes or restart. See [local prototype](chatgpt-oauth-prototype.md).
+survive document/account changes or restart. While `disconnecting` is true, cancellation and other
+account actions cannot supersede local credential deletion. A deletion failure retains a connected,
+retryable state and reports an error; remote revocation failure is reported separately. See [local prototype](chatgpt-oauth-prototype.md).
 
 Positions are `{"story": "body" | {"part": n}, "path": [block, row, cell, block, …], "off": byteOffset}`.

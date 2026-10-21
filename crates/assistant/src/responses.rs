@@ -298,4 +298,30 @@ mod tests {
         assert_eq!(m[0].display_name, "Bee");
         assert_eq!(m[1].slug, "a");
     }
+
+    #[test]
+    fn duplicate_unknown_and_malformed_calls_fail_the_whole_reply() {
+        let call = json!({"type":"function_call","namespace":"wordcraft","status":"completed","call_id":"a","name":"get_text","arguments":"{}"});
+        let mut unknown = call.clone();
+        unknown["name"] = json!("read_private_file");
+        let mut namespace = call.clone();
+        namespace["namespace"] = json!("other_app");
+        let mut missing = call.clone();
+        missing.as_object_mut().unwrap().remove("call_id");
+        for output in [json!([call.clone(), call.clone()]), json!([call.clone(), unknown]), json!([namespace]), json!([missing])] {
+            assert!(stream(&completed(output)).is_err());
+        }
+        for indexes in [[0, 0], [0, 2]] {
+            let mut s = Stream::default();
+            let result = (|| {
+                for index in indexes {
+                    s.line(&format!("data: {}", json!({"type":"response.output_item.done","output_index":index,"item":call})))?;
+                    s.line("")?;
+                }
+                s.line(&format!("data: {}", completed(json!([]))))?;
+                s.line("")
+            })();
+            assert!(result.is_err());
+        }
+    }
 }

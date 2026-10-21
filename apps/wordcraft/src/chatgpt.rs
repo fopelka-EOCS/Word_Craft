@@ -158,10 +158,7 @@ impl Runtime {
     }
     fn remember(&mut self, registration: Registration, credentials: Credentials) -> Result<(), String> {
         // One Keychain update binds the complete token set to its verified registration.
-        if let Err(e) = save(self.store.as_ref(), "credentials", &(&registration, &credentials)) {
-            self.credentials = None;
-            return Err(e);
-        }
+        save(self.store.as_ref(), "credentials", &(&registration, &credentials))?;
         self.registration = registration;
         self.credentials = Some(credentials);
         Ok(())
@@ -178,17 +175,20 @@ impl Runtime {
         match result {
             Ok(c) => self.remember(self.registration.clone(), c),
             Err(e) => {
-                self.credentials = None;
                 self.forget()?;
                 Err(e)
             }
         }
     }
     fn forget(&mut self) -> Result<(), String> {
+        // Prepare metadata first so a successful deletion can always proceed to revocation.
+        save(self.store.as_ref(), "registration", &self.registration)
+            .map_err(|_| "Could not prepare ChatGPT sign-out in Keychain. Disconnect again before closing WordCraft.")?;
+        self.store
+            .remove("credentials")
+            .map_err(|_| "Could not remove ChatGPT credentials from Keychain. Disconnect again before closing WordCraft.")?;
         self.credentials = None;
-        let removed = self.store.remove("credentials");
-        let metadata = save(self.store.as_ref(), "registration", &self.registration);
-        removed.and(metadata)
+        Ok(())
     }
 }
 fn tokens(v: &Value, previous: Option<&Credentials>) -> Result<Credentials, String> {
@@ -324,13 +324,38 @@ fn callback(listener: &TcpListener, a: &Attempt, t: &Ticket, timeout: Duration) 
         }
         match listener.accept() {
             Ok((mut s, _)) => {
-                s.set_read_timeout(Some(Duration::from_millis(300))).map_err(|_| AUTH_ERROR)?;
+                // Accepted sockets can inherit nonblocking mode on macOS.
+                s.set_nonblocking(false).map_err(|_| AUTH_ERROR)?;
+                s.set_read_timeout(Some(Duration::from_millis(40))).map_err(|_| AUTH_ERROR)?;
                 s.set_write_timeout(Some(Duration::from_millis(300))).map_err(|_| AUTH_ERROR)?;
-                let mut line = String::new();
-                let read = BufReader::new((&s).take(8193)).read_line(&mut line);
-                if read.is_err() || line.len() > 8192 || !line.ends_with('\n') {
+                let mut reader = BufReader::new(&s);
+                let mut line = Vec::new();
+                while line.len() <= 8192 {
+                    t.check()?;
+                    if start.elapsed() >= timeout {
+                        return Err("ChatGPT sign-in timed out. Continue with ChatGPT to try again.".into());
+                    }
+                    let mut byte = [0];
+                    match reader.read(&mut byte) {
+                        Ok(0) => break,
+                        Ok(_) => {
+                            line.push(byte[0]);
+                            if byte[0] == b'\n' {
+                                break;
+                            }
+                        }
+                        Err(e)
+                            if matches!(
+                                e.kind(),
+                                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut | std::io::ErrorKind::Interrupted
+                            ) => {}
+                        Err(_) => break,
+                    }
+                }
+                if line.len() > 8192 || !line.ends_with(b"\n") {
                     continue;
                 }
+                let Ok(line) = std::str::from_utf8(&line) else { continue };
                 let parts: Vec<_> = line.split_whitespace().collect();
                 if parts.first() != Some(&"GET") {
                     continue;
@@ -516,13 +541,17 @@ struct Native {
     ctx: egui::Context,
 }
 impl Native {
-    fn task(&mut self, job: impl FnOnce(&mut Runtime, &Ticket) -> Result<(), String> + Send + 'static) {
+    fn task(&mut self, disconnecting: bool, job: impl FnOnce(&mut Runtime, &Ticket) -> Result<(), String> + Send + 'static) {
+        if self.status().disconnecting {
+            return;
+        }
         self.request_epoch.fetch_add(1, Ordering::SeqCst);
         let value = self.epoch.fetch_add(1, Ordering::SeqCst).saturating_add(1);
         let ticket = Ticket { epoch: self.epoch.clone(), value };
         {
             let mut status = self.status.lock().unwrap_or_else(|e| e.into_inner());
             status.busy = true;
+            status.disconnecting = disconnecting;
             status.generation = value;
             status.error = None;
         }
@@ -551,8 +580,19 @@ impl Native {
         {
             let mut s = err_status.lock().unwrap_or_else(|e| e.into_inner());
             s.busy = false;
+            s.disconnecting = false;
             s.error = Some("Could not start ChatGPT operation.".into());
         }
+    }
+    fn disconnect_with(&mut self, revoke: impl FnOnce(&Registration, Option<&Credentials>) -> Result<(), String> + Send + 'static) {
+        self.task(true, move |rt, _| {
+            let credentials = rt.credentials.clone();
+            rt.forget()?;
+            if revoke(&rt.registration, credentials.as_ref()).is_err() {
+                return Err("Disconnected locally. Remote revocation was not confirmed; disconnect WordCraft in ChatGPT settings.".into());
+            }
+            Ok(())
+        });
     }
 }
 impl Connection for Native {
@@ -560,9 +600,13 @@ impl Connection for Native {
         self.status.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
     fn sign_in(&mut self) {
-        self.task(sign_in);
+        self.task(false, sign_in);
     }
     fn cancel(&mut self) {
+        // Local removal must finish even if cancellation arrives while the worker is queued.
+        if self.status().disconnecting {
+            return;
+        }
         self.request_epoch.fetch_add(1, Ordering::SeqCst);
         self.epoch.fetch_add(1, Ordering::SeqCst);
         let mut s = self.status.lock().unwrap_or_else(|e| e.into_inner());
@@ -571,24 +615,10 @@ impl Connection for Native {
         s.error = Some(CANCELLED.into());
     }
     fn disconnect(&mut self) {
-        {
-            let mut s = self.status.lock().unwrap_or_else(|e| e.into_inner());
-            s.connected = false;
-            s.account = None;
-            s.usage_acknowledged = false;
-        }
-        self.task(|rt, _| {
-            let credentials = rt.credentials.take();
-            rt.forget()?;
-            let remote = revoke(&rt.registration, credentials.as_ref());
-            if remote.is_err() {
-                return Err("Disconnected locally. Remote revocation was not confirmed; disconnect WordCraft in ChatGPT settings.".into());
-            }
-            Ok(())
-        });
+        self.disconnect_with(revoke);
     }
     fn acknowledge_usage(&mut self) {
-        self.task(|rt, _| {
+        self.task(false, |rt, _| {
             let mut r = rt.registration.clone();
             r.acknowledged = true;
             if let Some(c) = rt.credentials.clone() {

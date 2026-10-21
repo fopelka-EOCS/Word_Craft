@@ -7,6 +7,8 @@ use serde::Serialize;
 pub struct Status {
     pub connected: bool,
     pub busy: bool,
+    /// Local credential deletion cannot be cancelled or superseded by another account action.
+    pub disconnecting: bool,
     pub account: Option<String>,
     pub usage_acknowledged: bool,
     /// Only a completed inference establishes account eligibility.

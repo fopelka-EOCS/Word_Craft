@@ -9,6 +9,7 @@ const TEST_N: &str = "m_Z4KJDKC9hHaoeqWOaKOI5f-VUS71FDxLuEkycQDrU_FIIzHJ3KQiqydm
 struct Memory {
     data: Arc<Mutex<BTreeMap<String, Vec<u8>>>>,
     fail: Arc<AtomicU64>,
+    fail_remove: Arc<AtomicU64>,
 }
 impl Store for Memory {
     fn load(&self, n: &str) -> Result<Option<Vec<u8>>, String> {
@@ -22,6 +23,9 @@ impl Store for Memory {
         Ok(())
     }
     fn remove(&self, n: &str) -> Result<(), String> {
+        if self.fail_remove.load(Ordering::SeqCst) != 0 {
+            return Err(STORAGE_ERROR.into());
+        }
         self.data.lock().unwrap().remove(n);
         Ok(())
     }
@@ -214,4 +218,170 @@ fn all_retained_tokens_are_redacted_before_ui_or_control_delivery() {
     let clean = redact(&body, Some(&c));
     let reply = responses::parse(&clean).unwrap();
     assert_eq!(reply.text, "[redacted] [redacted] [redacted]");
+}
+
+#[test]
+fn cancelling_queued_disconnect_cannot_keep_remembered_credentials() {
+    let store = Memory::default();
+    let mut rt = Runtime::load(Box::new(store.clone()), None).unwrap();
+    rt.remember(rt.registration.clone(), tokens(&token_response("id"), None).unwrap()).unwrap();
+    let runtime = Arc::new(Mutex::new(Some(rt)));
+    let guard = runtime.lock().unwrap();
+    let mut native = Native {
+        runtime: runtime.clone(),
+        status: Arc::new(Mutex::new(Status { connected: true, ..Default::default() })),
+        epoch: Arc::new(AtomicU64::new(0)),
+        request_epoch: Arc::new(AtomicU64::new(0)),
+        http: Box::new(|_| mpsc::channel().1),
+        ctx: egui::Context::default(),
+    };
+    native.disconnect_with(|_, _| Ok(()));
+    native.cancel();
+    native.sign_in();
+    native.acknowledge_usage();
+    drop(guard);
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while store.load("credentials").unwrap().is_some() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(store.load("credentials").unwrap().is_none(), "Disconnect must remove credentials even when cancelled while queued");
+    assert!(Runtime::load(Box::new(store), None).unwrap().credentials.is_none());
+}
+
+#[test]
+fn slow_callback_line_obeys_deadline_and_cancellation() {
+    for cancel in [false, true] {
+        let rt = Runtime::load(Box::new(Memory::default()), None).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let a = Attempt::new(port, &rt.registration).unwrap();
+        let t = ticket();
+        let epoch = t.epoch.clone();
+        let (started, ready) = mpsc::channel();
+        let writer = std::thread::spawn(move || {
+            let mut socket = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+            socket.write_all(b"G").unwrap();
+            started.send(()).unwrap();
+            for _ in 0..100 {
+                std::thread::sleep(Duration::from_millis(10));
+                if socket.write_all(b"x").is_err() {
+                    break;
+                }
+            }
+        });
+        ready.recv().unwrap();
+        let (done, result) = mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            let outcome = callback(&listener, &a, &t, if cancel { Duration::from_secs(5) } else { Duration::from_millis(50) });
+            done.send(outcome).unwrap();
+        });
+        if cancel {
+            std::thread::sleep(Duration::from_millis(50));
+            epoch.store(1, Ordering::SeqCst);
+        }
+        let outcome = result.recv_timeout(Duration::from_millis(500));
+        writer.join().unwrap();
+        reader.join().unwrap();
+        let error = outcome.expect("a slow request line must not delay timeout or cancellation").unwrap_err();
+        assert!(if cancel { error == CANCELLED } else { error.contains("timed out") });
+    }
+}
+
+#[test]
+fn fragmented_callback_request_line_is_accepted() {
+    let rt = Runtime::load(Box::new(Memory::default()), None).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let a = Attempt::new(port, &rt.registration).unwrap();
+    let tail = format!("callback?state={}&code=c&client_id=oaiapp_test HTTP/1.1\r\n\r\n", a.state);
+    let writer = std::thread::spawn(move || {
+        let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        s.write_all(b"GET /auth/").unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        let _ = s.write_all(tail.as_bytes());
+        let mut response = String::new();
+        let _ = s.read_to_string(&mut response);
+    });
+    let result = callback(&listener, &a, &ticket(), Duration::from_secs(2));
+    writer.join().unwrap();
+    assert_eq!(result.unwrap(), ("c".into(), "oaiapp_test".into()));
+}
+
+#[test]
+fn disconnect_deletion_failure_can_be_retried_and_remote_failure_is_explicit() {
+    let store = Memory::default();
+    let mut rt = Runtime::load(Box::new(store.clone()), None).unwrap();
+    rt.remember(rt.registration.clone(), tokens(&token_response("id"), None).unwrap()).unwrap();
+    let mut native = Native {
+        runtime: Arc::new(Mutex::new(Some(rt))),
+        status: Arc::new(Mutex::new(Status { connected: true, ..Default::default() })),
+        epoch: Arc::new(AtomicU64::new(0)),
+        request_epoch: Arc::new(AtomicU64::new(0)),
+        http: Box::new(|_| mpsc::channel().1),
+        ctx: egui::Context::default(),
+    };
+    for (metadata_failure, deletion_failure) in [(true, false), (false, true), (false, false)] {
+        let fail = metadata_failure || deletion_failure;
+        store.fail.store(u64::from(metadata_failure), Ordering::SeqCst);
+        store.fail_remove.store(u64::from(deletion_failure), Ordering::SeqCst);
+        native.disconnect_with(|_, _| Err("synthetic revocation failure".into()));
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while native.status().busy && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let status = native.status();
+        assert!(!status.busy);
+        assert!(!status.disconnecting);
+        assert_eq!(status.connected, fail);
+        assert_eq!(Runtime::load(Box::new(store.clone()), None).unwrap().credentials.is_some(), fail);
+        let error = status.error.unwrap();
+        assert!(error.contains(if fail { "Disconnect again" } else { "Remote revocation was not confirmed" }));
+        assert!(!error.contains("synthetic"));
+    }
+}
+
+#[test]
+fn failed_refresh_and_failed_deletion_do_not_claim_persistent_sign_out() {
+    let store = Memory::default();
+    let mut rt = Runtime::load(Box::new(store.clone()), None).unwrap();
+    let mut credentials = tokens(&token_response("id"), None).unwrap();
+    credentials.expires_at = 0;
+    rt.remember(rt.registration.clone(), credentials).unwrap();
+    store.fail_remove.store(1, Ordering::SeqCst);
+    assert!(rt.refresh(|_, _| Err(AUTH_ERROR.into())).is_err());
+    assert!(rt.credentials.is_some());
+    assert!(Runtime::load(Box::new(store.clone()), None).unwrap().credentials.is_some());
+    store.fail_remove.store(0, Ordering::SeqCst);
+    rt.forget().unwrap();
+    assert!(Runtime::load(Box::new(store), None).unwrap().credentials.is_none());
+}
+
+#[test]
+fn failed_credential_update_preserves_the_previous_atomic_state() {
+    let store = Memory::default();
+    let mut rt = Runtime::load(Box::new(store.clone()), None).unwrap();
+    rt.remember(rt.registration.clone(), tokens(&token_response("id"), None).unwrap()).unwrap();
+    let previous = store.load("credentials").unwrap();
+    let mut registration = rt.registration.clone();
+    registration.acknowledged = true;
+    store.fail.store(1, Ordering::SeqCst);
+    assert!(rt.remember(registration, tokens(&token_response("changed-id"), None).unwrap()).is_err());
+    assert!(rt.credentials.is_some());
+    assert!(!rt.registration.acknowledged);
+    assert_eq!(rt.credentials.as_ref().unwrap().id_token, "id");
+    assert_eq!(store.load("credentials").unwrap(), previous);
+}
+
+#[test]
+fn runtime_keeps_the_exclusive_lock_for_the_credential_lifetime() {
+    let path = std::env::temp_dir().join(format!("wordcraft-oauth-lock-{}", random().unwrap()));
+    let first = std::fs::OpenOptions::new().create_new(true).read(true).write(true).open(&path).unwrap();
+    first.try_lock().unwrap();
+    let rt = Runtime::load(Box::new(Memory::default()), Some(first)).unwrap();
+    let second = std::fs::OpenOptions::new().read(true).write(true).open(&path).unwrap();
+    assert!(second.try_lock().is_err());
+    drop(rt);
+    second.try_lock().unwrap();
+    drop(second);
+    std::fs::remove_file(path).unwrap();
 }

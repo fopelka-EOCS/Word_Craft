@@ -504,9 +504,9 @@ fn chatgpt_controls(app: &mut WordApp, ui: &mut Ui) {
     if status.busy {
         ui.horizontal(|ui| {
             ui.spinner();
-            ui.label("Connecting to ChatGPT…");
+            ui.label(if status.disconnecting { "Disconnecting from ChatGPT…" } else { "Updating ChatGPT connection…" });
         });
-        if ui.button("Cancel sign-in").clicked() {
+        if !status.disconnecting && ui.button("Cancel sign-in").clicked() {
             action = Some("cancel");
         }
     } else if status.connected {

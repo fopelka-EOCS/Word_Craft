@@ -98,28 +98,32 @@ fn no_document_request_before_usage_acknowledgment_and_document_consent() {
 }
 #[test]
 fn completed_response_edit_tracks_and_undo_restores_document() {
-    let (mut a, _, q, _) = app();
-    ready(&mut a);
-    command(&mut a, &json!({"ask":"Write a greeting"})).unwrap();
-    answer(&q, calls(&[("read", "get_text", json!({})), ("edit", "type_text", json!({"text":"Synthetic greeting"}))]));
-    tick(&mut a);
-    answer(&q, calls(&[("verify", "get_text", json!({}))]));
-    tick(&mut a);
-    answer(&q, complete(json!([{"type":"message","status":"completed","content":[{"type":"output_text","text":"Done"}]}])));
-    tick(&mut a);
-    assert!(!a.assistant.agent.busy());
-    assert_eq!(a.session.author, "Human Writer");
-    assert!(!a.session.doc.settings.track_changes);
-    assert!(a.session.doc.plain_text(wordcraft_doc::StoryRef::Body).contains("Synthetic greeting"));
+    for tracking in [false, true] {
+        let (mut a, _, q, _) = app();
+        a.session.doc.settings.track_changes = tracking;
+        ready(&mut a);
+        command(&mut a, &json!({"ask":"Write a greeting"})).unwrap();
+        answer(&q, calls(&[("read", "get_text", json!({})), ("edit", "type_text", json!({"text":"Synthetic greeting"}))]));
+        tick(&mut a);
+        answer(&q, calls(&[("verify", "get_text", json!({}))]));
+        tick(&mut a);
+        answer(&q, complete(json!([{"type":"message","status":"completed","content":[{"type":"output_text","text":"Done"}]}])));
+        tick(&mut a);
+        assert!(!a.assistant.agent.busy());
+        assert_eq!(a.session.author, "Human Writer");
+        assert_eq!(a.session.doc.settings.track_changes, tracking);
+        assert!(a.session.doc.plain_text(wordcraft_doc::StoryRef::Body).contains("Synthetic greeting"));
 
-    assert_eq!(a.session.undo_depth(), 1);
-    a.session.run("edit.undo", &json!({})).unwrap();
-    assert!(!a.session.doc.settings.track_changes, "Undo must not restore the assistant's temporary tracking setting");
-    assert!(!a.session.doc.plain_text(wordcraft_doc::StoryRef::Body).contains("Synthetic greeting"));
-    a.session.redo();
-    assert!(!a.session.doc.settings.track_changes, "Redo keeps the original tracking preference");
-    a.session.run("review.rejectAll", &json!({})).unwrap();
-    assert!(!a.session.doc.plain_text(wordcraft_doc::StoryRef::Body).contains("Synthetic greeting"));
+        assert_eq!(a.session.undo_depth(), 1);
+        a.session.run("edit.undo", &json!({})).unwrap();
+        assert_eq!(a.session.doc.settings.track_changes, tracking, "Undo keeps the original tracking preference");
+        assert!(!a.session.doc.plain_text(wordcraft_doc::StoryRef::Body).contains("Synthetic greeting"));
+        a.session.redo();
+        assert_eq!(a.session.doc.settings.track_changes, tracking, "Redo keeps the original tracking preference");
+        assert_eq!(a.session.author, "Human Writer");
+        a.session.run("review.rejectAll", &json!({})).unwrap();
+        assert!(!a.session.doc.plain_text(wordcraft_doc::StoryRef::Body).contains("Synthetic greeting"));
+    }
 }
 #[test]
 fn new_document_drops_late_results_consent_and_previous_context() {
@@ -139,6 +143,36 @@ fn new_document_drops_late_results_consent_and_previous_context() {
     ready(&mut a);
     command(&mut a, &json!({"ask":"new request"})).unwrap();
     assert!(!sent.borrow().last().unwrap().body.contains("OLD PRIVATE MESSAGE"));
+}
+
+#[test]
+fn failure_or_cancellation_after_edit_restores_author_tracking_and_undo() {
+    for tracking in [false, true] {
+        for fail in [false, true] {
+            let (mut a, _, q, _) = app();
+            a.session.doc.settings.track_changes = tracking;
+            ready(&mut a);
+            command(&mut a, &json!({"ask":"Write a greeting"})).unwrap();
+            answer(&q, calls(&[("read", "get_text", json!({})), ("edit", "type_text", json!({"text":"Synthetic greeting"}))]));
+            tick(&mut a);
+            if fail {
+                q.borrow_mut().pop_front().unwrap().send(Err("Synthetic network failure".into())).unwrap();
+            } else {
+                let late = q.borrow_mut().pop_front().unwrap();
+                command(&mut a, &json!({"stop":true})).unwrap();
+                assert!(late.send(Ok(calls(&[("late", "type_text", json!({"text":"STALE"}))]))).is_err());
+            }
+            tick(&mut a);
+            assert!(!a.assistant.agent.busy());
+            assert_eq!(a.session.author, "Human Writer");
+            assert_eq!(a.session.doc.settings.track_changes, tracking);
+            assert_eq!(a.session.undo_depth(), 1);
+            assert!(!a.session.doc.plain_text(wordcraft_doc::StoryRef::Body).contains("STALE"));
+            a.session.undo();
+            assert!(!a.session.doc.plain_text(wordcraft_doc::StoryRef::Body).contains("Synthetic greeting"));
+            assert_eq!(a.session.doc.settings.track_changes, tracking);
+        }
+    }
 }
 #[test]
 fn account_switch_and_disconnect_restore_temporary_author_and_tracking() {
@@ -180,7 +214,7 @@ fn open_restores_the_original_author_and_tracking_before_loading() {
 #[test]
 fn chatgpt_controls_explain_usage_and_document_consent() {
     use egui_kittest::kittest::Queryable;
-    let (mut a, _, _, _) = app();
+    let (mut a, _, _, state) = app();
     a.assistant.open = true;
     a.assistant.settings_open = true;
     let mut builder = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 920.0)).with_pixels_per_point(2.0);
@@ -206,4 +240,24 @@ fn chatgpt_controls_explain_usage_and_document_consent() {
     if let Ok(path) = std::env::var("WORDCRAFT_OAUTH_UI_SHOT") {
         h.render().unwrap().save(format!("{path}.consent.png")).unwrap();
     }
+    {
+        let mut status = state.borrow_mut();
+        status.busy = true;
+        status.disconnecting = true;
+    }
+    h.run_steps(6);
+    assert!(h.query_by_label("Disconnecting from ChatGPT…").is_some());
+    assert!(h.query_by_label("Cancel sign-in").is_none());
+    if let Ok(path) = std::env::var("WORDCRAFT_OAUTH_UI_SHOT") {
+        h.render().unwrap().save(format!("{path}.disconnect.png")).unwrap();
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn native_chatgpt_is_unavailable_without_the_macos_service() {
+    let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+    assert!(command(&mut app, &json!({"provider":"chatgpt", "chatgpt":"signIn"})).unwrap_err().contains("macOS"));
+    assert!(command(&mut app, &json!({"ask":"hello"})).is_err());
+    assert_eq!(command(&mut app, &json!({"open":true})).unwrap()["chatgpt"], Value::Null);
 }
