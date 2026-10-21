@@ -2939,6 +2939,7 @@ mod tests {
     use super::*;
     use egui_kittest::kittest::Queryable;
 
+    /// Only a clean, path-less, empty document's window is reused.
     #[test]
     fn reusable_window_is_only_an_untouched_blank_one() {
         assert!(window_is_reusable(false, false, 1, 0));
@@ -2947,6 +2948,7 @@ mod tests {
         assert!(!window_is_reusable(false, false, 3, 12), "has text");
     }
 
+    /// New and Open with a path go to a new window unless this one is reusable.
     #[test]
     fn new_and_open_go_to_a_new_window_unless_the_window_is_reusable() {
         let open = json!({"path": "/tmp/a.docx"});
@@ -2960,6 +2962,7 @@ mod tests {
         assert_eq!(new_window_for("file.save", &open, false), None);
     }
 
+    /// A used window hands New/Open to a new window and keeps its own document.
     #[test]
     fn run_opens_a_new_window_for_a_used_document_and_keeps_it_intact() {
         use std::{cell::RefCell, rc::Rc};

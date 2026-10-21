@@ -20,6 +20,7 @@ pub fn child_args(target: &NewWindow) -> Vec<String> {
     }
 }
 
+/// `p` made absolute against the current directory, so the new process finds the same file.
 fn absolute(p: &Path) -> PathBuf {
     if p.is_absolute() { p.to_path_buf() } else { std::env::current_dir().map(|d| d.join(p)).unwrap_or_else(|_| p.to_path_buf()) }
 }
@@ -86,6 +87,7 @@ pub fn hook() -> Box<dyn Fn(NewWindow) -> Result<(), String>> {
 mod tests {
     use super::*;
 
+    /// Open passes an absolute path; New passes `--new` and the template.
     #[test]
     fn open_passes_an_absolute_path_and_new_passes_the_template() {
         assert_eq!(child_args(&NewWindow::Open("/tmp/a.docx".into())), vec!["/tmp/a.docx"]);
@@ -94,12 +96,14 @@ mod tests {
         assert!(Path::new(&rel[0]).is_absolute());
     }
 
+    /// Only an `X.app/Contents/MacOS/X` executable counts as a bundle.
     #[test]
     fn bundle_is_found_only_for_app_layout() {
         assert_eq!(bundle_of(Path::new("/Applications/WordCraft.app/Contents/MacOS/WordCraft")), Some(PathBuf::from("/Applications/WordCraft.app")));
         assert_eq!(bundle_of(Path::new("/x/target/release/wordcraft")), None);
     }
 
+    /// Outside a bundle the executable itself runs, with the file.
     #[test]
     fn unbundled_runs_the_executable_with_the_path() {
         let (prog, args) = command_for(Path::new("/x/wordcraft"), &NewWindow::Open("/tmp/a.docx".into()));
@@ -107,6 +111,7 @@ mod tests {
     }
 
     #[cfg(unix)]
+    /// `open`'s failing exit status becomes the error text.
     #[test]
     fn open_result_maps_the_exit_status() {
         use std::os::unix::process::ExitStatusExt;
@@ -116,6 +121,7 @@ mod tests {
     }
 
     #[cfg(target_os = "macos")]
+    /// In a macOS bundle the new window starts through `open -n … --args`.
     #[test]
     fn bundled_macos_uses_open_n_with_args() {
         let (prog, args) = command_for(Path::new("/Applications/WordCraft.app/Contents/MacOS/WordCraft"), &NewWindow::Open("/tmp/a.docx".into()));

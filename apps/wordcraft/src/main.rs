@@ -168,6 +168,7 @@ fn prefs_enabled() -> bool {
     std::env::var_os("WORDCRAFT_NO_PREFS").is_none()
 }
 
+/// Loads the saved preferences into `app` and remembers them as this window's starting point.
 fn load_prefs(app: &mut WordApp) {
     if !prefs_enabled() {
         return;
@@ -200,10 +201,12 @@ fn merge_prefs(base: Option<&serde_json::Value>, mine: serde_json::Value, disk: 
             let theirs = out.get(&key).and_then(Value::as_array).cloned().unwrap_or_default();
             let ours = value.as_array().cloned().unwrap_or_default();
             let loaded = base.and_then(|b| b.get(&key)).and_then(Value::as_array).cloned().unwrap_or_default();
-            // Files this window opened since loading come first, then the disk's list.
+            // Files this window opened since loading come first, then the disk's list, less what
+            // this window removed from it (Clear Recent, a file that failed to open).
             let mut list: Vec<Value> = ours.iter().filter(|v| !loaded.contains(v)).cloned().collect();
-            for v in theirs.into_iter().chain(ours) {
-                if !list.contains(&v) {
+            let removed: Vec<&Value> = loaded.iter().filter(|v| !ours.contains(v)).collect();
+            for v in theirs.into_iter().chain(ours.iter().cloned()) {
+                if !list.contains(&v) && !removed.contains(&&v) {
                     list.push(v);
                 }
             }
@@ -238,6 +241,7 @@ fn saved_window() -> Option<WindowGeometry> {
     UiState::from_json(&bytes)?.window?.sanitized()
 }
 
+/// Saves the preferences, merged with what other windows saved meanwhile ([`merge_prefs`]).
 fn save_prefs(app: &WordApp) {
     if !prefs_enabled() {
         return;
@@ -386,6 +390,7 @@ fn new_template_arg(args: &mut std::iter::Peekable<impl Iterator<Item = String>>
     args.next_if(|t| !t.starts_with('-')).unwrap_or_else(|| "blank".into())
 }
 
+/// Parses the command line and runs the WordCraft window.
 fn main() -> eframe::Result {
     // First, so the panic hook and every start-up warning are recorded (`logging`).
     let logger = logging::install();
@@ -634,6 +639,7 @@ mod tests {
 mod open_failure_tests {
     use super::*;
 
+    /// `--new` takes the next argument as its template, unless that is a flag.
     #[test]
     fn new_takes_a_template_but_not_a_following_flag() {
         let mut a = ["letter".to_string(), "x".into()].into_iter().peekable();
@@ -644,6 +650,7 @@ mod open_failure_tests {
         assert_eq!(new_template_arg(&mut std::iter::empty::<String>().peekable()), "blank");
     }
 
+    /// A start-up open failure reaches the status bar, in the interface's language.
     #[test]
     fn a_startup_open_failure_is_shown_in_the_status_bar() {
         let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
@@ -657,6 +664,7 @@ mod open_failure_tests {
         wordcraft_ui_egui::i18n::set_current(wordcraft_ui_egui::i18n::Lang::from_pref("en"));
     }
 
+    /// The failure message names the file and the error.
     #[test]
     fn open_failure_message_names_the_file_and_the_error() {
         assert_eq!(super::open_failure_message("a.docx", "no such file"), "Couldn't open a.docx: no such file");
@@ -668,6 +676,7 @@ mod prefs_tests {
     use super::{merge_prefs, write_prefs};
     use serde_json::json;
 
+    /// Two windows saving one after the other keep both windows' changes and both Recent files.
     #[test]
     fn two_windows_saving_keep_each_others_changes() {
         let loaded = json!({"recent": ["/old.docx"], "x": 1, "y": 1, "window": {"w": 1}});
@@ -680,6 +689,16 @@ mod prefs_tests {
         assert_eq!(saved, json!({"recent": ["/a.docx", "/b.docx", "/old.docx"], "x": 2, "y": 3, "window": {"w": 3}}));
     }
 
+    /// A Recent entry this window removed stays removed, while another window's new one is kept.
+    #[test]
+    fn a_recent_entry_removed_here_is_not_brought_back_from_disk() {
+        let loaded = json!({"recent": ["/old.docx", "/keep.docx"]});
+        let disk = json!({"recent": ["/b.docx", "/old.docx", "/keep.docx"]});
+        let mine = json!({"recent": ["/keep.docx"]});
+        assert_eq!(merge_prefs(Some(&loaded), mine, Some(disk)), json!({"recent": ["/b.docx", "/keep.docx"]}));
+    }
+
+    /// With no readable settings file, or a malformed one, the window writes its own preferences.
     #[test]
     fn without_a_readable_file_the_window_writes_its_own() {
         let mine = json!({"x": 1});
