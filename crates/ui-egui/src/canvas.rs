@@ -105,6 +105,10 @@ pub struct CanvasState {
     pub context_menu_from_keys: bool,
     /// Where the context menu stands: the right-click point, or below the caret.
     pub context_menu_at: Option<Pos2>,
+    /// The context menu's popup id: a mirrored interface moves it with the page ([`crate::mirror`]).
+    pub(crate) context_menu_id: Option<egui::Id>,
+    /// The canvas with its rulers this frame, when the document is on screen.
+    pub(crate) view_rect: Option<Rect>,
     /// Screen rect of the selection's first line, for the floating mini toolbar.
     pub mini_anchor: Option<Rect>,
     /// The selection the mini toolbar was put away for by a click outside the document (the
@@ -260,6 +264,8 @@ impl Default for CanvasState {
             context_menu_open: false,
             context_menu_from_keys: false,
             context_menu_at: None,
+            context_menu_id: None,
+            view_rect: None,
             mini_anchor: None,
             mini_dismissed: None,
             pasted: false,
@@ -902,6 +908,7 @@ fn drawing_grid_step(spacing: f32, scale: f32) -> f32 {
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     let full = ui.available_rect_before_wrap();
+    app.canvas.view_rect = Some(full);
     // During a resize keep the already laid-out pages ([`Settle`]); ordinary reading controls
     // and zoom update now.
     let mut reflow_anchor: Option<Pos> = None;
@@ -1558,7 +1565,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     &app.canvas.ime_preedit,
                     &app.canvas.ime_faces,
                     |c| (c as u32) < 0x250,
-                    |c| wordcraft_fonts::FontDb::global().fallback_for(c, u32::MAX),
+                    crate::theme::interface_fallback,
                 );
                 if !new.is_empty() {
                     app.canvas.ime_faces.extend(new);
@@ -1723,6 +1730,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     menu.show(|ui| context_menu(app, ui));
     // Stand down while the context menu owns the pointer so the two never double up; the open
     // state also covers the click that dismisses the menu.
+    app.canvas.context_menu_id = Some(egui::Popup::default_response_id(&resp));
     app.canvas.context_menu_open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp));
     if let Some(c) = crate::ink::cursor(app).filter(|_| resp.hovered() || app.canvas.ink.is_some()) {
         ui.ctx().set_cursor_icon(c);
@@ -2016,7 +2024,7 @@ fn card_shapes(painter: &egui::Painter, t: &Tokens, card: Rect, color: Color32, 
 }
 
 /// Does `text` hold right-to-left letters (Arabic, Hebrew, Syriac, Thaana, N'Ko …)?
-fn has_rtl(text: &str) -> bool {
+pub(crate) fn has_rtl(text: &str) -> bool {
     text.chars().any(|c| matches!(unicode_bidi::bidi_class(c), unicode_bidi::BidiClass::R | unicode_bidi::BidiClass::AL))
 }
 
@@ -2052,7 +2060,7 @@ fn visual_row(info: &unicode_bidi::BidiInfo, p: &unicode_bidi::ParagraphInfo, pa
 
 /// `c` as drawn in a right-to-left run: brackets face the other way (Unicode's Bidi_Mirrored
 /// pairs that interface text uses), since egui draws the character it is given.
-fn mirrored(c: char) -> char {
+pub(crate) fn mirrored(c: char) -> char {
     match c {
         '(' => ')',
         ')' => '(',

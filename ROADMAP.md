@@ -115,7 +115,8 @@ Weights and evidence per area: [docs/target-app-parity.md](docs/target-app-parit
 Also shipped: Traditional Chinese (`zh-hant`), Ukrainian (`uk`), Serbian (`sr`, `sr-latn`, #250), Russian (`ru`) and Polish (`pl`), all partial (~95%). Bulgarian (`bg`) covers everything the interface audit finds (2,419 entries); Swedish (`sv`) covers that too, plus 44 newer strings no other catalog has yet (2,504 entries). Estonian (`et`), Italian (`it`, #594) and Czech (`cs`) now have complete interface catalogs, and Turkish (`tr`) a complete 2,325-entry one (every key of the Russian catalog), all with
 system-locale selection and a saved language choice (Italian also has 51 strings none of the others had yet); Estonian, Turkish and Italian proofing are not included. Hungarian (`hu`) has a
 complete 2,419-entry catalog, also without proofing. Vietnamese (`vi`, #1434) has a complete
-2,448-entry catalog, also without proofing.
+2,448-entry catalog, also without proofing. Hebrew (`he`) has every key of every other catalog,
+with a mirrored right-to-left interface; Hebrew proofing is not included.
 Proofing: English, Polish, Portuguese and Russian (spelling, grammar, hyphenation), plus Czech and Indonesian (system Hunspell spelling, generic checks), chosen per run from its language. Word ships
 30 interface languages and proofing for ~50. Detail: [docs/localization-parity.md](docs/localization-parity.md).
 
@@ -469,6 +470,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-11 | Field codes like Word's field keys (#339): show codes (Alt+F9, Shift+F9), edit, unlink, lock and step through fields |
 | 2026-10-11 | Word's common keyboard shortcuts (#330): 101 → 125 of ~250 |
 | 2026-10-13 | Swedish (`sv`) interface: 2,504 catalog entries (every key of the reference catalog, the equation gallery, everything the interface audit finds, and 44 newer strings no catalog had yet, among them the native print settings), `sv-SE`/`sv-FI` system locales and a saved language choice; locale, catalog and bundled-font tests; AI-assisted, terminology and the running app reviewed by a native speaker; no Swedish proofing resources |
+| 2026-10-19 | Hebrew (`he`) interface: 2,674 catalog entries (every key of every other catalog), `he-IL` system locales and a saved language choice; Hebrew labels borrow an installed face (the embedded interface fonts have none) and are put in visual order as they are painted (egui has no bidi; the catalog stays in logical order); the whole interface is mirrored as it is painted (ribbon, menus, dialogs, panes), the document canvas excepted; no Hebrew proofing resources |
 | 2026-10-12 | Bulgarian (`bg`) interface: 2,419 catalog entries (every key of the reference catalog, the equation gallery and everything the interface audit finds), `bg-BG` system locales and a saved language choice; locale, catalog and bundled-font tests; no Bulgarian proofing resources |
 | 2026-10-13 | Croatian (`hr`) interface: 2,507 catalog entries (every key of the reference catalog, built-in style names and the equation gallery), `hr-*` system locales and a saved language choice; locale, catalog and bundled-font tests; no Croatian proofing yet |
 | 2026-10-11 | Hungarian (`hu`) interface: all 2,419 catalog entries, built-in style names translated, `hu-HU` system locales and a saved language choice; locale, catalog and bundled-font tests; no Hungarian proofing resources |
@@ -741,6 +743,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | 2026-10-11 | trivial | Word's common keyboard shortcuts (#330): 125 of ~250 |
 | 2026-10-11 | trivial | Collapsed duplicate rows left by parallel merges |
 | 2026-10-13 | trivial | Swedish interface (`sv`): progress log and shipped languages |
+| 2026-10-19 | trivial | Hebrew interface (`he`): progress log and shipped languages |
 | 2026-10-12 | trivial | Bulgarian interface (`bg`): progress log and shipped languages |
 | 2026-10-13 | trivial | Croatian interface (`hr`): progress log and shipped languages |
 | 2026-10-11 | trivial | Hungarian interface (`hu`): progress log and shipped languages |

@@ -26,7 +26,6 @@
 //! - [`fmt`]: fill `{name}` placeholders after a lookup; translators may reorder them.
 
 mod catalog;
-
 use std::cell::Cell;
 use std::sync::OnceLock;
 
@@ -52,7 +51,7 @@ pub struct LangInfo {
 }
 
 /// The registry. English first: it is the fallback and the source language.
-pub static LANGUAGES: [LangInfo; 23] = [
+pub static LANGUAGES: [LangInfo; 24] = [
     LangInfo { code: "en", name: "English", source: "", prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
     // Simplified Chinese; `zh`, `zh-CN`, `zh-SG` and `zh-Hans-*` resolve here (see `candidates`).
     LangInfo {
@@ -165,6 +164,11 @@ pub static LANGUAGES: [LangInfo; 23] = [
     LangInfo { code: "sv", name: "Svenska", source: include_str!("sv.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
     // Croatian; `hr`, `hr-HR` and `hr_HR.UTF-8` resolve here.
     LangInfo { code: "hr", name: "Hrvatski", source: include_str!("hr.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    // Hebrew; `he`, `he-IL` and `he_IL.UTF-8` resolve here. The interface fonts have no Hebrew
+    // letters: the app borrows an installed face for them (`WordApp::ensure_language_fonts`).
+    // Written right to left: the interface is mirrored and its text put in visual order as it is
+    // painted (`crate::mirror`); the catalog itself stays in logical order.
+    LangInfo { code: "he", name: "עברית", source: include_str!("he.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
 ];
 
 impl LangInfo {
@@ -176,6 +180,11 @@ impl LangInfo {
             }
             catalog
         })
+    }
+
+    /// Written right to left: the interface is mirrored (`crate::mirror`).
+    fn rtl(&self) -> bool {
+        self.code == "he"
     }
 }
 
@@ -208,6 +217,20 @@ impl Lang {
         self.0.name
     }
 
+    /// Written right to left (Hebrew): the interface is mirrored.
+    pub fn rtl(self) -> bool {
+        self.0.rtl()
+    }
+
+    /// Letters a font list entry shows after the name of a font that has them, as Word does for
+    /// the scripts it's set up to write: Hebrew in the Hebrew interface.
+    pub fn font_sample(self) -> Option<&'static str> {
+        match self.0.code {
+            "he" => Some("אבגד הוז"),
+            _ => None,
+        }
+    }
+
     pub fn prefers_hans(self) -> bool {
         self.0.prefer_hans
     }
@@ -238,6 +261,12 @@ impl Lang {
     pub fn cjk_font_text_for(hans: bool, korean: bool) -> (Vec<&'static str>, String) {
         let catalogs = Lang::all().filter(|l| l.uses_cjk() && l.prefers_hans() == hans && l.prefers_korean() == korean).map(|l| l.0.source).collect();
         (catalogs, Lang::all().map(Lang::name).collect::<Vec<_>>().join(" "))
+    }
+
+    /// The language's catalog as written (empty for English), for checking which characters the
+    /// interface fonts must draw.
+    pub fn catalog_text(self) -> &'static str {
+        self.0.source
     }
 
     /// A language by its exact code (any case).
@@ -428,7 +457,8 @@ pub fn builtin_style_name(name: &str) -> String {
     name.to_string()
 }
 
-/// A ribbon location (`Home › Font`) in the current language, segment by segment.
+/// A ribbon location (`Home › Font`) in the current language, segment by segment; right to left
+/// (`גופן ‹ בית`) in a right-to-left language.
 pub fn location(loc: &str) -> String {
     loc.split(" › ").map(t).collect::<Vec<_>>().join(" › ")
 }

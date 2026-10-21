@@ -62,6 +62,7 @@ pub mod ink;
 pub mod keys;
 pub mod keytips;
 pub mod mini_toolbar;
+pub mod mirror;
 pub mod objects;
 pub mod options;
 pub mod panes;
@@ -550,6 +551,11 @@ pub struct WordApp {
     /// The document (id, revision) whose comment text [`WordApp::ensure_comment_fonts`] last
     /// looked at.
     comment_fonts_for: Option<(u64, u64)>,
+    /// The interface language whose catalog [`WordApp::ensure_language_fonts`] last checked.
+    fonts_lang: Option<&'static str>,
+    /// The language names (File ▸ Options) are on screen, in their own scripts.
+    pub(crate) want_language_name_fonts: bool,
+    fonts_language_names: bool,
     fonts_frames: u32,
     /// The effective interface theme last installed in egui ([`theme::apply`]).
     applied_theme: Option<theme::Appearance>,
@@ -679,6 +685,9 @@ impl WordApp {
             fonts_system_cjk: false,
             want_system_cjk: false,
             comment_fonts_for: None,
+            fonts_lang: None,
+            want_language_name_fonts: false,
+            fonts_language_names: false,
             fonts_frames: 0,
             applied_theme: None,
             native_scale: 1.0,
@@ -1870,9 +1879,7 @@ impl WordApp {
         if stem.chars().any(wordcraft_fonts::is_cjk) {
             self.want_system_cjk = true;
         }
-        let new = theme::faces_for_preedit(&stem, &self.canvas.ime_faces, theme::caption_char_covered, |c| {
-            wordcraft_fonts::FontDb::global().fallback_for(c, u32::MAX)
-        });
+        let new = theme::faces_for_preedit(&stem, &self.canvas.ime_faces, theme::caption_char_covered, theme::interface_fallback);
         if !new.is_empty() {
             self.canvas.ime_faces.extend(new);
             // Fonts are already installed for this frame's language; load the new faces too.
@@ -1900,9 +1907,30 @@ impl WordApp {
             self.want_system_cjk = true;
         }
         let text: String = chars.into_iter().collect();
-        let new = theme::faces_for_preedit(&text, &self.canvas.ime_faces, theme::caption_char_covered, |c| {
-            wordcraft_fonts::FontDb::global().fallback_for(c, u32::MAX)
-        });
+        let new = theme::faces_for_preedit(&text, &self.canvas.ime_faces, theme::caption_char_covered, theme::interface_fallback);
+        if !new.is_empty() {
+            self.canvas.ime_faces.extend(new);
+            self.styled = false;
+        }
+    }
+
+    /// An interface language in a script the interface faces lack (Hebrew) would draw as boxes.
+    /// Borrow the document fonts' fallback faces for its catalog, as the caption does for a file
+    /// name, once per language; and for the language names when File ▸ Options lists them.
+    fn ensure_language_fonts(&mut self, lang: i18n::Lang) {
+        let mut text = String::new();
+        if self.fonts_lang != Some(lang.code()) {
+            self.fonts_lang = Some(lang.code());
+            text.push_str(lang.catalog_text());
+        }
+        if self.want_language_name_fonts && !self.fonts_language_names {
+            self.fonts_language_names = true;
+            text.extend(i18n::Lang::all().map(i18n::Lang::name));
+        }
+        if text.is_empty() {
+            return;
+        }
+        let new = theme::faces_for_preedit(&text, &self.canvas.ime_faces, theme::interface_char_covered, theme::interface_fallback);
         if !new.is_empty() {
             self.canvas.ime_faces.extend(new);
             self.styled = false;
@@ -1956,6 +1984,7 @@ impl WordApp {
         // in this frame (dialog, drop, control channel) is picked up again at the end.
         self.ensure_caption_fonts();
         self.ensure_comment_fonts();
+        self.ensure_language_fonts(lang);
         self.install_ui_fonts(ctx, lang);
         if let Some(answer) = self.desktop_theme.take_change() {
             self.desktop_dark = Some(answer);
@@ -2066,6 +2095,7 @@ impl WordApp {
         // The open above may have changed the file name the caption draws.
         self.ensure_caption_fonts();
         self.ensure_comment_fonts();
+        self.ensure_language_fonts(lang);
         self.install_ui_fonts(ctx, lang);
         self.report_dirty();
     }
@@ -2212,6 +2242,7 @@ impl WordApp {
         if !self.ui.backstage {
             backstage::forget_open_error(&ctx);
         }
+        self.canvas.view_rect = None;
         if self.ui.backstage {
             backstage::show(self, ui);
         } else if !self.has_document() {
@@ -2231,6 +2262,15 @@ impl WordApp {
                 canvas::show(self, ui);
             });
         }
+        // A right-to-left interface is mirrored as it is painted; the page and the popups placed
+        // from it move without flipping.
+        let anchored: Vec<egui::Id> = self
+            .canvas
+            .context_menu_id
+            .into_iter()
+            .chain(["wc_mini_toolbar", "content_control_popup", "ink_replay_bar"].map(egui::Id::new))
+            .collect();
+        mirror::configure(&ctx, i18n::current().rtl(), self.canvas.view_rect, &anchored);
         content_controls::popup(self, &ctx);
         dialogs::show(self, &ctx);
         #[cfg(not(target_arch = "wasm32"))]
