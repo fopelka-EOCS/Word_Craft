@@ -858,9 +858,39 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
                 gx += face.advance(gid) * k;
             }
         }
-        Draw::Image { rect, media, crop, alpha, .. } => {
+        Draw::Image { rect, media, crop, alpha, soft_edge, alt } => {
             let r = kurbo::Rect::new(rect.x as f64, rect.y as f64, rect.right() as f64, rect.bottom() as f64);
             if !r.overlaps(*visible) {
+                return;
+            }
+            if let Some(radius) = wordcraft_doc::effects::picture_soft_edge(*soft_edge).filter(|_| {
+                rect.x.is_finite()
+                    && rect.y.is_finite()
+                    && rect.right().is_finite()
+                    && rect.bottom().is_finite()
+                    && rect.w.is_finite()
+                    && rect.h.is_finite()
+                    && rect.w > 0.0
+                    && rect.h > 0.0
+            }) {
+                ctx.set_transform(view);
+                ctx.push_clip_layer(&r.to_path(0.1));
+                let plain = Draw::Image { rect: *rect, media: media.clone(), crop: *crop, alpha: *alpha, soft_edge: None, alt: alt.clone() };
+                draw(ctx, doc, &plain, view, visible, opts);
+                ctx.set_transform(view);
+                for horizontal in [true, false] {
+                    let size = if horizontal { rect.w } else { rect.h };
+                    let stops: Vec<peniko::ColorStop> = wordcraft_doc::effects::picture_soft_edge_stops(size, radius)
+                        .into_iter()
+                        .map(|(o, a)| peniko::ColorStop::from((o, color(Rgb::WHITE, a))))
+                        .collect();
+                    let end = if horizontal { (r.x1, r.y0) } else { (r.x0, r.y1) };
+                    ctx.push_blend_layer(peniko::BlendMode { mix: peniko::Mix::Normal, compose: peniko::Compose::DestIn });
+                    ctx.set_paint(peniko::Gradient::new_linear((r.x0, r.y0), end).with_stops(stops.as_slice()));
+                    ctx.fill_rect(&r);
+                    ctx.pop_layer();
+                }
+                ctx.pop_layer();
                 return;
             }
             if let Some(v) = vector_for(doc, media) {
@@ -1188,6 +1218,141 @@ pub fn render_items(doc: &Document, items: &[Draw], x: f32, y: f32, w: f32, h: f
 mod tests {
     use super::*;
     use wordcraft_layout::{LayoutCache, LayoutOptions, layout};
+
+    #[test]
+    fn picture_soft_edges_mask_shared_media_after_crop_and_preserve_alpha() {
+        use wordcraft_geom::Rect;
+        let mut d = Document::new();
+        let mut png = Vec::new();
+        image::RgbaImage::from_pixel(12, 8, image::Rgba([180, 30, 20, 128]))
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        let original = png.clone();
+        let media = d.add_media(png, "png");
+        let draw = |radius, alpha| Draw::Image {
+            rect: Rect::new(0.0, 0.0, 144.0, 96.0),
+            media: media.clone(),
+            crop: [0.25, 0.125, 0.125, 0.0],
+            soft_edge: radius,
+            alpha,
+            alt: String::new(),
+        };
+        let render = |radius, alpha, scale| render_items(&d, &[draw(radius, alpha)], 0.0, 0.0, 144.0, 96.0, scale, &RenderOptions::default());
+        for scale in [1.0, 2.0, 4.0] {
+            let plain = render(None, 1.0, scale);
+            assert_eq!(plain.pixels, render(Some(0.0), 1.0, scale).pixels);
+            let six = render(Some(6.0), 1.0, scale);
+            let wide = render(Some(25.0), 1.0, scale);
+            let x = (6.0 * scale) as u32;
+            let y = (48.0 * scale) as u32;
+            assert!(six.pixel(x, y)[3] < plain.pixel(x, y)[3]);
+            assert!(wide.pixel(x, y)[3] < six.pixel(x, y)[3], "radii cannot alias the shared media cache");
+            assert!((i16::from(six.pixel((72.0 * scale) as u32, y)[3]) - 128).abs() <= 2);
+            let faded = render(Some(6.0), 0.5, scale);
+            assert!((i16::from(faded.pixel((72.0 * scale) as u32, y)[3]) - 64).abs() <= 2);
+            assert_eq!(six.pixel((72.0 * scale) as u32, y)[0], 179, "straight fill color remains unchanged");
+        }
+        assert_eq!(d.media[&media].as_slice(), original.as_slice());
+    }
+
+    #[test]
+    fn picture_soft_edges_preserve_opaque_paper_and_shapes_behind_them() {
+        use wordcraft_geom::Rect;
+        let mut d = Document::new();
+        let mut png = Vec::new();
+        image::RgbaImage::from_pixel(2, 2, image::Rgba([180, 30, 20, 255]))
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        let media = d.add_media(png, "png");
+        for shape_behind in [false, true] {
+            let mut backdrop = vec![Draw::Fill { rect: Rect::new(0.0, 0.0, 176.0, 128.0), color: Rgb::WHITE, alpha: 1.0, text_bg: false }];
+            if shape_behind {
+                backdrop.push(Draw::Shape {
+                    rect: Rect::new(0.0, 0.0, 100.0, 128.0),
+                    kind: ShapeKind::Ellipse,
+                    fill: Some(Rgb(20, 100, 220)),
+                    stroke: None,
+                    stroke_width: 0.0,
+                    effects: Default::default(),
+                    corner: None,
+                    dash: Vec::new(),
+                });
+            }
+            for scale in [1.0, 2.0] {
+                let render = |items: &[Draw]| render_items(&d, items, 0.0, 0.0, 176.0, 128.0, scale, &RenderOptions::default());
+                let background = render(&backdrop);
+                for radius in [None, Some(0.0), Some(6.0), Some(25.0)] {
+                    for alpha in [1.0, 0.5] {
+                        let picture = Draw::Image {
+                            rect: Rect::new(16.0, 16.0, 144.0, 96.0),
+                            media: media.clone(),
+                            crop: [0.0; 4],
+                            soft_edge: radius,
+                            alpha,
+                            alt: String::new(),
+                        };
+                        let isolated = render(std::slice::from_ref(&picture));
+                        let mut scene = backdrop.clone();
+                        scene.push(picture);
+                        let composed = render(&scene);
+                        assert!(
+                            composed.pixels.as_chunks::<4>().0.iter().all(|p| p[3] == 255),
+                            "opaque backdrop lost: shape={shape_behind}, scale={scale}, radius={radius:?}, alpha={alpha}"
+                        );
+                        // Source-over must preserve both the paper and the shape under the
+                        // feather, including the picture's own opacity. Sample both side edges
+                        // and the centre, away from the ellipse's antialiased boundary.
+                        for x in [17.0, 22.0, 41.0, 88.0, 153.0, 158.0] {
+                            let (x, y) = ((x * scale) as u32, (64.0 * scale) as u32);
+                            let foreground = isolated.pixel(x, y);
+                            let behind = background.pixel(x, y);
+                            let actual = composed.pixel(x, y);
+                            let a = u32::from(foreground[3]);
+                            for channel in 0..3 {
+                                let expected = (u32::from(foreground[channel]) * a + u32::from(behind[channel]) * (255 - a) + 127) / 255;
+                                assert!(
+                                    (i32::from(actual[channel]) - expected as i32).abs() <= 3,
+                                    "backdrop colour changed: shape={shape_behind}, scale={scale}, radius={radius:?}, alpha={alpha}, at=({x},{y}), actual={actual:?}, foreground={foreground:?}, behind={behind:?}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn picture_feather_matches_observed_reference_alpha_with_bounded_tolerance() {
+        use wordcraft_geom::Rect;
+        let mut d = Document::new();
+        let mut png = Vec::new();
+        image::RgbaImage::from_pixel(2, 2, image::Rgba([100, 50, 30, 255]))
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        let media = d.add_media(png, "png");
+        // Independent center-row observations, Word for Mac 16.114 (26101123), local print
+        // PDF of original 144 x 96 pt pictures. This checks a bounded approximation, not a
+        // golden image generated by our renderer. Allow 24/255 alpha for sampling/blur differences.
+        for (radius, samples) in [
+            (6.0, vec![(1.08, 3), (2.99, 26), (5.86, 146), (7.77, 222), (9.69, 250)]),
+            (25.0, vec![(4.90, 5), (9.69, 19), (14.47, 49), (24.04, 156), (36.0, 244)]),
+        ] {
+            let item = Draw::Image {
+                rect: Rect::new(0.0, 0.0, 144.0, 96.0),
+                media: media.clone(),
+                crop: [0.0; 4],
+                soft_edge: Some(radius),
+                alpha: 1.0,
+                alt: String::new(),
+            };
+            let rendered = render_items(&d, &[item], 0.0, 0.0, 144.0, 96.0, 8.0, &RenderOptions::default());
+            for (distance, expected) in samples {
+                let actual = i16::from(rendered.pixel((distance * 8.0) as u32, 384)[3]);
+                assert!((actual - expected).abs() <= 24, "{radius}pt, {distance}pt: {actual} vs {expected}");
+            }
+        }
+    }
 
     /// The first and last pixel rows with ink in a black-on-white [`render_text_line`] raster.
     fn ink_rows(img: &Rendered) -> Option<(usize, usize)> {
@@ -1523,6 +1688,7 @@ mod tests {
             float: Default::default(),
             crop: [0.0; 4],
             ole: None,
+            soft_edge: None,
         };
         hp.insert_object(0, obj, &Default::default()).unwrap();
         let id = d.add_part(wordcraft_doc::PartKind::Header, vec![wordcraft_doc::para_block(hp)]);
@@ -1789,6 +1955,7 @@ mod tests {
             float: Default::default(),
             crop: [0.0; 4],
             ole: None,
+            soft_edge: None,
         };
         p.insert_object(0, obj, &Default::default()).unwrap();
         d.body = vec![wordcraft_doc::para_block(p)];
@@ -1825,6 +1992,7 @@ mod tests {
             float: Default::default(),
             crop: [0.0; 4],
             ole: None,
+            soft_edge: None,
         };
         p.insert_object(0, obj, &Default::default()).unwrap();
         d.body = vec![wordcraft_doc::para_block(p)];
@@ -1859,6 +2027,7 @@ mod tests {
             float: Default::default(),
             crop: [0.0; 4],
             ole: None,
+            soft_edge: None,
         };
         p.insert_object(0, obj, &Default::default()).unwrap();
         d.body = vec![wordcraft_doc::para_block(p)];
