@@ -308,6 +308,11 @@ fn text_args() -> (Vec<String>, Vec<std::path::PathBuf>) {
     (args, files)
 }
 
+/// The status-bar text for a command-line file that failed to open.
+fn open_failure_message(path: &str, error: &str) -> String {
+    wordcraft_ui_egui::i18n::fmt(wordcraft_ui_egui::tl!("Couldn't open {path}: {error}"), &[("path", path), ("error", error)])
+}
+
 /// Open a file whose name isn't valid Unicode (#1440). `file.open` takes its path as text, so it
 /// gets the file's bytes under the lossy name, and the document then keeps the real path to save to.
 /// The bytes are read as `file.open` reads a path: only a regular file, and at most 2 GB.
@@ -485,6 +490,8 @@ fn main() -> eframe::Result {
             for f in files {
                 if let Err(e) = app.run("file.open", serde_json::json!({"path": f})) {
                     log::warn!("{f}: {e}");
+                    // Otherwise a window launched with a file it can't open is just blank.
+                    app.status(open_failure_message(&f, &e.to_string()));
                 }
             }
             for f in other_files {
@@ -576,6 +583,14 @@ mod tests {
             assert!(app.session.doc.plain_text(wordcraft_doc::StoryRef::Body).contains("kept"), "{p:?}");
         }
         let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+#[cfg(test)]
+mod open_failure_tests {
+    #[test]
+    fn open_failure_message_names_the_file_and_the_error() {
+        assert_eq!(super::open_failure_message("a.docx", "no such file"), "Couldn't open a.docx: no such file");
     }
 }
 
