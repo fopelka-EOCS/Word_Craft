@@ -771,6 +771,14 @@ fn find_next_keeps_the_scope_of_the_last_search() {
     assert_eq!(r["count"], 2, "the stored scope covers the note too: {r}");
     assert_eq!(s.sel.focus.story, StoryRef::Part(1), "the next scope match wraps into the note");
 
+    // Occurrence numbers count in document order, the way Find reports matches: behind the
+    // caret the body's own match comes first, the note's own second, wherever the caret sat.
+    run(&mut s, "select.text", json!({"text": "needle"}));
+    assert_eq!(s.sel.focus.story, StoryRef::Body, "occurrence 1 is the body match in document order");
+    run(&mut s, "caret.set", json!({"pos": {"story": {"part": 1}, "path": [0], "off": 5}}));
+    run(&mut s, "select.text", json!({"text": "needle", "occurrence": 2}));
+    assert_eq!(s.sel.focus.story, StoryRef::Part(1), "occurrence 2 is the note's own match");
+
     // Replace replaces in its own story and only steps there, so pressing it past the note's
     // last match cannot drift into the body just because Find last searched a wider scope.
     run(&mut s, "select.text", json!({"text": "needle", "story": {"part": 1}}));

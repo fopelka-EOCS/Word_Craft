@@ -419,32 +419,28 @@ fn drag_unit(s: &mut Session, v: &Value) -> CmdResult {
     sel_result(s)
 }
 
-/// Select the n-th occurrence of `text` (agents: "select the word X"). Without a `story`
-/// selector the search starts in the caret's story and falls through to the main text: from a
-/// footnote the body is covered the way Word's Find reaches it (#3270); `story` searches only
-/// that story.
+/// Select the n-th occurrence of `text` (agents: "select the word X") in the searched stories'
+/// document order — the order `edit.find` reports with no `story` selector (#3270), so an
+/// occurrence number is the same on either side. A `story` parameter searches only that story.
 fn select_text(s: &mut Session, v: &Value) -> CmdResult {
     let needle = p::req_str(v, "text")?;
     let n = p::u64(v, "occurrence").unwrap_or(1).max(1) as usize;
     if needle.is_empty() {
         return Err(CmdError::Params("`text` is empty".into()));
     }
-    let mut count = 0;
-    let stories = crate::cmd::edit::reach_stories(s, v);
-    for story in stories {
+    let mut matches = Vec::new();
+    for story in crate::cmd::edit::reach_stories(s, v) {
         for path in s.doc.para_paths(story) {
             let Some(p) = s.doc.para(story, &path) else { continue };
             for (i, _) in p.text.match_indices(needle) {
-                count += 1;
-                if count == n {
-                    s.sel = Selection {
-                        anchor: Pos { story, path: path.clone(), off: i },
-                        focus: Pos { story, path: path.clone(), off: i + needle.len() },
-                    };
-                    return sel_result(s);
-                }
+                matches.push((Pos { story, path: path.clone(), off: i }, Pos { story, path: path.clone(), off: i + needle.len() }));
             }
         }
     }
-    Err(CmdError::Failed(format!("`{needle}` not found")))
+    matches.sort();
+    let Some((anchor, focus)) = matches.into_iter().nth(n - 1) else {
+        return Err(CmdError::Failed(format!("`{needle}` not found")));
+    };
+    s.sel = Selection { anchor, focus };
+    sel_result(s)
 }
