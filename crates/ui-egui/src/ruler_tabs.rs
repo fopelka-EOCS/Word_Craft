@@ -125,6 +125,8 @@ pub(crate) fn selector(app: &mut WordApp, ui: &Ui, corner: Rect) {
         app.canvas.tab_kind = next_kind(app.canvas.tab_kind, true);
     }
     let kind = app.canvas.tab_kind;
+    let tip = format!("{}: {}", tl!("Tabs"), tl!(kind_label(kind)));
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &tip));
     let p = ui.painter_at(corner);
     let b = Rect::from_center_size(corner.center(), vec2(14.0, 14.0));
     p.rect(b, 2.0, if r.hovered() { t.hover } else { t.ruler }, Stroke::new(1.0, t.text_dim), egui::StrokeKind::Inside);
@@ -135,7 +137,7 @@ pub(crate) fn selector(app: &mut WordApp, ui: &Ui, corner: Rect) {
         _ => 0.0,
     };
     draw_tab_glyph(&p, b.center().x + nudge, b.max.y - 4.0, kind, false, Stroke::new(1.5, t.text));
-    r.on_hover_text(format!("{}: {}", tl!("Tabs"), tl!(kind_label(kind))));
+    r.on_hover_text(tip);
 }
 
 /// Where the stops' glyphs sit on the ruler `bar`, for its numbers to keep clear of (#1878):

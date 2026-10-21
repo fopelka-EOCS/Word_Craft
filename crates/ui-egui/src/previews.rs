@@ -581,6 +581,12 @@ pub fn style_gallery(app: &mut WordApp, ui: &mut Ui, state: &Value) {
     for (i, (icon, delta)) in [("chevronUp", -1i32), ("chevronDown", 1), ("more", 0)].iter().enumerate() {
         let br = Rect::from_min_size(pos2(ar.min.x, ar.min.y + thirds * i as f32), vec2(ar.width(), thirds));
         let resp = ui.interact(br, ui.id().with(("gal_arrow", i)), Sense::click());
+        let label = match *icon {
+            "chevronUp" => format!("{}: {}", tl!("Styles"), tl!("Previous")),
+            "chevronDown" => format!("{}: {}", tl!("Styles"), tl!("Next")),
+            _ => crate::i18n::fmt(tl!("{name} options"), &[("name", tl!("Styles"))]),
+        };
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &label));
         if resp.hovered() {
             ui.painter().rect_filled(br, 2.0, t.hover);
         }

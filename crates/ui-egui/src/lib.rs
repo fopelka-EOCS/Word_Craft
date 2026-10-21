@@ -5382,6 +5382,55 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// #3477: every keyboard-focusable control on the Home tab, Quick Access Toolbar,
+    /// title bar, style gallery, status bar, and ruler tab selector exposes its accessible
+    /// name to assistive technology.
+    #[test]
+    fn home_tab_and_chrome_controls_name_themselves_for_a_screen_reader() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::Queryable;
+        let mut a = app();
+        a.run("file.new", json!({"template": "sample"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        for (role, name) in [
+            (Role::CheckBox, "AutoSave"),
+            (Role::Button, "Save"),
+            (Role::Button, "Undo"),
+            (Role::Button, "Redo"),
+            (Role::Button, "Customize Quick Access Toolbar"),
+            (Role::TextInput, "Search"),
+            (Role::Button, "Clipboard settings"),
+            (Role::TextInput, "Font"),
+            (Role::TextInput, "Font Size"),
+            (Role::Button, "Font options"),
+            (Role::Button, "Font Size options"),
+            (Role::Button, "Font settings"),
+            (Role::Button, "Paragraph settings"),
+            (Role::Button, "Styles: Previous"),
+            (Role::Button, "Styles: Next"),
+            (Role::Button, "Styles options"),
+            (Role::Button, "Styles settings"),
+            (Role::Button, "Dictate"),
+            (Role::Button, "Editor"),
+            (Role::Button, "Zoom In"),
+            (Role::Slider, "Zoom"),
+            (Role::Button, "Zoom Out"),
+            (Role::Button, "Tabs: Left"),
+        ] {
+            assert!(h.query_by_role_and_label(role, name).is_some(), "nothing on the interface is called {name:?}");
+        }
+    }
+
     /// #1015: focusing Save is not enough: its dialog must expose the question and any failed
     /// save's explanation, so assistive technology has context for the three choices.
     #[test]
@@ -5800,10 +5849,10 @@ mod tests {
         type_after_click(&mut h, "empty ribbon space", " blank");
 
         // The status bar's view buttons.
-        h.get_by_role_and_label(Role::Button, "Web Layout").click();
+        h.get_all_by_role_and_label(Role::Button, "Web Layout").last().unwrap().click();
         type_after_click(&mut h, "Web Layout", " web");
         assert_eq!(h.state().session.view.mode, wordcraft_layout::ViewMode::Web);
-        h.get_by_role_and_label(Role::Button, "Print Layout").click();
+        h.get_all_by_role_and_label(Role::Button, "Print Layout").last().unwrap().click();
         type_after_click(&mut h, "Print Layout", " print");
         assert_eq!(h.state().session.view.mode, wordcraft_layout::ViewMode::Print);
 
@@ -8229,7 +8278,7 @@ mod tests {
         }
         let shown = |h: &egui_kittest::Harness<WordApp>, label| h.query_by_label(label).is_some();
         assert!(shown(&h, "Ruler"), "the View tab is showing");
-        h.get_by_role_and_label(egui::accesskit::Role::Button, "Focus").click();
+        h.get_all_by_role_and_label(egui::accesskit::Role::Button, "Focus").last().unwrap().click();
         h.step();
         h.step();
         assert!(h.state().session.view.focus_mode);
