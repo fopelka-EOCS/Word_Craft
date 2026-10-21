@@ -882,6 +882,63 @@ fn gridline_cells(page: &Page) -> impl Iterator<Item = wordcraft_geom::Rect> + '
     })
 }
 
+/// How far apart (points) a cell edge and a border can be and still be one line.
+const GRIDLINE_SNAP: f32 = 0.05;
+
+/// The lines Table Layout › View Gridlines draws on a page, in document points: the edges of
+/// [`gridline_cells`], less the stretches a border is drawn along, so only an edge without a
+/// border shows a gridline, as in Word (#3432). Whose border it is (the cell's, its
+/// neighbour's, the table's or its style's) doesn't matter: the edge shows a line already.
+fn gridline_segments(page: &Page) -> Vec<[wordcraft_geom::Point; 2]> {
+    // The borders as (line, from, to): the horizontal ones by y, the vertical ones by x.
+    let (mut across, mut down) = (Vec::new(), Vec::new());
+    for it in page.items.iter().chain(&page.header).chain(&page.footer) {
+        if let Placed::Rule { x0, y0, x1, y1, .. } = *it {
+            if (y0 - y1).abs() < GRIDLINE_SNAP {
+                across.push((y0, x0.min(x1), x0.max(x1)));
+            } else if (x0 - x1).abs() < GRIDLINE_SNAP {
+                down.push((x0, y0.min(y1), y0.max(y1)));
+            }
+        }
+    }
+    across.sort_by(|a, b| a.0.total_cmp(&b.0));
+    down.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let p = wordcraft_geom::Point::new;
+    let mut out = Vec::new();
+    for r in gridline_cells(page) {
+        for y in [r.y, r.bottom()] {
+            out.extend(uncovered(&across, y, r.x, r.right()).map(|(a, b)| [p(a, y), p(b, y)]));
+        }
+        for x in [r.x, r.right()] {
+            out.extend(uncovered(&down, x, r.y, r.bottom()).map(|(a, b)| [p(x, a), p(x, b)]));
+        }
+    }
+    out
+}
+
+/// The stretches of `from..to` on the line at `at` that none of `rules` (as in
+/// [`gridline_segments`], sorted by line) covers.
+fn uncovered(rules: &[(f32, f32, f32)], at: f32, from: f32, to: f32) -> impl Iterator<Item = (f32, f32)> {
+    let first = rules.partition_point(|r| r.0 < at - GRIDLINE_SNAP);
+    let mut cover: Vec<(f32, f32)> = rules.iter().skip(first).take_while(|r| r.0 <= at + GRIDLINE_SNAP).map(|r| (r.1, r.2)).collect();
+    cover.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut out = Vec::new();
+    let mut x = from;
+    for (a, b) in cover {
+        if a > x + GRIDLINE_SNAP {
+            out.push((x, a.min(to)));
+        }
+        x = x.max(b);
+        if x >= to {
+            break;
+        }
+    }
+    if to > x + GRIDLINE_SNAP {
+        out.push((x, to));
+    }
+    out.into_iter()
+}
+
 /// The drawing grid's spacing in points at a screen scale: the document's spacing (`w:drawingGrid*Spacing`;
 /// ECMA-376's 1/8 inch when it doesn't say), doubled until the lines are at least
 /// [`DRAWING_GRID_MIN_PX`] apart on screen.
@@ -1368,12 +1425,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             }
             // Table Layout › View Gridlines: table cell outlines (on screen only).
             if app.session.view.table_gridlines {
-                for rect in gridline_cells(page) {
-                    let r = Rect::from_min_size(
-                        pos2(visual_sr.min.x + rect.x * page_scale, visual_sr.min.y + rect.y * page_scale),
-                        vec2(rect.w * page_scale, rect.h * page_scale),
-                    );
-                    painter.rect_stroke(r, 0.0, Stroke::new(0.5, t.blue.linear_multiply(0.6)), egui::StrokeKind::Middle);
+                let at = |p: wordcraft_geom::Point| pos2(visual_sr.min.x + p.x * page_scale, visual_sr.min.y + p.y * page_scale);
+                for [a, b] in gridline_segments(page) {
+                    painter.line_segment([at(a), at(b)], Stroke::new(0.5, t.blue.linear_multiply(0.6)));
                 }
             }
         }
@@ -5353,6 +5407,51 @@ mod tests {
         };
         let ys: Vec<f32> = gridline_cells(&page).map(|r| r.y).collect();
         assert_eq!(ys, [100.0, 10.0, 200.0]);
+    }
+
+    /// #3432: gridlines only where a cell edge has no border, whichever cell's border it is.
+    #[test]
+    fn table_gridlines_skip_edges_with_borders() {
+        let cell = |x: f32| Placed::Cell {
+            rect: wordcraft_geom::Rect::new(x, 0.0, 10.0, 10.0),
+            covered: false,
+            table: Default::default(),
+            row: 0,
+            cell: 0,
+            story: StoryRef::Body,
+            clip: false,
+        };
+        let rule = |x0: f32, y0: f32, x1: f32, y1: f32| Placed::Rule { x0, y0, x1, y1, border: wordcraft_doc::props::Border::single(0.5) };
+        let lines = |items: Vec<Placed>| -> Vec<[(f32, f32); 2]> {
+            let page = Page { items, ..Default::default() };
+            gridline_segments(&page).iter().map(|[a, b]| [(a.x, a.y), (b.x, b.y)]).collect()
+        };
+        // No borders: all four edges of each cell.
+        assert_eq!(lines(vec![cell(0.0), cell(10.0)]).len(), 8);
+        // The left cell's right border is the right cell's left edge too; a top border over half
+        // the left cell leaves the other half.
+        let got = lines(vec![cell(0.0), cell(10.0), rule(10.0, 0.0, 10.0, 10.0), rule(-0.25, 0.0, 5.0, 0.0)]);
+        assert!(!got.iter().any(|[a, b]| a.0 == 10.0 && b.0 == 10.0), "{got:?}");
+        assert!(got.contains(&[(5.0, 0.0), (10.0, 0.0)]), "{got:?}");
+        assert_eq!(got.len(), 6, "{got:?}");
+        // A border on every edge: no gridlines at all.
+        let boxed = vec![cell(0.0), rule(0.0, 0.0, 10.0, 0.0), rule(0.0, 10.0, 10.0, 10.0), rule(0.0, 0.0, 0.0, 10.0), rule(10.0, 0.0, 10.0, 10.0)];
+        assert!(lines(boxed).is_empty());
+    }
+
+    /// #3432 through the real layout: a new table has borders and no gridlines; without its
+    /// borders, every cell edge has one.
+    #[test]
+    fn table_gridlines_follow_the_table_borders() {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("insert.table", json!({"rows": 2, "cols": 2})).unwrap();
+        let segments = |a: &mut WordApp| gridline_segments(&a.session.layout().pages[0]).len();
+        assert_eq!(segments(&mut a), 0);
+        a.run("select.all", json!({})).unwrap();
+        a.run("table.borders", json!({"kind": "none"})).unwrap();
+        assert_eq!(segments(&mut a), 16);
+        a.run("table.borders", json!({"kind": "outside"})).unwrap();
+        assert_eq!(segments(&mut a), 8, "the inside edges only");
     }
 
     #[test]
