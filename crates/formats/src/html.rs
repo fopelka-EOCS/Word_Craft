@@ -1659,14 +1659,14 @@ fn blocks_html(blocks: &[FBlock], out: &mut String, depth: usize) {
             }
             FBlock::Para(p) if p.list.is_some() => {
                 // Nested lists from consecutive list paragraphs.
-                let mut stack: Vec<(bool, bool)> = Vec::new(); // (ordered, li open)
+                let mut stack: Vec<(bool, bool, u32)> = Vec::new(); // (ordered, li open, start)
                 while let Some(FBlock::Para(q)) = blocks.get(i) {
                     let Some(li) = q.list else { break };
                     let lv = li.level.min(8) as usize;
                     while stack.len() > lv + 1 {
                         close_list(&mut stack, out);
                     }
-                    if stack.len() == lv + 1 && stack.last().is_some_and(|s| s.0 != li.ordered) {
+                    if stack.len() == lv + 1 && stack.last().is_some_and(|s| s.0 != li.ordered || (li.ordered && s.2 != li.start)) {
                         close_list(&mut stack, out);
                     }
                     while stack.len() < lv + 1 {
@@ -1676,8 +1676,16 @@ fn blocks_html(blocks: &[FBlock], out: &mut String, depth: usize) {
                             out.push_str("<li>");
                             top.1 = true;
                         }
-                        out.push_str(if li.ordered { "<ol>" } else { "<ul>" });
-                        stack.push((li.ordered, false));
+                        if li.ordered {
+                            if li.start != 1 {
+                                out.push_str(&format!("<ol start=\"{}\">", li.start));
+                            } else {
+                                out.push_str("<ol>");
+                            }
+                        } else {
+                            out.push_str("<ul>");
+                        }
+                        stack.push((li.ordered, false, li.start));
                     }
                     if let Some(top) = stack.last_mut() {
                         if top.1 {
@@ -1732,8 +1740,8 @@ fn blocks_html(blocks: &[FBlock], out: &mut String, depth: usize) {
     }
 }
 
-fn close_list(stack: &mut Vec<(bool, bool)>, out: &mut String) {
-    if let Some((ordered, li_open)) = stack.pop() {
+fn close_list(stack: &mut Vec<(bool, bool, u32)>, out: &mut String) {
+    if let Some((ordered, li_open, _)) = stack.pop() {
         if li_open {
             out.push_str("</li>");
         }
@@ -2045,5 +2053,54 @@ mod tests {
         assert!(!html.contains("<p> lead"), "{html}");
         let back = import(&html);
         assert_eq!(back.plain_text(Default::default()).replace('\u{a0}', " "), " lead");
+    }
+
+    /// #3492: HTML export preserves ordered-list start numbers.
+    #[test]
+    fn html_export_preserves_ordered_list_start_numbers() {
+        let mut flow = Flow::default();
+        let p1 = Para {
+            list: Some(ListInfo { ordered: true, level: 0, start: 5 }),
+            inlines: vec![Inline::Text("five".into(), Fmt::default())],
+            ..Default::default()
+        };
+        let p2 = Para {
+            list: Some(ListInfo { ordered: true, level: 0, start: 5 }),
+            inlines: vec![Inline::Text("six".into(), Fmt::default())],
+            ..Default::default()
+        };
+        flow.blocks.push(FBlock::Para(p1));
+        flow.blocks.push(FBlock::Para(p2));
+
+        let html = export_flow(&flow, "en");
+        assert!(html.contains("<ol start=\"5\">"), "expected <ol start=\"5\"> in:\n{html}");
+        assert!(html.contains("<li>five"), "expected <li>five in:\n{html}");
+        assert!(html.contains("<li>six"), "expected <li>six in:\n{html}");
+
+        // Adjacent list starting at 1
+        let mut flow2 = Flow::default();
+        let p3 = Para {
+            list: Some(ListInfo { ordered: true, level: 0, start: 1 }),
+            inlines: vec![Inline::Text("one".into(), Fmt::default())],
+            ..Default::default()
+        };
+        flow2.blocks.push(FBlock::Para(p3));
+        let html2 = export_flow(&flow2, "en");
+        assert!(html2.contains("<ol>"), "expected default <ol> in:\n{html2}");
+        assert!(!html2.contains("start="), "default start 1 should not write start attribute:\n{html2}");
+
+        // Document with start_overrides on a numbering instance
+        let mut doc = Document::from_text("first item\nsecond item");
+        let list_id = doc.numbering.add_list(wordcraft_doc::numbering::ListKind::Numbered);
+        if let Some(num) = doc.numbering.nums.iter_mut().find(|x| x.id == list_id) {
+            num.start_overrides = vec![(0, 7)];
+        }
+        for path in doc.para_paths(wordcraft_doc::StoryRef::Body) {
+            if let Ok(p) = doc.para_mut(wordcraft_doc::StoryRef::Body, &path) {
+                p.props.numbering = Some(wordcraft_doc::props::NumRef { num: list_id, level: 0 });
+            }
+        }
+        let html3 = export(&doc);
+        assert!(html3.contains("<ol start=\"7\">"), "expected start_overrides to export <ol start=\"7\"> in:\n{html3}");
     }
 }

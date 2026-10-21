@@ -865,7 +865,9 @@ fn props_kind(doc: &Document, props: &ParaProps, blank: bool) -> (Kind, Option<L
     };
     let list = rp.numbering.and_then(|n| {
         let lv = doc.numbering.level(n.num, n.level)?;
-        Some(ListInfo { ordered: !matches!(lv.format, NumFormat::Bullet | NumFormat::None), level: n.level.min(8), start: lv.start })
+        let start =
+            doc.numbering.num(n.num).and_then(|num| num.start_overrides.iter().find(|(l, _)| *l == n.level).map(|(_, s)| *s)).unwrap_or(lv.start);
+        Some(ListInfo { ordered: !matches!(lv.format, NumFormat::Bullet | NumFormat::None), level: n.level.min(8), start })
     });
     (kind, list)
 }
