@@ -2289,3 +2289,7 @@
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	可用任何單位輸入大小，例如 5 cm 或 300 px。另一邊隨之調整，圖片保持原有比例。
 
 	Import…	匯入…
+# Update Table of Contents dialog (#1197)
+	Update Table of Contents	更新目錄
+	Update page numbers only	只更新頁碼
+	Update entire table	更新整個目錄

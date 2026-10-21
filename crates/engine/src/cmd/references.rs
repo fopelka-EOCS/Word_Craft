@@ -15,10 +15,11 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("references.toc", "Table of Contents", "References › Table of Contents", insert_toc).params(
             r#"{"levels"?: 1-9, "title"?: string, "pageNumbers"?: bool, "rightAlign"?: bool, "tabLeader"?: "dot|hyphen|underscore|none", "hyperlinks"?: bool, "headingStyles"?: bool, "outlineLevels"?: bool, "tcFields"?: bool, "styleLevels"?: {style name: 1-9}} (replaces an existing table; {} updates it)"#,
         ),
-        CommandSpec::new("references.updateToc", "Update Table", "References › Table of Contents", |s, _| {
-            update_toc(s)?;
+        CommandSpec::new("references.updateToc", "Update Table", "References › Table of Contents", |s, v| {
+            if p::bool(v, "pageNumbersOnly").unwrap_or(false) { update_toc_pages(s)? } else { update_toc(s)? }
             sel_result(s)
-        }),
+        })
+        .params(r#"{"pageNumbersOnly"?: bool (Update page numbers only: the entries stay as they are; default false, Update entire table)}"#),
         CommandSpec::new("references.removeToc", "Remove Table of Contents", "References › Table of Contents", |s, _| {
             if let Some((start, end)) = toc_range(s) {
                 for i in (start..=end).rev() {
@@ -75,11 +76,11 @@ pub fn specs() -> Vec<CommandSpec> {
             .params(r#"{"label"?: "Figure|Table|Equation|any label", "text"?: string, "position"?: "below|above", "excludeLabel"?: bool, "format"?: "ARABIC|alphabetic|ALPHABETIC|roman|ROMAN", "chapter"?: heading level 1-9, "separator"?: "-|.|:|—|–"}"#),
         // F9: update fields; the selected ones that showed their code show their result again.
         CommandSpec::new("references.updateFields", "Update Field", "References", |s, v| {
-            update_fields_in(s, v.get("all").and_then(Value::as_bool).unwrap_or(false))?;
+            update_fields_in(s, v.get("all").and_then(Value::as_bool).unwrap_or(false), p::bool(v, "pageNumbersOnly").unwrap_or(false))?;
             super::fields::show_results(s)?;
             sel_result(s)
         })
-        .params(r#"{"all"?: bool (the body and every header, footer, note and text box, wherever the caret is; default: the story the caret is in)}"#)
+        .params(r#"{"all"?: bool (the body and every header, footer, note and text box, wherever the caret is; default: the story the caret is in), "pageNumbersOnly"?: bool (the table of contents updates only its page numbers; default false, the entire table)}"#)
         .key("F9"),
     ]
 }
@@ -367,6 +368,20 @@ fn convertible_toc_range(s: &Session, r: &wordcraft_doc::FieldRange) -> bool {
         && r.end.path.depth() == 0
 }
 
+/// The body has a table of contents Update Table works on.
+pub fn has_toc(s: &Session) -> bool {
+    toc_range(s).is_some()
+}
+
+/// The selection reaches into the table of contents (its heading or an entry): Update Field
+/// updates the table then, and Word asks how first.
+pub fn toc_selected(s: &Session) -> bool {
+    let Some((start, end)) = toc_range(s) else { return false };
+    let (a, b) = s.sel.ordered();
+    let block = |p: &Pos| (p.story == StoryRef::Body).then(|| p.path.0.first().map_or(0, |i| *i as usize));
+    matches!((block(&a), block(&b)), (Some(a), Some(b)) if a <= end && b >= start)
+}
+
 /// A TOC imported as a range field (`FieldStart`…`FieldEnd`: one without a TOC heading, or with
 /// content around it the engine's TOC can't reproduce) becomes the engine's TOC before an update,
 /// so Update Table refreshes it rather than adding a second one: an empty `TOC` field where the
@@ -546,6 +561,108 @@ fn bookmark_heading(s: &mut Session, path: &Path, lead: usize) -> Result<String,
 pub fn update_toc(s: &mut Session) -> Result<(), CmdError> {
     let tabs = cached_toc_tabs(s);
     regenerate_toc(s, None, &tabs)
+}
+
+/// Update page numbers only (#1197): each entry's page number follows its heading again, and the
+/// entries stay as they are, text edited in the table included; headings added since aren't
+/// listed. An entry finds its heading through the `PAGEREF` field Word writes for the number, its
+/// link, or else its text; one whose heading can't be found keeps its number. A table kept as a
+/// range field (imported with content the engine's TOC can't reproduce) is rebuilt whole.
+pub fn update_toc_pages(s: &mut Session) -> Result<(), CmdError> {
+    let Some((start, end)) = toc_range(s) else { return update_toc(s) };
+    let Some(instr) = s.doc.body.get(start).and_then(|b| b.as_para()).and_then(toc_field) else { return Ok(()) };
+    let f = FieldCode::parse(&instr);
+    let sep = f.arg('p').map(str::to_string).unwrap_or_else(|| "\t".into());
+    let no_pages = f.has('n').then(|| f.arg('n').and_then(level_range).unwrap_or((1, 9)));
+    // Numbers in the page's section format, as Update Field writes them.
+    let formats: Vec<NumFormat> = s.doc.sections().into_iter().map(|(_, sec)| sec.page_num_format).collect();
+    let l = s.layout();
+    let page_at =
+        |pos: &Pos| l.caret(pos).and_then(|c| l.pages.get(c.page)).map(|pg| (pg.number, formats.get(pg.section).copied().unwrap_or_default()));
+    let mut marks: std::collections::HashMap<String, Pos> = Default::default();
+    for (name, pos) in s.doc.bookmarks() {
+        marks.entry(name).or_insert(pos);
+    }
+    let by_text: Vec<(String, Pos)> =
+        toc_entries(s, &f).into_iter().map(|e| (e.text, Pos { story: StoryRef::Body, path: e.path, off: e.lead })).collect();
+    // Headings are matched in order: an entry's heading comes after the one the entry above found,
+    // so an entry edited by hand doesn't hand its heading to a later one with the same text.
+    let mut next = 0;
+    for i in start + 1..=end {
+        let path = Path::top(i);
+        let Some(p) = s.doc.para(StoryRef::Body, &path) else { continue };
+        let refs: Vec<(usize, String)> = p
+            .objects
+            .iter()
+            .enumerate()
+            .filter_map(|(k, o)| match o {
+                InlineObject::Field { instr, locked: false, .. } if wordcraft_layout::fields::field_name(instr) == "PAGEREF" => {
+                    let (n, fmt) = marks.get(&ref_target(instr)).and_then(page_at)?;
+                    Some((k, wordcraft_layout::fields::format_switch(instr).unwrap_or(fmt).format(n)))
+                }
+                _ => None,
+            })
+            .collect();
+        if !refs.is_empty() {
+            let para = s.doc.para_mut(StoryRef::Body, &path)?;
+            for (k, page) in refs {
+                if let Some(InlineObject::Field { result, dirty, .. }) = para.objects.get_mut(k) {
+                    *result = page;
+                    *dirty = false;
+                }
+            }
+            para.touch();
+            continue;
+        }
+        // The engine's entries: the number is the text after the last separator, on levels `\n`
+        // leaves with one.
+        let level = p.props.style.as_deref().and_then(|st| st.strip_prefix("TOC")).and_then(|n| n.parse::<u8>().ok()).unwrap_or(1);
+        if no_pages.is_some_and(|(a, b)| (a..=b).contains(&level)) {
+            continue;
+        }
+        // Text deleted with Track Changes on isn't part of the entry.
+        let dels = p.deleted_ranges();
+        let live = |a: usize, b: usize| -> String {
+            p.text.char_indices().filter(|(i, c)| (a..b).contains(i) && *c != OBJ && !dels.iter().any(|r| r.contains(i))).map(|(_, c)| c).collect()
+        };
+        let Some(cut) = p.text.rfind(sep.as_str()).filter(|cut| !dels.iter().any(|r| r.contains(cut))) else { continue };
+        let at = cut + sep.len();
+        let len = p.len();
+        let number = live(at, len);
+        if number.is_empty() || !number.chars().all(|c| c.is_ascii_alphanumeric()) {
+            continue;
+        }
+        // The link spans the whole entry, number included, but text typed over the entry's text
+        // isn't part of it (#2911): what is left of the link still says where the entry points.
+        let link = p.runs.iter().find_map(|r| r.props.link.as_deref());
+        let linked = link.and_then(|l| l.strip_prefix('#')).and_then(|n| marks.get(n)).cloned();
+        let target = match linked {
+            Some(pos) => {
+                if let Some(k) = by_text.iter().position(|(_, h)| h.path == pos.path) {
+                    next = k + 1;
+                }
+                Some(pos)
+            }
+            None => {
+                let label = live(0, cut);
+                by_text.iter().enumerate().skip(next).find(|(_, (t, _))| *t == label).map(|(k, (_, pos))| {
+                    next = k + 1;
+                    pos.clone()
+                })
+            }
+        };
+        let Some(page) = target.as_ref().and_then(page_at).map(|(n, fmt)| fmt.format(n)).filter(|page| *page != number) else { continue };
+        // The new number is plain text: no revision marks from the number it replaces.
+        let first = (at..len).find(|i| p.text.is_char_boundary(*i) && !dels.iter().any(|r| r.contains(i))).unwrap_or(at);
+        let props = CharProps { ins: None, del: None, fmt_change: None, ..p.props_of_char(first).clone() };
+        let para = s.doc.para_mut(StoryRef::Body, &path)?;
+        para.delete(at, len)?;
+        para.insert_text(at, &page, &props)?;
+        para.touch();
+    }
+    s.clamp_selection();
+    s.touch();
+    Ok(())
 }
 
 /// Rebuild the entries the TOC field's switches ask for. The tab leader is `leader`, or the one
@@ -924,6 +1041,13 @@ pub fn update_seq(s: &mut Session) -> Result<(), CmdError> {
     Ok(())
 }
 
+/// The bookmark a `REF` or `PAGEREF` field points to, quoted or not, with any switch run into it
+/// left out (#2149).
+fn ref_target(instr: &str) -> String {
+    let f = FieldCode::parse(instr);
+    f.args.first().map(|s| s.split('\\').next().unwrap_or("").trim_matches('"').to_string()).unwrap_or_default()
+}
+
 /// Whether `instr` has the one-letter switch `\sw`, also run together with another (`\p\h`).
 fn has_switch(instr: &str, sw: char) -> bool {
     instr.split('\\').skip(1).any(|s| {
@@ -937,12 +1061,13 @@ fn has_switch(instr: &str, sw: char) -> bool {
 /// fields stay as they are then). SEQ numbering, citations and TOC are body-only, so they run only
 /// when the caret is in the body.
 pub fn update_fields(s: &mut Session) -> Result<(), CmdError> {
-    update_fields_in(s, false)
+    update_fields_in(s, false, false)
 }
 
 /// [`update_fields`], or with `all` the whole document: the body (with SEQ, citations and TOC) and
-/// every part story, wherever the caret is (what printing needs).
-pub fn update_fields_in(s: &mut Session, all: bool) -> Result<(), CmdError> {
+/// every part story, wherever the caret is (what printing needs). With `toc_pages_only` the table
+/// of contents updates only its page numbers (Update page numbers only).
+pub fn update_fields_in(s: &mut Session, all: bool, toc_pages_only: bool) -> Result<(), CmdError> {
     let caret_story = s.sel.focus.story;
     let in_body = all || caret_story == StoryRef::Body;
     if in_body {
@@ -994,12 +1119,11 @@ pub fn update_fields_in(s: &mut Session, all: bool) -> Result<(), CmdError> {
                     updates.push((k, super::insert::format_date(&pic)));
                 }
                 "REF" | "PAGEREF" => {
-                    let f = FieldCode::parse(instr);
-                    let target = f.args.first().map(|s| s.split('\\').next().unwrap_or("").trim_matches('"')).unwrap_or("");
+                    let target = ref_target(instr);
                     let r = if name == "REF" {
-                        if !has_switch(instr, 'p') { bookmark_text(&s.doc, target) } else { None }
+                        if !has_switch(instr, 'p') { bookmark_text(&s.doc, &target) } else { None }
                     } else if !has_switch(instr, 'p') {
-                        pages.get(target).map(|(num, page_fmt)| {
+                        pages.get(&target).map(|(num, page_fmt)| {
                             let fmt = wordcraft_layout::fields::format_switch(instr).unwrap_or(*page_fmt);
                             fmt.format(*num)
                         })
@@ -1033,7 +1157,7 @@ pub fn update_fields_in(s: &mut Session, all: bool) -> Result<(), CmdError> {
         return Ok(());
     }
     super::citations::update_citations(s)?;
-    update_toc(s)
+    if toc_pages_only { update_toc_pages(s) } else { update_toc(s) }
 }
 
 /// Refresh every unlocked `DATE` and `TIME` field to now, as Word does whenever it shows,
