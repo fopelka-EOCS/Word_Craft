@@ -8,6 +8,13 @@ fn lay(doc: &Document) -> DocLayout {
     layout(doc, &mut c, &LayoutOptions::default())
 }
 
+/// Sets the text in the bundled Source Sans 3 instead of the default Aptos, whose substitute
+/// depends on the machine's fonts (on the FreeBSD CI it is the much wider DejaVu Sans): for tests
+/// that depend on how much text fits on a line.
+pub(crate) fn bundled_font(d: &mut Document) {
+    d.styles.default_chr.font = Some(wordcraft_fonts::FALLBACK_FAMILY.into());
+}
+
 #[derive(Clone, Copy)]
 enum SpacingLocation {
     Cell,
@@ -436,6 +443,7 @@ fn deleted_soft_hyphen_is_no_hyphenation_point_without_markup() {
     // "ab\u{ad}cdef" in a column where "ab-" fits but the whole word does not; only the soft
     // hyphen is track-deleted.
     let mut d = Document::from_text("ab\u{ad}cdef");
+    bundled_font(&mut d);
     d.format_range(&Pos::body(0, 2), &Pos::body(0, 4), &|c| c.del = Some(0)).unwrap();
     d.format_paragraphs(&Pos::body(0, 0), &Pos::body(0, 0), &|p| p.indent_right = Some(468.0 - 26.0)).unwrap();
     let hyphens = |hide_deleted: bool| {
@@ -454,6 +462,7 @@ fn deleted_text_adds_no_line_break_opportunity_without_markup() {
     // "xx ab\u{ad}cdef" in a column where "xx ab-" and "abcdef" fit but "xx abcdef" does not; only
     // the soft hyphen (5..7) is track-deleted.
     let mut d = Document::from_text("xx ab\u{ad}cdef");
+    bundled_font(&mut d);
     d.format_range(&Pos::body(0, 5), &Pos::body(0, 7), &|c| c.del = Some(0)).unwrap();
     d.format_paragraphs(&Pos::body(0, 0), &Pos::body(0, 0), &|p| p.indent_right = Some(468.0 - 40.0)).unwrap();
     let line_starts = |hide_deleted: bool| {
@@ -471,6 +480,7 @@ fn deleted_text_adds_no_line_break_opportunity_without_markup() {
 fn hidden_soft_hyphen_is_no_hyphenation_point_when_hidden_text_is_not_shown() {
     // As with deletions: "ab\u{ad}cdef" where only the soft hyphen is hidden text.
     let mut d = Document::from_text("ab\u{ad}cdef");
+    bundled_font(&mut d);
     d.format_range(&Pos::body(0, 2), &Pos::body(0, 4), &|c| c.hidden = Some(true)).unwrap();
     d.format_paragraphs(&Pos::body(0, 0), &Pos::body(0, 0), &|p| p.indent_right = Some(468.0 - 26.0)).unwrap();
     let hyphens = |show_hidden: bool| {
@@ -490,6 +500,7 @@ fn hidden_text_adds_no_line_break_opportunity_when_not_shown() {
     // but "xx abcdef" does not. Measured in Word (hidden text not printed): "xx" / "abcdef" both times.
     for hidden in ["\u{ad}", " "] {
         let mut d = Document::from_text(&format!("xx ab{hidden}cdef"));
+        bundled_font(&mut d);
         let end = 5 + hidden.len();
         d.format_range(&Pos::body(0, 5), &Pos::body(0, end), &|c| c.hidden = Some(true)).unwrap();
         d.format_paragraphs(&Pos::body(0, 0), &Pos::body(0, 0), &|p| p.indent_right = Some(468.0 - 40.0)).unwrap();
@@ -5682,6 +5693,7 @@ fn line_spans(l: &DocLayout) -> Vec<(f32, f32, f32, f32)> {
 /// A shape floating at the column's top-left with `wrap`, beside a long paragraph.
 fn wrapped_shape_doc(kind: wordcraft_doc::para::ShapeKind, w: f32, h: f32, float: wordcraft_doc::para::Float) -> Document {
     let mut d = Document::from_text(&"Words flow around the shape here. ".repeat(40));
+    bundled_font(&mut d);
     let float =
         wordcraft_doc::para::Float { h_rel: wordcraft_doc::para::Anchor::Column, v_rel: wordcraft_doc::para::Anchor::Paragraph, dist: 9.0, ..float };
     let shape = InlineObject::Shape {
