@@ -737,13 +737,13 @@
 	Double Integral	Integrală dublă
 	Double Integral with Limits	Integrală dublă cu limite
 	Double Integral with Stacked Limits	Integrală dublă cu limite suprapuse
-	Double Left Arrow with Text Above	Săgeată dublă stânga cu text deasupra
-	Double Left Arrow with Text Below	Săgeată dublă stânga cu text dedesubt
+	Double Left Arrow with Text Above	Săgeată dublă spre stânga cu text deasupra
+	Double Left Arrow with Text Below	Săgeată dublă spre stânga cu text dedesubt
 	Double Left Right Arrow with Text Above	Săgeată dublă stânga-dreapta cu text deasupra
 	Double Left Right Arrow with Text Below	Săgeată dublă stânga-dreapta cu text dedesubt
 	Double Opening Quote	Ghilimele duble de deschidere
-	Double Right Arrow with Text Above	Săgeată dublă dreapta cu text deasupra
-	Double Right Arrow with Text Below	Săgeată dublă dreapta cu text dedesubt
+	Double Right Arrow with Text Above	Săgeată dublă spre dreapta cu text deasupra
+	Double Right Arrow with Text Below	Săgeată dublă spre dreapta cu text dedesubt
 	Double Spacing	Spațiere dublă
 	Double Square Brackets	Paranteze drepte duble
 	Double Strikethrough	Tăiere dublă
@@ -1263,17 +1263,17 @@
 	Leave the equation (Esc)	Părăsește ecuația (Esc)
 	Leave the label out of the caption	Omiteți eticheta din legendă
 	Left	Stânga
-	Left Arrow with Text Above	Săgeată stânga cu text deasupra
-	Left Arrow with Text Below	Săgeată stânga cu text dedesubt
-	Left Border	Bordură stânga
-	Left Bracket Twice	Paranteză stânga dublă
-	Left Margin	Margine stânga
+	Left Arrow with Text Above	Săgeată spre stânga cu text deasupra
+	Left Arrow with Text Below	Săgeată spre stânga cu text dedesubt
+	Left Border	Bordură stângă
+	Left Bracket Twice	Paranteză de deschidere dublată
+	Left Margin	Margine stângă
 	Left Only	Doar stânga
 	Left Right Arrow Above	Săgeată stânga-dreapta deasupra
 	Left Right Arrow with Text Above	Săgeată stânga-dreapta cu text deasupra
 	Left Right Arrow with Text Below	Săgeată stânga-dreapta cu text dedesubt
 	Left Subscript-Superscript	Indice și exponent la stânga
-	Left border	Bordură stânga
+	Left border	Bordură stângă
 	Left indent	Indent la stânga
 	Left-to-Right Text Direction	Direcție text de la stânga la dreapta
 	Left-to-right	De la stânga la dreapta
@@ -1956,13 +1956,13 @@
 	Rich Text Format (RTF)	Rich Text Format (RTF)
 	Right	Dreapta
 	Right (vertical)	Dreapta (vertical)
-	Right Arrow with Text Above	Săgeată dreapta cu text deasupra
-	Right Arrow with Text Below	Săgeată dreapta cu text dedesubt
-	Right Border	Bordură dreapta
-	Right Bracket Twice	Paranteză dreapta dublă
-	Right Margin	Margine dreapta
+	Right Arrow with Text Above	Săgeată spre dreapta cu text deasupra
+	Right Arrow with Text Below	Săgeată spre dreapta cu text dedesubt
+	Right Border	Bordură dreaptă
+	Right Bracket Twice	Paranteză de închidere dublată
+	Right Margin	Margine dreaptă
 	Right Only	Doar dreapta
-	Right border	Bordură dreapta
+	Right border	Bordură dreaptă
 	Right indent	Indent la dreapta
 	Right-to-Left Section	Secțiune de la dreapta la stânga
 	Right-to-Left Table	Tabel de la dreapta la stânga
@@ -2153,15 +2153,15 @@
 	Single	Simplu
 	Single Brackets	Paranteze drepte simple
 	Single Closing Quote	Ghilimea simplă de închidere
-	Single Left Angle	Unghi stânga simplu
-	Single Left Bar	Bară stânga simplă
-	Single Left Brace	Acoladă stânga simplă
-	Single Left Bracket	Paranteză dreaptă stânga simplă
-	Single Left Parenthesis	Paranteză rotundă stânga simplă
+	Single Left Angle	Paranteză unghiulară stângă simplă
+	Single Left Bar	Bară stângă simplă
+	Single Left Brace	Acoladă stângă simplă
+	Single Left Bracket	Paranteză pătrată stângă simplă
+	Single Left Parenthesis	Paranteză rotundă stângă simplă
 	Single Opening Quote	Ghilimea simplă de deschidere
-	Single Right Brace	Acoladă dreapta simplă
-	Single Right Bracket	Paranteză dreaptă dreapta simplă
-	Single Right Parenthesis	Paranteză rotundă dreapta simplă
+	Single Right Brace	Acoladă dreaptă simplă
+	Single Right Bracket	Paranteză pătrată dreaptă simplă
+	Single Right Parenthesis	Paranteză rotundă dreaptă simplă
 	Single Spacing	Spațiere simplă
 	Single label	Etichetă unică
 	Site name	Numele site-ului
