@@ -1409,6 +1409,7 @@ fn count_dialog_frame(ctx: &egui::Context, id: egui::Id) {
 }
 
 pub fn show(app: &mut WordApp, ctx: &egui::Context) {
+    crate::modal::keyboard(app, ctx);
     let Some(mut d) = app.dialog.take() else {
         ctx.data_mut(|d| d.remove::<(egui::Id, u8)>(dialog_top_key()));
         return;
@@ -1470,10 +1471,12 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
     };
     let id = egui::Id::new(("dialog", title));
     let window = crate::window_close::window(ctx, egui::Window::new(tl!(title)).id(id).collapsible(false).resizable(false));
+    let page_keys = crate::modal::keys_for_page(app, ctx, &d);
     let shown = place_dialog(ctx, id, window).show(ctx, |ui| {
         ui.set_min_width(340.0);
         close = body(app, ui, &mut d);
     });
+    crate::modal::give_back(ctx, page_keys);
     if let Some(shown) = &shown {
         if let Dialog::SaveChanges { name, message, .. } = &d {
             let question = crate::i18n::fmt(tl!("Do you want to save changes to {name}?"), &[("name", name)]);
@@ -1491,6 +1494,7 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
             });
         }
         count_dialog_frame(ctx, id);
+        crate::modal::block_behind(app, ctx, &d, shown.response.layer_id);
         close |= crate::window_close::show(ctx, &shown.response, &Tokens::get(ctx));
     }
     if close {

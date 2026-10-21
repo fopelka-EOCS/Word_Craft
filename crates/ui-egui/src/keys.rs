@@ -220,9 +220,10 @@ fn is_paste_special_release(key: Key, modifiers: egui::Modifiers) -> bool {
 }
 
 /// Events for the focused canvas: text, editing keys, clipboard, IME. While keytips are showing
-/// every key belongs to them (letters pick badges, Escape cancels), so nothing here runs.
+/// every key belongs to them (letters pick badges, Escape cancels), so nothing here runs; so
+/// does every key while a modal dialog is open (`crate::modal`).
 pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
-    if app.ui.keytips != crate::keytips::Phase::Off {
+    if app.ui.keytips != crate::keytips::Phase::Off || crate::modal::open(app) {
         return;
     }
     let events = ctx.input(|i| i.events.clone());
@@ -261,6 +262,10 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
         app.canvas.paste_mods = Some(held);
     }
     for e in events {
+        // A shortcut opened a modal dialog: the keys after it in this frame are the dialog's.
+        if crate::modal::open(app) {
+            break;
+        }
         // Which presses reached the canvas, and the modifiers held with Mod, in event order: Mod
         // can go down and up within one frame, leaving the frame's modifiers without it.
         match &e {
@@ -682,8 +687,9 @@ fn is_global_shortcut(key: Key, m: Modifiers) -> bool {
 
 /// Command shortcuts when the canvas isn't focused but no text field is either.
 pub fn global_shortcuts(app: &mut WordApp, ctx: &egui::Context) {
-    // Customize Keyboard records the keys pressed; they never run commands meanwhile.
-    if app.canvas.focused || ctx.egui_wants_keyboard_input() || matches!(app.dialog, Some(crate::dialogs::Dialog::CustomizeKeyboard { .. })) {
+    // A modal dialog takes every key, also one that closed it this frame, and no shortcut changes
+    // the document behind it (Customize Keyboard records the keys pressed).
+    if app.canvas.focused || ctx.egui_wants_keyboard_input() || crate::modal::open(app) || crate::modal::held_this_frame(ctx) {
         return;
     }
     let events = ctx.input(|i| i.events.clone());
