@@ -2614,6 +2614,11 @@ fn ruler_text_area(app: &WordApp, layout: &DocLayout, pi: usize) -> Option<(f32,
     if section.columns.count <= 1 {
         return Some(body);
     }
+    // Continuous sections can change margins without replacing the page body. Its origin
+    // supplies the page section's mirrored-page translation, not the active section's margins.
+    let sections = app.session.doc.sections();
+    let Some((_, page_section)) = sections.get(page.section) else { return Some(body) };
+    let section_origin = page.body.x + section.margin_left + section.gutter - page_section.margin_left - page_section.gutter;
     let column_x = page.items.iter().find_map(|item| {
         let Placed::Lines { story, path, para, l0, l1, x, .. } = item else { return None };
         if *story != focus.story || *path != focus.path {
@@ -2624,8 +2629,9 @@ fn ruler_text_area(app: &WordApp, layout: &DocLayout, pi: usize) -> Option<(f32,
     });
     Some(
         column_x
-            .and_then(|placed_x| section.column_boxes().into_iter().find(|(x, _)| (page.body.x + x - placed_x).abs() < 0.1))
-            .map(|(x, w)| (page.body.x + x, w))
+            .and_then(|placed_x| {
+                section.column_boxes().into_iter().find(|(x, _)| (section_origin + x - placed_x).abs() < 0.1).map(|(_, w)| (placed_x, w))
+            })
             .unwrap_or(body),
     )
 }

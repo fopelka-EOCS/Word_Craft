@@ -122,3 +122,29 @@ Rebase validation on Windows:
 - Two local headless captures at 100% and 60% zoom were generated and inspected;
   these additional audit captures are not included in the PR.
 - `cargo xtask wasm`: all 16 package checks passed.
+
+## Review follow-up (2026-10-21)
+
+A continuous section can change its margins and gutter without replacing the
+page body's origin. Column matching therefore compares placed lines with the
+active section's origin, adjusted by the page section's offset. The matched
+column retains its placed x coordinate, including mirrored-page translation.
+
+The regression changes both margins and gutter on the same page, checks both
+new columns, drags an indent, and returns to the preceding section. It also
+runs on an even mirrored page. All test helpers and test functions introduced
+by this PR now have documentation comments.
+
+Follow-up validation on Windows:
+
+- The new regression failed before the fix: it got the old page frame `(90, 414)`
+  instead of the active column `(135, 108)`. After the fix all 28 ruler tests pass.
+- The full UI library suite passed: 727 passed, 0 failed, 2 ignored.
+- `cargo xtask ci` passed formatting and workspace Clippy, then stopped at three
+  unchanged `wordcraft-render` colour-emoji tests: `emoji_are_drawn_in_colour`,
+  `emoji_keep_their_colours_on_a_dark_page` and `emoji_with_text_effects_stay_drawn`.
+  Each expects two colour-font glyphs but this system finds one. Rendering and
+  font code and dependencies are unchanged by this PR.
+- Asset attribution (62 files) and dependency layering (20 crates) passed.
+- A headless capture of the continuous-section margin change was inspected.
+- `cargo xtask wasm`: all 16 package checks passed.

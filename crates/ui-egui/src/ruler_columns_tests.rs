@@ -5,12 +5,14 @@ use wordcraft_engine::Selection;
 
 type H = egui_kittest::Harness<'static, WordApp>;
 
+/// Advance enough frames for queued input and layout changes to reach the painted window.
 fn steps(h: &mut H, n: usize) {
     for _ in 0..n {
         h.step();
     }
 }
 
+/// Build a full-window harness and finish its initial font and layout frames.
 fn window(a: WordApp) -> H {
     let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
         |ui, app: &mut WordApp| {
@@ -24,6 +26,7 @@ fn window(a: WordApp) -> H {
     h
 }
 
+/// Move the caret without keyboard navigation and refresh the active page and ruler.
 fn focus(h: &mut H, pos: Pos) {
     h.state_mut().session.sel = Selection::caret(pos);
     steps(h, 3);
@@ -49,13 +52,16 @@ fn markers(h: &H) -> [f32; 3] {
     [triangles[0].1, triangles[1].1, triangles[2].1]
 }
 
+/// Convert a document x coordinate on the caret page to screen points.
 fn screen_x(h: &mut H, x: f32) -> f32 {
-    page_to_screen(h.state_mut(), 0, x, 72.0).unwrap().x
+    let pi = h.state().session.page_hint;
+    page_to_screen(h.state_mut(), pi, x, 72.0).unwrap().x
 }
 
+/// Assert the active ruler frame and all three painted indent marker positions.
 fn check(h: &mut H, x: f32, w: f32, rtl: bool, indents: [f32; 3]) {
     let layout = h.state_mut().session.layout();
-    let actual = ruler_text_area(h.state(), &layout, 0).unwrap();
+    let actual = ruler_text_area(h.state(), &layout, h.state().session.page_hint).unwrap();
     assert!((actual.0 - x).abs() < 0.01 && (actual.1 - w).abs() < 0.01, "ruler frame {actual:?}, expected ({x}, {w})");
     let [left, first, right] = indents;
     let at = |d| if rtl { x + w - d } else { x + d };
@@ -65,6 +71,7 @@ fn check(h: &mut H, x: f32, w: f32, rtl: bool, indents: [f32; 3]) {
     }
 }
 
+/// Drag an indent marker through real pointer events and finish its release frames.
 fn drag(h: &mut H, which: usize, delta: f32) {
     let y = h.state().canvas.canvas_rect.unwrap().min.y - if which == 0 { 15.0 } else { 4.0 };
     let from = pos2(markers(h)[which], y);
@@ -82,6 +89,7 @@ fn drag(h: &mut H, which: usize, delta: f32) {
     steps(h, 3);
 }
 
+/// Exercise all indent drags across column widths, independent directions and zoom levels.
 #[test]
 fn column_ruler_paints_and_drags_all_indents_in_both_directions_at_each_zoom() {
     for section_rtl in [false, true] {
@@ -132,6 +140,7 @@ fn column_ruler_paints_and_drags_all_indents_in_both_directions_at_each_zoom() {
     }
 }
 
+/// Preserve page-body fallback, invalid-page handling and table-cell precedence.
 #[test]
 fn column_ruler_preserves_single_column_and_cell_frames() {
     let mut a = WordApp::new(wordcraft_engine::Session::new(Document::from_text("Single column")), Default::default());
@@ -146,6 +155,7 @@ fn column_ruler_preserves_single_column_and_cell_frames() {
     assert_eq!(ruler_text_area(&a, &layout, 0), Some(cell));
 }
 
+/// Resolve columns from the caret section when consecutive sections share a page.
 #[test]
 fn column_ruler_uses_the_caret_section_on_a_continuous_section_page() {
     let mut a = WordApp::new(wordcraft_engine::Session::new(Document::from_text("First\n\u{e}Second")), Default::default());
@@ -162,6 +172,7 @@ fn column_ruler_uses_the_caret_section_on_a_continuous_section_page() {
     check(&mut h, 324.0, 216.0, false, [0.0; 3]);
 }
 
+/// Keep table-cell ruler frames and pointer drags inside multicolumn sections.
 #[test]
 fn column_ruler_keeps_cell_indents_in_a_multicolumn_section() {
     for rtl in [false, true] {
@@ -232,4 +243,43 @@ fn column_ruler_rtl_negative_indent_stops_at_the_right_page_edge() {
     let scale = h.state().canvas.scale;
     drag(&mut h, 1, 180.0 * scale);
     check(&mut h, 396.0, 144.0, true, [-72.0, 0.0, 0.0]);
+}
+
+/// A continuous section's own margins and gutter set its column origin, including the
+/// translation already applied to an even mirrored page's placed lines.
+#[test]
+fn column_ruler_uses_continuous_section_margins_and_gutter() {
+    for mirrored in [false, true] {
+        for section_rtl in [false, true] {
+            let text = if mirrored { "\u{c}First\n\u{e}Second" } else { "First\n\u{e}Second" };
+            let mut a = WordApp::new(wordcraft_engine::Session::new(Document::from_text(text)), Default::default());
+            a.run("layout.margins", json!({"left": 72, "right": 108, "gutter": 18, "mirror": mirrored})).unwrap();
+            a.run("layout.sectionRtl", json!({"value": section_rtl})).unwrap();
+            a.run("layout.columns", json!({"count": 2, "space": 36})).unwrap();
+            a.run("caret.docEnd", json!({})).unwrap();
+            a.run("layout.break", json!({"kind": "continuous"})).unwrap();
+            a.run("layout.margins", json!({"left": 108, "right": 54, "gutter": 27})).unwrap();
+            a.run("layout.columns", json!({"widths": [[108, 36], [279, 0]]})).unwrap();
+            a.run("text.insert", json!({"text": "Third\n\u{e}Fourth"})).unwrap();
+            let mut h = window(a);
+            let pi = usize::from(mirrored);
+            assert_eq!(h.state_mut().session.layout().pages.len(), pi + 1);
+            let dx = if mirrored { 18.0 } else { 0.0 };
+            let (first, second) = if section_rtl { ((450.0 + dx, 108.0), (135.0 + dx, 279.0)) } else { ((135.0 + dx, 108.0), (279.0 + dx, 279.0)) };
+            for (text, (x, w)) in [("Third", first), ("Fourth", second)] {
+                h.state_mut().run("select.text", json!({"text": text})).unwrap();
+                h.state_mut().run("para.indents", json!({"left": 9, "firstLine": 9, "right": 9})).unwrap();
+                steps(&mut h, 3);
+                assert_eq!(h.state().session.page_hint, pi);
+                check(&mut h, x, w, false, [9.0; 3]);
+            }
+            let scale = h.state().canvas.scale;
+            drag(&mut h, 1, 18.0 * scale);
+            check(&mut h, second.0, second.1, false, [27.0, 9.0, 9.0]);
+            h.state_mut().run("select.text", json!({"text": "Second"})).unwrap();
+            steps(&mut h, 3);
+            let old_x = if section_rtl { 90.0 } else { 315.0 };
+            check(&mut h, old_x + dx, 189.0, false, [0.0; 3]);
+        }
+    }
 }
