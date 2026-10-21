@@ -1035,6 +1035,8 @@
 	{key}+Click to follow link	{key}+clic para seguir el vínculo
 	{selected} of {words} words	{selected} de {words} palabras
 	{words} words	{words} palabras
+	{characters} characters	{characters} caracteres
+	{selected} of {characters} characters	{selected} de {characters} caracteres
 	Browse…	Examinar…
 	Equation	Ecuación
 	Review	Revisar

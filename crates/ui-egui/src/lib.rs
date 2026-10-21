@@ -582,6 +582,7 @@ pub struct WordApp {
     pub quit_requested: bool,
     pub autosave: bool,
     pub word_count: (u64, usize),
+    pub char_count: (u64, usize),
     last_autosave: f64,
     /// The tab shown before the Equation tab came up (restored when editing ends).
     pub(crate) equation_prev_tab: Option<String>,
@@ -697,6 +698,7 @@ impl WordApp {
             quit_requested: false,
             autosave: true,
             word_count: (0, 0),
+            char_count: (0, 0),
             last_autosave: 0.0,
             equation_prev_tab: None,
             smart_art_item: None,

@@ -992,6 +992,8 @@
 	Browse…	찾아보기…
 	{words} words	단어 {words}개
 	{selected} of {words} words	전체 {words}개 중 {selected}개 선택
+	{characters} characters	문자 {characters}개
+	{selected} of {characters} characters	전체 {characters}개 중 {selected}개 선택
 	Apply Styles	스타일 적용
 	Dark page (white text on black)	어두운 페이지(검은 배경에 흰색 텍스트)
 	Show documents with their colours inverted, like View › Switch Modes. Saving, printing and PDFs are unchanged.	보기 › 모드 전환처럼 문서의 색상을 반전해 표시합니다. 저장, 인쇄 및 PDF에는 영향을 주지 않습니다.

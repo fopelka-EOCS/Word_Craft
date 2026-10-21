@@ -17,6 +17,15 @@ fn word_count() {
 }
 
 #[test]
+fn character_count() {
+    let d = Document::from_text("你好，世界！\n这是一个测试。\n\n");
+    // "你好，世界！" (6) + "这是一个测试。" (7) = 13 characters (excluding newlines and spaces).
+    assert_eq!(d.character_count(), 13);
+    assert_eq!(count_characters(" 你好 世界 \t\n"), 4);
+    assert_eq!(count_characters(" \u{fffc} "), 0);
+}
+
+#[test]
 fn word_count_includes_numbered_list_labels_but_not_bullets() {
     let mut d = Document::new();
     let num_id = d.numbering.add_list(ListKind::Numbered);

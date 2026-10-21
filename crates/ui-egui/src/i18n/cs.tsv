@@ -1359,6 +1359,8 @@
 	{selected} of {words} words	Počet slov: {words}; vybráno: {selected}
 	{size} pt	{size} b.
 	{words} words	Počet slov: {words}
+	{characters} characters	Počet znaků: {characters}
+	{selected} of {characters} characters	Počet znaků: {characters}; vybráno: {selected}
 	Base text:	Základní text:
 	Distribute letters	Rozmístit písmena
 	Distribute spacing	Rozmístit mezery

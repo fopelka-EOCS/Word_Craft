@@ -936,6 +936,8 @@
 	{key}+Click to follow link	{key}+Nhấp để mở liên kết
 	{selected} of {words} words	Từ: {selected} trên {words}
 	{words} words	Từ: {words}
+	{characters} characters	Ký tự: {characters}
+	{selected} of {characters} characters	Ký tự: {selected} trên {characters}
 	Browse…	Duyệt…
 	Equation	Phương trình
 	Review	Xem lại

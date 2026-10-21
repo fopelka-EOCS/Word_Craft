@@ -1076,6 +1076,22 @@ impl Document {
         story_word_count_of(bl, &self.numbering, &self.styles, &mut counters, 0)
     }
 
+    /// Count characters excluding whitespace, like Word's status bar for Chinese documents.
+    pub fn character_count(&self) -> usize {
+        self.story_character_count(StoryRef::Body)
+    }
+
+    /// Default character count including text boxes, footnotes and endnotes (excluding whitespace).
+    pub fn character_count_including_notes(&self) -> usize {
+        self.counted_stories().iter().map(|s| self.story_character_count(*s)).sum()
+    }
+
+    /// Character count of one story, excluding whitespace.
+    pub fn story_character_count(&self, s: StoryRef) -> usize {
+        let Some(bl) = self.story(s) else { return 0 };
+        story_character_count_of(bl, 0)
+    }
+
     /// The body, then the text boxes, footnotes and endnotes it shows (nested ones too), in
     /// document order. Headers, footers, comments and stories nothing points at aren't included.
     pub fn counted_stories(&self) -> Vec<StoryRef> {
@@ -1449,6 +1465,11 @@ pub fn count_words(s: &str) -> usize {
     s.split(|c: char| c.is_whitespace() || c == para::OBJ).filter(|w| w.chars().any(char::is_alphanumeric)).count()
 }
 
+/// Characters in `s` excluding whitespace and object placeholder characters.
+pub fn count_characters(s: &str) -> usize {
+    s.chars().filter(|c| !c.is_whitespace() && *c != para::OBJ).count()
+}
+
 /// How deep in nested tables [`Document::para_paths`] goes: cells below this are skipped.
 pub(crate) const PARA_WALK_DEPTH: usize = 16;
 
@@ -1581,6 +1602,28 @@ fn story_word_count_of(bl: &Blocks, numbering: &Numbering, styles: &styles::Styl
                 for row in &t.rows {
                     for c in &row.cells {
                         total = total.saturating_add(story_word_count_of(&c.blocks, numbering, styles, counters, depth + 1));
+                    }
+                }
+            }
+        }
+    }
+    total
+}
+
+fn story_character_count_of(bl: &Blocks, depth: usize) -> usize {
+    if depth > PARA_WALK_DEPTH {
+        return 0;
+    }
+    let mut total = 0usize;
+    for b in bl {
+        match &**b {
+            Block::Para(p) => {
+                total = total.saturating_add(count_characters(&p.plain_text()));
+            }
+            Block::Table(t) => {
+                for row in &t.rows {
+                    for c in &row.cells {
+                        total = total.saturating_add(story_character_count_of(&c.blocks, depth + 1));
                     }
                 }
             }

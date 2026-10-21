@@ -910,6 +910,8 @@
 	{key}+Click to follow link	Lingi avamiseks {key}+klõps
 	{selected} of {words} words	Sõnu: {words}; valitud: {selected}
 	{words} words	Sõnu: {words}
+	{characters} characters	Märke: {characters}
+	{selected} of {characters} characters	Märke: {characters}; valitud: {selected}
 	Equation	Võrrand
 	Review	Läbivaatus
 	Track\nChanges	Jälita\nmuudatusi

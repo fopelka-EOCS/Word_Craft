@@ -1484,6 +1484,11 @@ impl Session {
         if self.prefs.count_notes { self.doc.word_count_including_notes() } else { self.doc.word_count() }
     }
 
+    /// Characters in the document (excluding whitespace), as the status bar shows them for Chinese documents (see [`Prefs::count_notes`]).
+    pub fn character_count(&self) -> usize {
+        if self.prefs.count_notes { self.doc.character_count_including_notes() } else { self.doc.character_count() }
+    }
+
     /// Selected plain text.
     pub fn selected_text(&self) -> String {
         // A column block or whole cells that aren't one run of the text: each piece's own text,

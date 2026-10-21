@@ -805,7 +805,7 @@ pub(crate) fn caret_language(app: &WordApp) -> String {
 }
 
 /// The language tag at the caret, resolved through the styles and the document default.
-fn caret_lang_tag(app: &WordApp) -> Option<String> {
+pub(crate) fn caret_lang_tag(app: &WordApp) -> Option<String> {
     let s = &app.session;
     let style = s.doc.para_at(&s.sel.focus).and_then(|p| p.props.style.clone());
     s.doc.styles.resolve_char(style.as_deref(), &s.typing_props()).lang

@@ -838,6 +838,8 @@
 	{key}+Click to follow link	{key}+kliknięcie otwiera link
 	{selected} of {words} words	Słowa: {selected} z {words}
 	{words} words	Słowa: {words}
+	{characters} characters	Znaki: {characters}
+	{selected} of {characters} characters	Znaki: {selected} z {characters}
 	➕ New comment	➕ Nowy komentarz
 	📂  Browse…	📂  Przeglądaj…
 	Equation	Równanie

@@ -2504,6 +2504,8 @@ preview	Title	Naslov
 	{selected} of {words} words	Riječi: {selected} od {words}
 	{size} pt	{size} pt
 	{words} words	Riječi: {words}
+	{characters} characters	Znakovi: {characters}
+	{selected} of {characters} characters	Znakovi: {selected} od {characters}
 	“{text}” ({row}, {series}) isn't a number.	„{text}” ({row}, {series}) nije broj.
 	✓ None	✓ Nema
 	➕ New comment	➕ Novi komentar

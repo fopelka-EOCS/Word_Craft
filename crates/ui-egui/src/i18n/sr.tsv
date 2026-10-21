@@ -1052,6 +1052,8 @@
 	Browse…	Потражи…
 	{words} words	{words} речи
 	{selected} of {words} words	{selected} од {words} речи
+	{characters} characters	Знакови: {characters}
+	{selected} of {characters} characters	{selected} од {characters} знакова
 	Direction:	Смер:
 	Right-to-left	Са десна на лево
 	Left-to-right	Са лева на десно

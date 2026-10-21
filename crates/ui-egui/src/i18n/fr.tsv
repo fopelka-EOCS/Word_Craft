@@ -944,6 +944,8 @@
 	Browse…	Parcourir…
 	{words} words	{words} mots
 	{selected} of {words} words	{selected} mots sur {words}
+	{characters} characters	{characters} caractères
+	{selected} of {characters} characters	{selected} caractères sur {characters}
 	Apply Styles	Appliquer les styles
 	Dark page (white text on black)	Page sombre (texte blanc sur noir)
 	Show documents with their colours inverted, like View › Switch Modes. Saving, printing and PDFs are unchanged.	Affiche les documents avec les couleurs inversées, comme dans Affichage › Changer de mode. L’enregistrement, l’impression et les PDF restent inchangés.

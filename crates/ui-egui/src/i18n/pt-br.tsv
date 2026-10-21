@@ -986,6 +986,8 @@
 	Browse…	Procurar…
 	{words} words	Palavras: {words}
 	{selected} of {words} words	Palavras: {words}; seleção: {selected}
+	{characters} characters	Caracteres: {characters}
+	{selected} of {characters} characters	Caracteres: {characters}; seleção: {selected}
 	Dark page (white text on black)	Página escura (texto branco sobre preto)
 	Show documents with their colours inverted, like View › Switch Modes. Saving, printing and PDFs are unchanged.	Mostra os documentos com as cores invertidas, como em Exibir › Alternar modos. Salvar, imprimir e PDFs não mudam.
 	Only web (http, https) and email (mailto) links can be followed	Só é possível seguir links da web (http, https) e de e-mail (mailto)

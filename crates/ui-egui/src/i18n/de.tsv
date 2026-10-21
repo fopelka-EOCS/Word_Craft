@@ -913,6 +913,8 @@
 	Browse…	Durchsuchen…
 	{words} words	Wörter: {words}
 	{selected} of {words} words	Wörter: {words}; ausgewählt: {selected}
+	{characters} characters	Zeichen: {characters}
+	{selected} of {characters} characters	Zeichen: {characters}; ausgewählt: {selected}
 	Direction:	Richtung:
 	Right-to-left	Von rechts nach links
 	Left-to-right	Von links nach rechts

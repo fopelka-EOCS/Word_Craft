@@ -944,6 +944,8 @@
 	{key}+Click to follow link	{key}+щракване за отваряне на връзката
 	{selected} of {words} words	Думи: {selected} от {words}
 	{words} words	Думи: {words}
+	{characters} characters	Знаци: {characters}
+	{selected} of {characters} characters	Знаци: {selected} от {characters}
 	Browse…	Преглед…
 	Equation	Уравнение
 	Review	Преглед

@@ -1048,6 +1048,8 @@
 	Browse…	Potraži…
 	{words} words	{words} reči
 	{selected} of {words} words	{selected} od {words} reči
+	{characters} characters	Znakovi: {characters}
+	{selected} of {characters} characters	{selected} od {characters} znakova
 	Direction:	Smer:
 	Right-to-left	Sa desna na levo
 	Left-to-right	Sa leva na desno

@@ -931,6 +931,8 @@
 	{key}+Click to follow link	{key}+clic per seguire il collegamento
 	{selected} of {words} words	Parole: {words}; selezionate: {selected}
 	{words} words	Parole: {words}
+	{characters} characters	Caratteri: {characters}
+	{selected} of {characters} characters	Caratteri: {characters}; selezionate: {selected}
 	Browse…	Sfoglia…
 	Equation	Equazione
 	Review	Revisione

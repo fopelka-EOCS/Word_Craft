@@ -465,13 +465,28 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                 {
                     let _ = app.run("ui.dialog", json!({"name": "goto"}));
                 }
-                let words = app.cached_word_count();
-                // A selected picture/shape/text box isn't a text selection: show the total.
-                let wtxt = if app.session.sel.is_collapsed() || crate::objects::selected(app).is_some() {
-                    crate::i18n::fmt(tl!("{words} words"), &[("words", &words.to_string())])
+                // Chinese documents default to character count (excluding spaces);
+                // other languages continue displaying word count (#3469).
+                let wtxt = if is_chinese_doc(app) {
+                    let chars = app.cached_character_count();
+                    if app.session.sel.is_collapsed() || crate::objects::selected(app).is_some() {
+                        crate::i18n::fmt(tl!("{characters} characters"), &[("characters", &chars.to_string())])
+                    } else {
+                        let sc = wordcraft_doc::count_characters(&app.session.selected_text());
+                        crate::i18n::fmt(
+                            tl!("{selected} of {characters} characters"),
+                            &[("selected", &sc.to_string()), ("characters", &chars.to_string())],
+                        )
+                    }
                 } else {
-                    let sw = wordcraft_doc::count_words(&app.session.selected_text());
-                    crate::i18n::fmt(tl!("{selected} of {words} words"), &[("selected", &sw.to_string()), ("words", &words.to_string())])
+                    let words = app.cached_word_count();
+                    // A selected picture/shape/text box isn't a text selection: show the total.
+                    if app.session.sel.is_collapsed() || crate::objects::selected(app).is_some() {
+                        crate::i18n::fmt(tl!("{words} words"), &[("words", &words.to_string())])
+                    } else {
+                        let sw = wordcraft_doc::count_words(&app.session.selected_text());
+                        crate::i18n::fmt(tl!("{selected} of {words} words"), &[("selected", &sw.to_string()), ("words", &words.to_string())])
+                    }
                 };
                 if st(ui, &wtxt).clicked() {
                     let _ = app.run("ui.dialog", json!({"name": "wordCount"}));
@@ -626,6 +641,31 @@ impl WordApp {
         }
         self.word_count.1
     }
+
+    /// Character count (excluding whitespace), recomputed only when the document changes.
+    pub fn cached_character_count(&mut self) -> usize {
+        let key = self.session.rev().wrapping_mul(2) | u64::from(self.session.prefs.count_notes);
+        if self.char_count.0 != key {
+            self.char_count = (key, self.session.character_count());
+        }
+        self.char_count.1
+    }
+}
+
+/// Does `lang` name Chinese (Simplified or Traditional)?
+pub(crate) fn is_chinese(lang: Option<&str>) -> bool {
+    let Some(tag) = lang else { return false };
+    let bytes = tag.trim().as_bytes();
+    bytes.eq_ignore_ascii_case(b"zh") || (bytes.len() >= 3 && bytes[..2].eq_ignore_ascii_case(b"zh") && (bytes[2] == b'-' || bytes[2] == b'_'))
+}
+
+/// Should document length default to characters (excluding spaces) instead of words?
+/// In Chinese documents, space-delimited word counts are uninformative; character count
+/// is the standard at-a-glance measure (#3469).
+pub(crate) fn is_chinese_doc(app: &WordApp) -> bool {
+    is_chinese(crate::ribbon::caret_lang_tag(app).as_deref())
+        || is_chinese(app.session.doc.styles.default_chr.lang.as_deref())
+        || is_chinese(app.session.editing_lang.as_deref())
 }
 
 #[cfg(test)]
@@ -838,5 +878,34 @@ mod tests {
         click(&ctx, &mut n, row.rect.center(), &mut a);
         assert!(a.canvas.want_focus, "the row click returns focus to the document");
         assert!(a.session.undo_history().is_empty(), "the step was undone");
+    }
+
+    /// #3469: Chinese documents default to character count (excluding spaces) in the status bar;
+    /// English documents continue displaying word count.
+    #[test]
+    fn chinese_documents_default_to_character_count_in_status_bar() {
+        let mut d = wordcraft_doc::Document::from_text("这是一篇测试文章\u{3002}今天天气真好\u{3002}");
+        d.styles.default_chr.lang = Some("zh-CN".into());
+        let mut a = WordApp::new(wordcraft_engine::Session::new(d), crate::Services::default());
+        assert!(is_chinese_doc(&a));
+
+        let total_chars = a.session.character_count();
+        assert_eq!(total_chars, 16);
+        assert_eq!(a.cached_character_count(), 16);
+        assert_eq!(a.session.word_count(), 1);
+
+        let english_doc = wordcraft_doc::Document::from_text("Hello world this is a test.");
+        let a_en = WordApp::new(wordcraft_engine::Session::new(english_doc), crate::Services::default());
+        assert!(!is_chinese_doc(&a_en));
+        assert_eq!(a_en.session.word_count(), 6);
+
+        // Language tag parsing handles valid Chinese tags and multi-byte non-ASCII safely without panicking.
+        assert!(is_chinese(Some("zh")));
+        assert!(is_chinese(Some("zh-CN")));
+        assert!(is_chinese(Some("ZH_TW")));
+        assert!(is_chinese(Some("zh-Hans")));
+        assert!(!is_chinese(Some("en")));
+        assert!(!is_chinese(Some("中文")));
+        assert!(!is_chinese(None));
     }
 }

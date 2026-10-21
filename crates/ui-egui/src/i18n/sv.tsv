@@ -1025,6 +1025,8 @@
 	{key}+Click to follow link	{key}+klicka för att följa länken
 	{selected} of {words} words	{selected} av {words} ord
 	{words} words	{words} ord
+	{characters} characters	{characters} tecken
+	{selected} of {characters} characters	{selected} av {characters} tecken
 	Browse…	Bläddra…
 	Equation	Ekvation
 	Review	Granska

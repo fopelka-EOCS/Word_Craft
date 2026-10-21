@@ -1014,6 +1014,8 @@
 	Browse…	Огляд…
 	{words} words	Слів: {words}
 	{selected} of {words} words	Слів: {words}; виділено: {selected}
+	{characters} characters	Символів: {characters}
+	{selected} of {characters} characters	Символів: {characters}; виділено: {selected}
 	Apply Styles	Застосувати стилі
 	Dark page (white text on black)	Темна сторінка (білий текст на чорному)
 	Show documents with their colours inverted, like View › Switch Modes. Saving, printing and PDFs are unchanged.	Показує документи з інвертованими кольорами, як Вигляд › Перемкнути режими. Збереження, друк і PDF не змінюються.
