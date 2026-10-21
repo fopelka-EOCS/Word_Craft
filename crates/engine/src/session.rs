@@ -19,9 +19,10 @@ pub(crate) fn system_locale() -> Option<&'static str> {
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use wordcraft_doc::edit::Fragment;
+use wordcraft_doc::para::InlineObject;
 use wordcraft_doc::props::CharProps;
 use wordcraft_doc::{Document, Path, Pos, StoryRef, Table};
-use wordcraft_layout::{DocLayout, LayoutCache, LayoutOptions, NumeralMode, ViewMode};
+use wordcraft_layout::{DocLayout, HideDeleted, LayoutCache, LayoutOptions, NumeralMode, ViewMode};
 
 use crate::{CmdError, Registry};
 
@@ -53,6 +54,129 @@ struct TypedWord {
     /// The word's byte range in its paragraph.
     start: usize,
     end: usize,
+}
+
+/// The view settings one layout pass uses, and the cache values that tell whether
+/// [`Session::layout`]'s cached pass still holds.
+struct LayoutSettings {
+    mode: ViewMode,
+    width: f32,
+    height: f32,
+    spacing: Option<u32>,
+    deleted: (bool, HideDeleted, bool),
+    outline: Option<wordcraft_layout::outline::OutlineView>,
+    typing: Option<wordcraft_layout::TypingWord>,
+}
+
+/// What follows a resized picture whose page changes, as the first item that moves (#3375).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PreviewItem {
+    Picture,
+    Table,
+    Text,
+}
+
+/// The page change a resize would make, with displayed page numbers (after section restarts).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResizeChange {
+    /// The picture itself moves.
+    OwnPage { page: u32, up: bool },
+    /// The picture stays and the first following item moves.
+    Follower { page: u32, up: bool, item: PreviewItem },
+}
+
+/// A speculative layout for a resize in progress: whether pagination changes, and how long the
+/// pass took (`ms`, for backing off during a drag).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ResizePreview {
+    pub change: Option<ResizeChange>,
+    pub ms: f64,
+}
+
+/// An item's page in a layout, for comparing a speculative pass with the one on screen.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum PageKey {
+    Text(StoryRef, Path),
+    Object(StoryRef, Path, usize),
+    Table(StoryRef, Path),
+}
+
+/// The page key and label kind of a body item: top-level text lines, pictures/shapes/text boxes
+/// and tables. Cell text, headers and footers don't name a page change of their own.
+fn page_key(item: &wordcraft_layout::Placed) -> Option<(PageKey, PreviewItem)> {
+    use wordcraft_layout::Placed;
+    let body = |story: StoryRef, path: &Path| story == StoryRef::Body && path.depth() == 0;
+    match item {
+        Placed::Lines { story, path, .. } if body(*story, path) => Some((PageKey::Text(*story, path.clone()), PreviewItem::Text)),
+        Placed::Object { story, path, off, .. } | Placed::Image { story, path, off, .. } | Placed::Graphic { story, path, off, .. }
+            if body(*story, path) =>
+        {
+            Some((PageKey::Object(*story, path.clone(), *off), PreviewItem::Picture))
+        }
+        Placed::Cell { story, table, .. } if *story == StoryRef::Body => Some((PageKey::Table(*story, table.clone()), PreviewItem::Table)),
+        _ => None,
+    }
+}
+
+/// Each item's first page, and the order of first occurrences (reading order) in `layout`.
+fn first_pages(layout: &DocLayout) -> (Vec<(PageKey, PreviewItem)>, std::collections::HashMap<PageKey, usize>) {
+    let mut order = Vec::new();
+    let mut pages = std::collections::HashMap::new();
+    let mut seen = std::collections::HashSet::new();
+    for (i, page) in layout.pages.iter().enumerate() {
+        for item in &page.items {
+            if let Some((key, kind)) = page_key(item)
+                && seen.insert(key.clone())
+            {
+                pages.insert(key.clone(), i);
+                order.push((key, kind));
+            }
+        }
+    }
+    (order, pages)
+}
+
+/// The displayed number of page `i` (`Page::number`, after section restarts).
+fn page_number(layout: &DocLayout, i: usize) -> u32 {
+    layout.pages.get(i).map_or(i as u32 + 1, |p| p.number)
+}
+
+/// The first page change between `base` and `spec`, starting with the resized object itself.
+fn resize_change(base: &DocLayout, spec: &DocLayout, pos: &Pos) -> Option<ResizeChange> {
+    let own = PageKey::Object(pos.story, pos.path.clone(), pos.off);
+    let (order, base_pages) = first_pages(base);
+    let (_, spec_pages) = first_pages(spec);
+    let own_at = order.iter().position(|(key, _)| *key == own)?;
+    let from = *base_pages.get(&own)?;
+    let to = *spec_pages.get(&own)?;
+    if to != from {
+        return Some(ResizeChange::OwnPage { page: page_number(spec, to), up: to < from });
+    }
+    // A picture's own line is `Lines` as well as the picture: when both change page, name the
+    // picture, not the line carrying it.
+    let mut object_in: std::collections::HashMap<(StoryRef, Path), &PageKey> = std::collections::HashMap::new();
+    for (key, item) in &order {
+        if *item == PreviewItem::Picture
+            && let PageKey::Object(story, path, _) = key
+        {
+            object_in.entry((*story, path.clone())).or_insert(key);
+        }
+    }
+    for (key, item) in &order[own_at + 1..] {
+        let (Some(&was), Some(&now)) = (base_pages.get(key), spec_pages.get(key)) else { continue };
+        if now != was {
+            if *item == PreviewItem::Text
+                && let PageKey::Text(story, path) = key
+                && let Some(object) = object_in.get(&(*story, path.clone()))
+                && let (Some(&obj_was), Some(&obj_now)) = (base_pages.get(*object), spec_pages.get(*object))
+                && obj_now != obj_was
+            {
+                return Some(ResizeChange::Follower { page: page_number(spec, obj_now), up: obj_now < obj_was, item: PreviewItem::Picture });
+            }
+            return Some(ResizeChange::Follower { page: page_number(spec, now), up: now < was, item: *item });
+        }
+    }
+    None
 }
 
 /// A column (block) selection: the same x range on every line between two corners.
@@ -805,6 +929,41 @@ impl Session {
 
     /// The current layout (recomputed when the document or view changed).
     pub fn layout(&mut self) -> Arc<DocLayout> {
+        let settings = self.layout_settings();
+        if let Some((r, w, h, m, sp, l, pf, o, hd, n, t)) = &self.layout
+            && *r == self.rev
+            && (*w == settings.width || settings.mode == ViewMode::Print)
+            && *h == settings.height
+            && *m == settings.mode
+            && *sp == settings.spacing
+            && *pf == self.view.proofing
+            && *n == self.view.numeral
+            && *hd == settings.deleted
+            && *o == settings.outline
+            && *t == settings.typing
+        {
+            return l.clone();
+        }
+        let opts = self.layout_options(&settings);
+        let l = Arc::new(wordcraft_layout::layout(&self.doc, &mut self.cache, &opts));
+        self.layout = Some((
+            self.rev,
+            settings.width,
+            settings.height,
+            settings.mode,
+            settings.spacing,
+            l.clone(),
+            self.view.proofing,
+            settings.outline,
+            settings.deleted,
+            self.view.numeral,
+            settings.typing,
+        ));
+        l
+    }
+
+    /// The view settings a layout pass depends on (and [`Session::layout`]'s cache key).
+    fn layout_settings(&mut self) -> LayoutSettings {
         let mode = if self.view.read_mode { ViewMode::Read } else { self.view.mode };
         let width = match mode {
             ViewMode::Read => self.view.read_width,
@@ -819,40 +978,60 @@ impl Session {
         let deleted = (hide_deleted, self.prefs.markup.hidden_deletions(), self.revisions_in_balloons());
         let outline = (mode == ViewMode::Outline).then(|| self.view.outline.view());
         let typing = self.typing_word();
-        if let Some((r, w, h, m, sp, l, pf, o, hd, n, t)) = &self.layout
-            && *r == self.rev
-            && (*w == width || mode == ViewMode::Print)
-            && *h == height
-            && *m == mode
-            && *sp == spacing
-            && *pf == self.view.proofing
-            && *n == self.view.numeral
-            && *hd == deleted
-            && *o == outline
-            && *t == typing
-        {
-            return l.clone();
-        }
-        let opts = LayoutOptions {
-            view: mode,
-            web_width: width,
-            read_height: height,
-            read_line_spacing: spacing.map(f32::from_bits),
+        LayoutSettings { mode, width, height, spacing, deleted, outline, typing }
+    }
+
+    /// The [`LayoutOptions`] for `settings`: the view's layout switches, proofing and numbering.
+    fn layout_options(&self, settings: &LayoutSettings) -> LayoutOptions {
+        LayoutOptions {
+            view: settings.mode,
+            web_width: settings.width,
+            read_height: settings.height,
+            read_line_spacing: settings.spacing.map(f32::from_bits),
             show_hidden: self.view.marks || self.prefs.marks.hidden,
-            hide_deleted,
-            hide_marked: deleted.1,
-            deletions_in_balloons: deleted.2,
+            hide_deleted: settings.deleted.0,
+            hide_marked: settings.deleted.1,
+            deletions_in_balloons: settings.deleted.2,
             proofing: self.view.proofing,
             numeral: self.view.numeral.resolve(SYSTEM_LOCALE.get().map(String::as_str)),
             comment_balloons: false,
             field_codes: self.view.field_codes,
-            outline: outline.clone(),
+            outline: settings.outline.clone(),
             proof: wordcraft_layout::ProofOptions { grammar: self.prefs.mark_grammar, spelling: self.prefs.spelling() },
-            typing_word: typing,
-        };
-        let l = Arc::new(wordcraft_layout::layout(&self.doc, &mut self.cache, &opts));
-        self.layout = Some((self.rev, width, height, mode, spacing, l.clone(), self.view.proofing, outline, deleted, self.view.numeral, typing));
-        l
+            typing_word: settings.typing,
+        }
+    }
+
+    /// Lay `doc` out for the current view without touching [`Session::layout`]'s cached result:
+    /// the canvas keeps showing the layout it had while a preview asks what an edit would do.
+    /// `doc` is normally a clone of [`Session::doc`] with one object changed.
+    pub fn speculative_layout(&mut self, doc: &Document) -> DocLayout {
+        let settings = self.layout_settings();
+        let opts = self.layout_options(&settings);
+        wordcraft_layout::layout(doc, &mut self.cache, &opts)
+    }
+
+    /// What resizing the body picture at `pos` to about `w` × `h` points would do to pagination,
+    /// without changing the document, the undo history or the layout on screen (#3375).
+    ///
+    /// The size is clamped exactly as `arrange.bounds` clamps it. Only body pictures outside
+    /// tables are previewed: headers, footers, text boxes and table cells don't re-paginate the
+    /// body. `base` is the layout being shown; its pages are compared with a speculative pass.
+    pub fn resize_preview(&mut self, pos: &Pos, w: f32, h: f32, base: &DocLayout) -> ResizePreview {
+        if pos.story != StoryRef::Body || pos.path.depth() != 0 || !w.is_finite() || !h.is_finite() {
+            return ResizePreview::default();
+        }
+        let mut doc = self.doc.clone();
+        let Ok(para) = doc.para_mut(pos.story, &pos.path) else { return ResizePreview::default() };
+        let Some(obj) = para.object_at_mut(pos.off) else { return ResizePreview::default() };
+        if !matches!(obj, InlineObject::Image { .. }) {
+            return ResizePreview::default();
+        }
+        let (w, h) = crate::cmd::objects::clamped_size(obj, w, h);
+        obj.set_size(w, h);
+        para.touch();
+        let spec = self.speculative_layout(&doc);
+        ResizePreview { change: resize_change(base, &spec, pos), ms: spec.ms }
     }
 
     /// The recorded word while the caret and the word are as typing left them; else drops it.
@@ -1503,4 +1682,145 @@ pub fn blank_document(region: &wordcraft_geom::Region) -> Document {
     d.last_section.page_w = w;
     d.last_section.page_h = h;
     d
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use wordcraft_doc::para::{Float, InlineObject, OBJ};
+
+    use super::*;
+
+    /// A picture of `w` × `h` points in the body (layout uses the size, not the pixels).
+    fn picture(w: f32, h: f32) -> InlineObject {
+        InlineObject::Image { media: String::new(), w, h, alt: String::new(), float: Float::default(), crop: [0.0; 4], ole: None }
+    }
+
+    /// Insert a picture at `pos` and return its position.
+    fn add_picture(s: &mut Session, pos: Pos, w: f32, h: f32) -> Pos {
+        s.doc.insert_object(&pos, picture(w, h), &Default::default()).unwrap();
+        s.touch();
+        pos
+    }
+
+    fn select_object(s: &mut Session, pos: &Pos) {
+        s.sel = Selection { anchor: pos.clone(), focus: Pos { off: pos.off + OBJ.len_utf8(), ..pos.clone() } };
+    }
+
+    /// The picture's page after a real `arrange.bounds` commit at `w` × `h`.
+    fn committed_page(s: &mut Session, pos: &Pos, w: f32, h: f32) -> (usize, u32) {
+        select_object(s, pos);
+        s.run("arrange.bounds", &json!({"width": w, "height": h})).unwrap();
+        let layout = s.layout();
+        let hit = layout.object(pos, 0).expect("the picture is laid out");
+        (hit.page, layout.pages[hit.page].number)
+    }
+
+    /// #3375: growing a picture so its line no longer fits reports its own move, with the
+    /// displayed page number a commit produces.
+    #[test]
+    fn resize_preview_reports_the_pictures_own_page_change() {
+        let mut s = Session::new(Document::from_text("intro\n"));
+        let pos = add_picture(&mut s, Pos::body(1, 0), 100.0, 500.0);
+        let base = s.layout();
+        assert_eq!(base.object(&pos, 0).unwrap().page, 0, "the picture starts on page 1");
+        let (rev, dirty, undo) = (s.rev(), s.dirty, s.undo_depth());
+
+        let preview = s.resize_preview(&pos, 100.0, 700.0, &base);
+        assert_eq!(preview.change, Some(ResizeChange::OwnPage { page: 2, up: false }));
+        assert!(preview.ms >= 0.0);
+        assert_eq!((s.rev(), s.dirty, s.undo_depth()), (rev, dirty, undo), "the preview changes nothing");
+        assert!(std::sync::Arc::ptr_eq(&base, &s.layout()), "the on-screen layout is untouched");
+
+        let (page, number) = committed_page(&mut s, &pos, 100.0, 700.0);
+        assert_eq!((page, number), (1, 2), "the preview matches the commit");
+    }
+
+    /// #3375: a resize that leaves every page assignment alone has no label.
+    #[test]
+    fn resize_preview_is_quiet_when_nothing_changes_page() {
+        let mut s = Session::new(Document::from_text("intro\n"));
+        let pos = add_picture(&mut s, Pos::body(1, 0), 100.0, 100.0);
+        let base = s.layout();
+        assert_eq!(s.resize_preview(&pos, 100.0, 110.0, &base).change, None);
+        assert_eq!(s.resize_preview(&pos, 100.0, 90.0, &base).change, None);
+    }
+
+    /// #3375: the first following picture is the one named when a growing picture pushes it
+    /// over the page edge, and only that first change is reported.
+    #[test]
+    fn resize_preview_names_the_first_following_picture() {
+        // Blank paragraphs put the two pictures near the bottom of page 1.
+        let (mut s, first, second) = (0..60)
+            .find_map(|n| {
+                let mut s = Session::new(Document::from_text(&"\n".repeat(n + 1)));
+                let first = add_picture(&mut s, Pos::body(n, 0), 90.0, 60.0);
+                let second = add_picture(&mut s, Pos::body(n + 1, 0), 90.0, 60.0);
+                let layout = s.layout();
+                let a = layout.object(&first, 0)?;
+                let b = layout.object(&second, 0)?;
+                let near = layout.pages[0].body.bottom() - b.rect.bottom();
+                (a.page == 0 && b.page == 0 && near < 80.0 && near > 0.0).then_some((s, first, second))
+            })
+            .expect("two pictures near the bottom of page 1");
+        let base = s.layout();
+        let a = base.object(&first, 0).unwrap();
+        let b = base.object(&second, 0).unwrap();
+        let grow = base.pages[0].body.bottom() - b.rect.bottom() + 10.0;
+        assert!(a.rect.bottom() + grow < base.pages[0].body.bottom(), "the first picture stays on the page");
+        let preview = s.resize_preview(&first, 90.0, 60.0 + grow, &base);
+        assert_eq!(preview.change, Some(ResizeChange::Follower { page: 2, up: false, item: PreviewItem::Picture }));
+
+        let (page, _) = committed_page(&mut s, &first, 90.0, 60.0 + grow);
+        let layout = s.layout();
+        let moved = layout.object(&second, 0).unwrap();
+        assert_eq!((moved.page, layout.pages[moved.page].number), (page + 1, 2), "the second picture moved next");
+    }
+
+    /// #3375: the preview clamps exactly as `arrange.bounds` does, so a handle dragged below
+    /// the minimum predicts the layout the drop will make.
+    #[test]
+    fn resize_preview_clamps_like_arrange_bounds() {
+        let mut s = Session::new(Document::from_text("intro\n"));
+        let pos = add_picture(&mut s, Pos::body(1, 0), 300.0, 300.0);
+        let base = s.layout();
+        let preview = s.resize_preview(&pos, 1.0, 1.0, &base);
+        let (page, number) = committed_page(&mut s, &pos, 1.0, 1.0);
+        let layout = s.layout();
+        let hit = layout.object(&pos, 0).unwrap();
+        assert_eq!((hit.rect.w, hit.rect.h), (4.0, 4.0), "the minimum size");
+        assert_eq!(preview.change, None, "both stay on page 1");
+        assert_eq!((hit.page, layout.pages[hit.page].number), (page, number));
+    }
+
+    /// #3375: the preview shows the page number the drop will produce in a section that
+    /// restarts numbering, not the document-wide page index.
+    #[test]
+    fn resize_preview_uses_displayed_page_numbers() {
+        let mut s = Session::new(Document::new());
+        s.run("text.insert", &json!({"text": "one"})).unwrap();
+        s.run("text.pageBreak", &json!({})).unwrap();
+        s.run("text.insert", &json!({"text": "two"})).unwrap();
+        s.run("layout.break", &json!({"kind": "nextPage"})).unwrap();
+        s.run("layout.pageNumberFormat", &json!({"start": 1})).unwrap();
+        let section = s.doc.sections().len() - 1;
+        let section_start = s.layout().pages.iter().position(|p| p.section == section).unwrap();
+        for _ in 0..4 {
+            s.run("text.newParagraph", &json!({})).unwrap();
+        }
+        let at = s.sel.focus.clone();
+        let pos = add_picture(&mut s, at, 100.0, 500.0);
+        let base = s.layout();
+        let start = base.object(&pos, 0).unwrap();
+        assert_eq!(start.page, section_start, "section 2's first page");
+        assert_eq!(base.pages[start.page].number, 1, "numbering restarts at 1");
+
+        let preview = s.resize_preview(&pos, 100.0, 700.0, &base);
+        let Some(ResizeChange::OwnPage { page, up: false }) = preview.change else { panic!("the picture moves: {:?}", preview.change) };
+        assert_eq!(page, 2, "section 2's second page shows 2, not the document's page index + 1");
+        assert_ne!(start.page as u32 + 2, page, "the restart makes it differ from the document-wide number");
+
+        let (actual, number) = committed_page(&mut s, &pos, 100.0, 700.0);
+        assert_eq!((actual, number), (start.page + 1, 2), "the preview matches the commit");
+    }
 }

@@ -1647,6 +1647,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     if !middle_gesture && !crate::table_pen::pointer(app, ui, &resp, &rects, &layout, geo.scale) {
         mouse(app, ui, &resp, &rects, &layout, geo.scale);
     }
+    crate::objects::paint_resize_label(app, ui);
     // A click on a check box ticks it; on a list's button opens the list.
     if !middle_gesture {
         crate::content_controls::clicks(app, &resp);

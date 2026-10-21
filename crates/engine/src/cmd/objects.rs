@@ -670,6 +670,13 @@ pub fn min_size(o: &InlineObject) -> f32 {
 /// Largest object offset or move, points.
 const MAX_OFFSET: f32 = 4000.0;
 
+/// The size `arrange.bounds` commits for `o` when asked for `w` × `h`: at least its minimum,
+/// at most [`MAX_OFFSET`]. The resize preview uses the same clamp (#3375).
+pub fn clamped_size(o: &InlineObject, w: f32, h: f32) -> (f32, f32) {
+    let min = min_size(o);
+    (w.clamp(min, MAX_OFFSET), h.clamp(min, MAX_OFFSET))
+}
+
 /// Resize and/or move the selected object (dragging its frame or handles).
 fn bounds(s: &mut Session, v: &Value) -> CmdResult {
     let (pos, obj) = selected(s).ok_or_else(|| CmdError::Disabled("no picture or shape selected".into()))?;
@@ -679,9 +686,7 @@ fn bounds(s: &mut Session, v: &Value) -> CmdResult {
         _ => return Err(CmdError::Params("`x` and `y` go together".into())),
     };
     let (w0, h0) = obj_size(&obj);
-    let min = min_size(&obj);
-    let w = p::f32(v, "width").unwrap_or(w0).clamp(min, MAX_OFFSET);
-    let h = p::f32(v, "height").unwrap_or(h0).clamp(min, MAX_OFFSET);
+    let (w, h) = clamped_size(&obj, p::f32(v, "width").unwrap_or(w0), p::f32(v, "height").unwrap_or(h0));
     if (w, h) != (w0, h0) {
         with_obj(s, |o| o.set_size(w, h))?;
     }

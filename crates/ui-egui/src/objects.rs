@@ -16,7 +16,7 @@
 //! A selected connector shows a handle at each end instead of a frame: dragging one onto a shape
 //! glues it to the nearest connection site there (`shape.connect`), elsewhere leaves it free.
 
-use egui::{Color32, Painter, Pos2, Rect, Ui};
+use egui::{Color32, Painter, Pos2, Rect, Ui, vec2};
 use serde_json::json;
 use wordcraft_doc::para::{InlineObject, OBJ, Wrap};
 use wordcraft_doc::{PartKind, Pos, StoryRef};
@@ -54,6 +54,60 @@ pub struct ObjectDrag {
     guides: Vec<crate::guides::Guide>,
     /// The object drawn alone over its rotated bounds, for the preview: made once it moves.
     preview: Option<egui::TextureHandle>,
+    /// What a picture resize would do to pagination ("Moves to page 3"), shown beside the
+    /// pointer (#3375). `None` when nothing changes page, or the drag isn't a body-picture resize.
+    layout_label: Option<String>,
+    /// The size the last speculative layout ran for, so a still pointer doesn't lay out again.
+    layout_size: Option<(f32, f32)>,
+    /// The earliest egui time (seconds) for the next speculative pass: ~10 a second, ~4 while a
+    /// pass takes over 8 ms.
+    layout_next: f64,
+}
+
+impl ObjectDrag {
+    /// Preview what this resize does to pagination, and keep the label beside the pointer
+    /// (#3375). Runs at most ~10 times a second, ~4 while a pass takes over 8 ms; a still size
+    /// doesn't lay out again. Only body pictures outside tables re-paginate the body.
+    fn update_layout_label(&mut self, app: &mut WordApp, layout: &DocLayout, at: Pos2, now: f64) {
+        let resizing = self.drag.moved
+            && matches!(self.drag.grab, Grab::Resize(_))
+            && self.picture
+            && self.object.story == StoryRef::Body
+            && self.object.path.depth() == 0;
+        if !resizing || !app.canvas.viewport.is_some_and(|v| v.contains(at)) {
+            self.layout_label = None;
+            self.layout_size = None;
+            return;
+        }
+        let size = (self.drag.rect.w, self.drag.rect.h);
+        if self.layout_size == Some(size) || now < self.layout_next {
+            return;
+        }
+        self.layout_size = Some(size);
+        let preview = app.session.resize_preview(&self.object.pos(), size.0, size.1, layout);
+        self.layout_label = preview.change.map(layout_label);
+        self.layout_next = now + if preview.ms > 8.0 { 0.25 } else { 0.12 };
+    }
+}
+
+/// The label for a predicted page change (#3375), with the displayed page number filled in.
+fn layout_label(change: wordcraft_engine::ResizeChange) -> String {
+    use wordcraft_engine::{PreviewItem, ResizeChange};
+    let (page, up, item) = match change {
+        ResizeChange::OwnPage { page, up } => (page, up, None),
+        ResizeChange::Follower { page, up, item } => (page, up, Some(item)),
+    };
+    let template = match (up, item) {
+        (false, None) => tl!("Moves to page {page}"),
+        (true, None) => tl!("Moves up to page {page}"),
+        (false, Some(PreviewItem::Picture)) => tl!("Pushes the next picture to page {page}"),
+        (true, Some(PreviewItem::Picture)) => tl!("Pulls the next picture up to page {page}"),
+        (false, Some(PreviewItem::Table)) => tl!("Pushes the next table to page {page}"),
+        (true, Some(PreviewItem::Table)) => tl!("Pulls the next table up to page {page}"),
+        (false, Some(PreviewItem::Text)) => tl!("Pushes the text after it to page {page}"),
+        (true, Some(PreviewItem::Text)) => tl!("Pulls the text after it up to page {page}"),
+    };
+    crate::i18n::fmt(template, &[("page", &page.to_string())])
 }
 
 /// How near (screen points) a press must be to a connector's end to grab it.
@@ -209,6 +263,7 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
             if d.drag.moved && d.preview.is_none() && shows_pixels(&d) {
                 d.preview = preview(app, ui.ctx(), layout, &d.object, scale);
             }
+            d.update_layout_label(app, layout, at, ui.input(|i| i.time));
             app.canvas.obj_drag = Some(d);
         } else {
             drop(app, &d);
@@ -236,6 +291,9 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
             end: Some((which, (0.0, 0.0))),
             guides: Vec::new(),
             preview: None,
+            layout_label: None,
+            layout_size: None,
+            layout_next: 0.0,
             copy: false,
         });
         return true;
@@ -269,6 +327,9 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
             end: None,
             guides: Vec::new(),
             preview: None,
+            layout_label: None,
+            layout_size: None,
+            layout_next: 0.0,
             copy: false,
         });
         return false;
@@ -293,6 +354,9 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
                 end: None,
                 guides: Vec::new(),
                 preview: None,
+                layout_label: None,
+                layout_size: None,
+                layout_next: 0.0,
                 copy,
             });
         }
@@ -574,6 +638,37 @@ pub fn paint(app: &WordApp, painter: &Painter, t: &Tokens, layout: &DocLayout, p
     }
 }
 
+/// Where the resize label sits for a pointer at `at` and a label `size`: to its right, or to its
+/// left when it would run past the viewport's right edge, kept inside vertically (#3375).
+fn resize_label_at(at: Pos2, size: egui::Vec2, vp: Rect) -> (egui::Align2, Pos2) {
+    let gap = 16.0;
+    let (pivot, x) =
+        if at.x + gap + size.x <= vp.right() - 4.0 { (egui::Align2::LEFT_CENTER, at.x + gap) } else { (egui::Align2::RIGHT_CENTER, at.x - gap) };
+    let (lo, hi) = (vp.top() + size.y / 2.0 + 4.0, vp.bottom() - size.y / 2.0 - 4.0);
+    (pivot, egui::pos2(x, at.y.clamp(lo.min(hi), hi.max(lo))))
+}
+
+/// While a body picture is resized, what the drag would do to pagination ("Moves to page 3"),
+/// beside the pointer: right of it, flipped left near the window's right edge, kept inside the
+/// viewport vertically, and never taking a click (#3375). Drawn after the canvas has handled the
+/// pointer so this frame's preview shows at once.
+pub fn paint_resize_label(app: &WordApp, ui: &Ui) {
+    let Some(d) = &app.canvas.obj_drag else { return };
+    let Some(text) = &d.layout_label else { return };
+    let (Some(at), Some(vp)) = (ui.ctx().pointer_latest_pos(), app.canvas.viewport) else { return };
+    let font = egui::FontId::proportional(13.0);
+    let galley = ui.painter().layout_no_wrap(text.clone(), font.clone(), ui.visuals().text_color());
+    let (pivot, pos) = resize_label_at(at, galley.size() + vec2(16.0, 8.0), vp);
+    egui::Area::new(egui::Id::new("object_resize_layout")).order(egui::Order::Tooltip).interactable(false).pivot(pivot).fixed_pos(pos).show(
+        ui.ctx(),
+        |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.label(egui::RichText::new(text).font(font));
+            });
+        },
+    );
+}
+
 /// A connector's end being dragged: a line from its other end to the pointer, and the connection
 /// sites of the shapes near the pointer (the one it would glue to, filled).
 fn paint_end_drag(app: &WordApp, d: &ObjectDrag, painter: &Painter, t: &Tokens, layout: &DocLayout, pages: &[Rect], scale: f32) {
@@ -670,7 +765,8 @@ pub fn enter_text_box(app: &mut WordApp) -> bool {
 mod tests {
     use std::sync::Arc;
 
-    use wordcraft_doc::para::{InlineObject, ShapeKind};
+    use egui_kittest::kittest::Queryable;
+    use wordcraft_doc::para::{Float, InlineObject, OBJ, ShapeKind};
     use wordcraft_doc::{Document, Pos};
 
     use super::*;
@@ -1095,5 +1191,173 @@ mod tests {
         let o = shape(&mut h);
         assert_eq!(o.page, 1, "dropped on the page under the pointer, not thrown back");
         assert!((o.rect.x - 100.0).abs() < 0.5, "kept its place across: {:?}", o.rect);
+    }
+
+    /// A body picture of `w` × `h` in `text`'s paragraph `path`, selected.
+    fn app_with_picture(text: &str, path: usize, w: f32, h: f32) -> (WordApp, Pos) {
+        let mut s = wordcraft_engine::Session::new(Document::from_text(text));
+        let pos = Pos::body(path, 0);
+        let obj = InlineObject::Image { media: String::new(), w, h, alt: String::new(), float: Float::default(), crop: [0.0; 4], ole: None };
+        s.doc.insert_object(&pos, obj, &Default::default()).unwrap();
+        s.touch();
+        s.sel = wordcraft_engine::Selection { anchor: pos.clone(), focus: Pos { off: pos.off + OBJ.len_utf8(), ..pos.clone() } };
+        (WordApp::new(s, crate::Services::default()), pos)
+    }
+
+    fn harness(app: WordApp) -> egui_kittest::Harness<'static, WordApp> {
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        h
+    }
+
+    /// Drag `pos`'s bottom-right handle down by `dy` page points, keeping the width (Shift), and
+    /// return the screen point it ends at.
+    fn drag_resize(h: &mut egui_kittest::Harness<'_, WordApp>, pos: &Pos, dy: f32) -> Pos2 {
+        use egui::{Event, Modifiers, PointerButton};
+        let (page, x, y) = {
+            let layout = h.state_mut().session.layout();
+            let o = layout.object(pos, 0).expect("the picture is laid out");
+            (o.page, o.rect.right(), o.rect.bottom())
+        };
+        let start = crate::canvas::page_to_screen(h.state_mut(), page, x, y).expect("the handle is on screen");
+        let end = crate::canvas::page_to_screen(h.state_mut(), page, x, y + dy).expect("the end is on screen");
+        let button =
+            |at: Pos2, pressed: bool| Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Default::default() };
+        h.event(Event::ModifiersChanged(Modifiers::SHIFT));
+        h.event(Event::PointerMoved(start));
+        h.event(button(start, true));
+        h.step();
+        for k in 1..=4 {
+            h.event(Event::PointerMoved(start + (end - start) * (k as f32 / 4.0)));
+            h.step();
+        }
+        end
+    }
+
+    /// #3375: growing a picture past the page's bottom shows the page it will move to while the
+    /// handle is still held, as a real label on screen; release puts it away.
+    #[test]
+    fn resizing_a_picture_shows_the_page_it_will_land_on() {
+        use egui::{Event, PointerButton};
+        let (mut app, pos) = app_with_picture("intro\n", 1, 100.0, 500.0);
+        app.run("view.zoom", json!({"value": 50})).unwrap();
+        let mut h = harness(app);
+        let end = drag_resize(&mut h, &pos, 200.0);
+        // Holding the handle still lets the throttle's next pass measure the final size.
+        for _ in 0..8 {
+            h.step();
+        }
+        let label = h.state().canvas.obj_drag.as_ref().and_then(|d| d.layout_label.clone());
+        assert_eq!(label.as_deref(), Some("Moves to page 2"), "the label follows the first measured frame");
+        assert!(h.query_by_label("Moves to page 2").is_some(), "the label is drawn, not only stored");
+
+        // Leaving the canvas puts the label away at once; the drag is still going.
+        let vp = h.state().canvas.viewport.expect("the canvas viewport");
+        let outside = egui::pos2(end.x, vp.bottom() + 10.0);
+        h.event(Event::PointerMoved(outside));
+        h.step();
+        let d = h.state().canvas.obj_drag.as_ref().expect("still dragging");
+        assert_eq!(d.layout_label, None, "hidden while outside the canvas");
+        assert!(h.query_by_label("Moves to page 2").is_none());
+
+        let button =
+            |at: Pos2, pressed: bool| Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Default::default() };
+        h.event(button(outside, false));
+        for _ in 0..3 {
+            h.step();
+        }
+        assert!(h.state().canvas.obj_drag.is_none(), "released: the drag and label go");
+    }
+
+    /// #3375: a resize that keeps every item on its page shows no label.
+    #[test]
+    fn a_resize_that_keeps_its_page_shows_no_label() {
+        use egui::{Event, PointerButton};
+        let (app, pos) = app_with_picture("intro\n", 1, 100.0, 100.0);
+        let mut h = harness(app);
+        let end = drag_resize(&mut h, &pos, 20.0);
+        let d = h.state().canvas.obj_drag.as_ref().expect("dragging");
+        assert_eq!(d.layout_label, None);
+        let button =
+            |at: Pos2, pressed: bool| Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Default::default() };
+        h.event(button(end, false));
+        for _ in 0..3 {
+            h.step();
+        }
+        assert!(h.state().canvas.obj_drag.is_none());
+    }
+
+    /// #3375: a picture pushed over by the one being resized is named as the next picture; Esc
+    /// and the pointer leaving the canvas put the label away at once.
+    #[test]
+    fn resizing_a_picture_names_the_first_picture_it_pushes() {
+        let (mut app, first, _second, grow) = (0..60)
+            .find_map(|n| {
+                let mut s = wordcraft_engine::Session::new(Document::from_text(&"\n".repeat(n + 1)));
+                let first = Pos::body(n, 0);
+                let second = Pos::body(n + 1, 0);
+                for pos in [&first, &second] {
+                    let obj = InlineObject::Image {
+                        media: String::new(),
+                        w: 90.0,
+                        h: 60.0,
+                        alt: String::new(),
+                        float: Float::default(),
+                        crop: [0.0; 4],
+                        ole: None,
+                    };
+                    s.doc.insert_object(pos, obj, &Default::default()).unwrap();
+                }
+                s.touch();
+                let layout = s.layout();
+                let a = layout.object(&first, 0)?;
+                let b = layout.object(&second, 0)?;
+                let near = layout.pages[0].body.bottom() - b.rect.bottom();
+                if a.page != 0 || b.page != 0 || !(0.0..80.0).contains(&near) {
+                    return None;
+                }
+                let grow = near + 10.0;
+                s.sel = wordcraft_engine::Selection { anchor: first.clone(), focus: Pos { off: first.off + OBJ.len_utf8(), ..first.clone() } };
+                Some((WordApp::new(s, crate::Services::default()), first, second, grow))
+            })
+            .expect("two pictures near the bottom of page 1");
+        app.run("view.zoom", json!({"value": 50})).unwrap();
+        let mut h = harness(app);
+        drag_resize(&mut h, &first, grow);
+        for _ in 0..8 {
+            h.step();
+        }
+        let label = h.state().canvas.obj_drag.as_ref().and_then(|d| d.layout_label.clone());
+        assert_eq!(label.as_deref(), Some("Pushes the next picture to page 2"));
+
+        h.event(egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::default() });
+        h.step();
+        assert!(h.state().canvas.obj_drag.is_none(), "Esc cancels the drag and hides the label");
+        assert!(h.query_by_label("Pushes the next picture to page 2").is_none());
+    }
+
+    /// #3375: the label flips to the pointer's left when the right edge leaves no room, and stays
+    /// inside the viewport vertically.
+    #[test]
+    fn the_resize_label_flips_left_near_the_right_edge() {
+        let vp = Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 600.0));
+        let size = egui::vec2(130.0, 24.0);
+        let (pivot, pos) = resize_label_at(egui::pos2(100.0, 300.0), size, vp);
+        assert_eq!(pivot, egui::Align2::LEFT_CENTER);
+        assert_eq!(pos, egui::pos2(116.0, 300.0));
+
+        let (pivot, pos) = resize_label_at(egui::pos2(760.0, 590.0), size, vp);
+        assert_eq!(pivot, egui::Align2::RIGHT_CENTER, "no room on the right");
+        assert_eq!(pos.x, 744.0);
+        assert_eq!(pos.y, vp.bottom() - size.y / 2.0 - 4.0, "kept inside the bottom");
     }
 }
