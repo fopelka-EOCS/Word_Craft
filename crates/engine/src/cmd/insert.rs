@@ -456,9 +456,13 @@ fn link(s: &mut Session, v: &Value) -> CmdResult {
     sel_result(s)
 }
 
-/// Whether `name` can name a bookmark: no spaces, at most 40 characters, not starting with a digit.
+/// Whether `name` can name a bookmark: a letter or `_` to start (Word's own hidden bookmarks
+/// are `_Ref…` and `_GoBack`), then letters, digits or `_`; at most 40 characters (as Word counts
+/// them, not UTF-8 bytes).
 pub fn bookmark_name_ok(name: &str) -> bool {
-    !name.is_empty() && !name.contains(' ') && name.len() <= 40 && !name.chars().next().is_some_and(|c| c.is_ascii_digit())
+    name.chars().count() <= 40
+        && name.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
+        && name.chars().all(|c| c.is_alphanumeric() || c == '_')
 }
 
 /// Where bookmark `name` is: see [`bookmark_span`]. `None` when there is no such bookmark.
@@ -1141,6 +1145,19 @@ mod tests {
     /// Insert › Bookmark › Delete (#1236): a bookmark across two paragraphs loses both its marks,
     /// the text and the selection stay where they were, and one undo brings it back. Go To
     /// selects the bookmark's text, as in Word.
+    #[test]
+    fn bookmark_names_follow_word_rules() {
+        assert!(bookmark_name_ok("Mark1"));
+        assert!(bookmark_name_ok("быстрый_доступ_к_документам"), "27 characters, 51 UTF-8 bytes");
+        assert!(bookmark_name_ok(&"a".repeat(40)));
+        assert!(!bookmark_name_ok(&"a".repeat(41)));
+        assert!(!bookmark_name_ok("1foo"));
+        assert!(bookmark_name_ok("_Hidden"), "hidden bookmarks start with _");
+        assert!(!bookmark_name_ok("a&b"));
+        assert!(!bookmark_name_ok("a!b"));
+        assert!(!bookmark_name_ok("a b"));
+    }
+
     #[test]
     fn deleting_a_bookmark_removes_its_start_and_end() {
         let mut s = Session::new(wordcraft_doc::Document::from_text("Alpha beta\ngamma delta"));
