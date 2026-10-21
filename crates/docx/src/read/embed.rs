@@ -65,36 +65,41 @@ pub const HANDLED_RELS: &[&str] = &[
 /// Most relationship ids one object's markup may use.
 const MAX_IDS: usize = 64;
 
-/// The relationship ids the main document's markup refers to: the ids that appear in it as a
-/// quoted value, the way an attribute names one (`r:id="rId5"`).
+/// The relationship ids the main document's markup refers to: the ids it names in a
+/// relationship attribute (`r:id="rId5"`, VML's `o:relid`) — the same rule the embedded objects
+/// use ([`rel_ids`]).
 ///
-/// One pass over the part, not one search per id: the ids are looked up as they go, so the cost
-/// is the size of the part rather than its size times the number of relationships (#12). A quoted
-/// run that isn't an id is skipped, and the run ends at the next quote; that closing quote is
-/// looked at again as an opening one, so an id that sits between two quoted runs — `"a"rId5"b"`,
-/// which a search for `"id"` would find — is found here too.
-fn referenced_ids<'a>(main: &[u8], document: &'a Rels) -> HashSet<&'a [u8]> {
+/// One pass over the markup the reader has already parsed, not one search per id: the ids are
+/// looked up as they are met, so the cost is the size of the document rather than its size
+/// times the number of relationships (#12). A name that is not a relationship is ignored, and a
+/// name that is not one of the document's relationship ids is not collected. An id that only
+/// appears as text is not a reference: the text does not name a part, and treating it as one
+/// lost the part on save.
+fn referenced_ids<'a>(root: &El, document: &'a Rels) -> HashSet<&'a [u8]> {
     let ids: HashSet<&[u8]> = document.list.iter().map(|r| r.id.as_bytes()).collect();
     let mut found = HashSet::new();
     if ids.is_empty() {
         return found;
     }
-    let mut i = 0;
-    while i < main.len() {
-        if main[i] != b'"' {
-            i += 1;
-            continue;
-        }
-        let start = i + 1;
-        let Some(p) = main[start..].iter().position(|&b| b == b'"') else { break };
-        let end = start + p;
-        if let Some(id) = ids.get(&main[start..end]) {
+    collect_rel_ids(root, &ids, &mut found, 0);
+    found
+}
+
+/// The ids `e` names in a relationship attribute that are in `ids`, collected into `found`.
+fn collect_rel_ids<'a>(e: &El, ids: &HashSet<&'a [u8]>, found: &mut HashSet<&'a [u8]>, depth: usize) {
+    if depth > MAX_DEPTH {
+        return;
+    }
+    for (k, v) in &e.attrs {
+        if (k.starts_with("r:") || k == "o:relid")
+            && let Some(id) = ids.get(v.as_bytes())
+        {
             found.insert(*id);
         }
-        // The closing quote may be the opening quote of the next run: `"a"rId5"b"` names rId5.
-        i = end;
     }
-    found
+    for c in e.els() {
+        collect_rel_ids(c, ids, found, depth + 1);
+    }
 }
 
 impl Reader<'_> {
@@ -132,14 +137,12 @@ impl Reader<'_> {
     /// relationship types the writer produces or the reader models ([`HANDLED_RELS`]) and any
     /// relationship the main document's markup refers to by id (its target goes with the
     /// element, or not at all).
-    pub(super) fn keep_unmodelled(&mut self, package: &Rels, document: &Rels) {
-        let pkg = self.pkg;
-        let main = pkg.get(&self.main).unwrap_or_default();
-        // The ids the main document's markup refers to, in one pass over it: an id appears in
-        // the markup as a quoted value, the way an attribute names it (`r:id="rId5"`). One
-        // scan for all of them, not one search per relationship — a large document with many
-        // relationships took minutes to open (#12).
-        let referenced = referenced_ids(main, document);
+    pub(super) fn keep_unmodelled(&mut self, root: &El, package: &Rels, document: &Rels) {
+        // The ids the main document's markup refers to, in one pass over the markup: an id is
+        // named in a relationship attribute (`r:id="rId5"`). One scan for all of them, not one
+        // search per relationship — a large document with many relationships took minutes to
+        // open (#12).
+        let referenced = referenced_ids(root, document);
         let mut roots = String::new();
         // One glossary per main document (its first relationship; see `read_glossary`).
         let mut glossary = false;
@@ -292,16 +295,14 @@ mod tests {
     const ROOT_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#;
     const CONTENT_TYPES: &str = r#"<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="bin" ContentType="application/octet-stream"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>"#;
 
-    /// A package whose main part holds `body`, and which relates to `rels` parts the reader
-    /// doesn't model, so each one is looked for in the part.
+    /// A package whose main part holds `body` (the XML inside `w:body`), and which relates to
+    /// `rels` parts of a type the reader doesn't model, so each one is looked for in the part.
     fn package(body: &str, rels: &[(&str, &str)], parts: &[(&str, &[u8])]) -> Vec<u8> {
-        let doc = format!(
-            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document {W_NS}><w:body><w:p><w:r><w:t xml:space="preserve">{body}</w:t></w:r></w:p></w:body></w:document>"#
-        );
+        let doc = format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document {W_NS}><w:body>{body}</w:body></w:document>"#);
         let mut r = String::from(r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">"#);
         for (id, target) in rels {
             r.push_str(&format!(
-                r#"<Relationship Id="{id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/attachedTemplate" Target="{target}"/>"#
+                r#"<Relationship Id="{id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/printerSettings" Target="{target}"/>"#
             ));
         }
         r.push_str("</Relationships>");
@@ -330,12 +331,13 @@ mod tests {
 
     /// Opening a document costs the size of its main part, not that size times the number of its
     /// relationships (#12). Eight megabytes of main part with a thousand relationships used to
-    /// take half a minute; the scan is now one pass over the part.
+    /// take half a minute; the scan is now one pass over the markup.
     #[test]
     fn a_document_with_many_relationships_opens_in_the_time_its_part_takes() {
         let rels: Vec<(String, String)> = (0..1024).map(|i| (format!("rIdT{i}"), format!("file{i}.bin"))).collect();
         let rels: Vec<(&str, &str)> = rels.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
-        let bytes = package(&"a".repeat(8 << 20), &rels, &[]);
+        let body = format!(r#"<w:p><w:r><w:t xml:space="preserve">{}</w:t></w:r></w:p>"#, "a".repeat(8 << 20));
+        let bytes = package(&body, &rels, &[]);
         let t = std::time::Instant::now();
         let doc = crate::read(&bytes).unwrap();
         let took = t.elapsed();
@@ -348,19 +350,30 @@ mod tests {
     #[test]
     fn a_relationship_the_markup_names_is_not_carried_over_again() {
         // The markup names the relationship, so the part goes with the element that names it.
-        let named = package(r#"before "rIdDoc1" after"#, &[("rIdDoc1", "keep.bin")], &[("word/keep.bin", b"kept")]);
+        let named = package(
+            r#"<w:p><w:r><w:t>before</w:t></w:r></w:p><w:sectPr><w:printerSettings r:id="rIdDoc1"/></w:sectPr>"#,
+            &[("rIdDoc1", "keep.bin")],
+            &[("word/keep.bin", b"kept")],
+        );
         let roots = unmodelled_roots(&crate::read(&named).unwrap());
         assert!(!roots.contains("keep.bin"), "the part is carried twice: {roots}");
 
         // A part the markup doesn't name is carried over, as before.
-        let unnamed = package("no mention here", &[("rIdDoc1", "keep.bin")], &[("word/keep.bin", b"kept")]);
+        let unnamed = package(r#"<w:p><w:r><w:t>no mention here</w:t></w:r></w:p>"#, &[("rIdDoc1", "keep.bin")], &[("word/keep.bin", b"kept")]);
         let roots = unmodelled_roots(&crate::read(&unnamed).unwrap());
         assert!(roots.contains("keep.bin"), "the part is dropped: {roots}");
+    }
 
-        // Between two quoted runs the id's quotes are the first run's close and the second's
-        // open; a search for `"id"` finds it, so the scan must too.
-        let between = package(r#""a"rIdDoc1"b""#, &[("rIdDoc1", "keep.bin")], &[("word/keep.bin", b"kept")]);
-        let roots = unmodelled_roots(&crate::read(&between).unwrap());
-        assert!(!roots.contains("keep.bin"), "the part is carried twice: {roots}");
+    /// An id the markup only mentions as text does not name a part: the part is carried over,
+    /// not dropped because the text looked like a reference.
+    #[test]
+    fn a_part_the_markup_only_mentions_is_carried_over() {
+        let mentioned = package(
+            r#"<w:p><w:r><w:t xml:space="preserve">before "rIdDoc1" after</w:t></w:r></w:p>"#,
+            &[("rIdDoc1", "keep.bin")],
+            &[("word/keep.bin", b"kept")],
+        );
+        let roots = unmodelled_roots(&crate::read(&mentioned).unwrap());
+        assert!(roots.contains("keep.bin"), "the part is dropped: {roots}");
     }
 }

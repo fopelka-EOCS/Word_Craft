@@ -189,13 +189,14 @@ No overall parity estimate changes from these probes.
 | Font picker with many installed fonts | fixed freezes (#233) | instant | issue #31, #59 |
 | Large real-world documents (500+ pages, many pictures) | not measured | | gap |
 | Scrolling a 1,096-page document that is one 5,300-row table (#811) | ~2.4 ms idle, ~4.5 ms median scroll frame (was ~600 ms); opening still lays out for ~4–8 s | not measured | measured 2026-10-12, release, headless (`tests_perf::big_table_scroll_bench`) |
-| A word with no break opportunity in it, laid out beside a floating object (#3412) | 1 MiB: 30.0 s → 1.0 s; eight times the word costs eighteen times the time, not sixty | not measured | measured 2026-10-21 (`layout::tests::a_long_unbreakable_word_lays_out_in_linear_time`, `layout::tests::a_megabyte_long_word_lays_out_quickly`) |
+| A word with no break opportunity in it, laid out beside a floating object (#3412) | 1 MiB: 29.4 s → 0.35 s; 4 MiB: 472 s → 1.4 s | not measured | measured 2026-10-21, on 9b4b948c before the fix and with it (`layout::tests::a_long_unbreakable_word_lays_out_in_linear_time`, `layout::tests::a_megabyte_long_word_lays_out_quickly`) |
 
 A word with no break opportunity in it takes a line per few characters, and measuring the word
 beside a floating object walked the whole paragraph for every one of those lines, so the layout
 was quadratic in the word's length (#3412). The measurement now stops once the word is clearly
 wider than the room there is: the advances are widths, so the rest of it could only make it
-wider. The answer and the layout are the same.
+wider. The answer and the layout are the same. Eight times the word costs about eighteen times
+the time, not the sixty-four a quadratic would; the same test with the fix reverted measured 59.6.
 
 TOC refresh includes heading and outline paragraphs inside tables, including nested cells. Links and page numbers retain their full paragraph paths when entries move body blocks. The existing link picker still accepts top-level heading block indices.
 
