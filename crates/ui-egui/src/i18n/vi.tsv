@@ -973,6 +973,7 @@
 	Previous sentence	Câu trước đó
 	Play/Pause	Phát/Tạm dừng
 	Read Aloud Status	Trạng thái đọc to
+	Read Aloud Settings	Cài đặt đọc to
 	Reading Speed	Tốc độ đọc
 	Skip Citations and Bibliography	Bỏ qua trích dẫn và danh mục tham khảo
 	Skip citations & bibliography	Bỏ qua trích dẫn và danh mục tham khảo
@@ -2739,3 +2740,9 @@ template	Letter	Thư
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Nhập kích thước theo đơn vị bất kỳ, ví dụ 5 cm hoặc 300 px. Cạnh còn lại thay đổi theo, nên ảnh giữ nguyên tỷ lệ.
 
 	Import…	Nhập…
+	Read at a time:	Đọc mỗi lần:
+	One paragraph	Một đoạn văn
+	One page	Một trang
+	The whole document	Toàn bộ tài liệu
+	Read Aloud settings…	Cài đặt đọc to…
+	Read Aloud prepares and reads this much text, then goes on to the next part.	Đọc to chuẩn bị và đọc chừng này văn bản, rồi chuyển sang phần tiếp theo.

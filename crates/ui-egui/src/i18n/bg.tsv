@@ -981,6 +981,7 @@
 	Previous sentence	Предишно изречение
 	Play/Pause	Възпроизвеждане/пауза
 	Read Aloud Status	Състояние на четенето на глас
+	Read Aloud Settings	Настройки на четенето на глас
 	Reading Speed	Скорост на четене
 	Skip Citations and Bibliography	Пропускане на цитиранията и библиографията
 	Skip citations & bibliography	Пропускане на цитиранията и библиографията
@@ -2688,3 +2689,9 @@
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Въведете размер в произволна единица, например 5 cm или 300 px. Другата страна се променя съответно, така че картината запазва пропорциите си.
 
 	Import…	Импортиране…
+	Read at a time:	Четене наведнъж:
+	One paragraph	Един абзац
+	One page	Една страница
+	The whole document	Целият документ
+	Read Aloud settings…	Настройки на четенето на глас…
+	Read Aloud prepares and reads this much text, then goes on to the next part.	Четенето на глас подготвя и чете толкова текст, след което преминава към следващата част.

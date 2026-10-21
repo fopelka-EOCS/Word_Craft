@@ -876,6 +876,7 @@
 	Previous sentence	Poprzednie zdanie
 	Play/Pause	Odtwórz/wstrzymaj
 	Read Aloud Status	Stan czytania na głos
+	Read Aloud Settings	Ustawienia czytania na głos
 	Reading Speed	Szybkość czytania
 	Skip Citations and Bibliography	Pomijaj cytaty i bibliografię
 	Skip citations & bibliography	Pomijaj cytaty i bibliografię
@@ -2704,3 +2705,9 @@ preview	Title	Tytuł
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Wpisz rozmiar w dowolnej jednostce, np. 5 cm lub 300 px. Druga strona dopasuje się, więc obraz zachowa proporcje.
 
 	Import…	Importuj…
+	Read at a time:	Czytaj naraz:
+	One paragraph	Jeden akapit
+	One page	Jedna strona
+	The whole document	Cały dokument
+	Read Aloud settings…	Ustawienia czytania na głos…
+	Read Aloud prepares and reads this much text, then goes on to the next part.	Czytanie na głos przygotowuje i czyta tyle tekstu, a potem przechodzi do następnej części.

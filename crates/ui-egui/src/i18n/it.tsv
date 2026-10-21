@@ -968,6 +968,7 @@
 	Previous sentence	Frase precedente
 	Play/Pause	Riproduci/pausa
 	Read Aloud Status	Stato lettura ad alta voce
+	Read Aloud Settings	Impostazioni lettura ad alta voce
 	Reading Speed	Velocità di lettura
 	Skip Citations and Bibliography	Salta citazioni e bibliografia
 	Skip citations & bibliography	Salta citazioni e bibliografia
@@ -2708,3 +2709,9 @@ preview	Title	Esempio
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Scrivi una dimensione in qualsiasi unità, ad esempio 5 cm o 300 px. L'altro lato si adegua, così l'immagine mantiene le proporzioni.
 
 	Import…	Importa…
+	Read at a time:	Leggi alla volta:
+	One paragraph	Un paragrafo
+	One page	Una pagina
+	The whole document	L'intero documento
+	Read Aloud settings…	Impostazioni lettura ad alta voce…
+	Read Aloud prepares and reads this much text, then goes on to the next part.	La lettura ad alta voce prepara e legge questa quantità di testo, poi passa alla parte successiva.

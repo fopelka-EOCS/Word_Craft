@@ -451,6 +451,37 @@ fn accessibility(app: &mut WordApp, ui: &mut Ui) {
     if ui.checkbox(&mut skip, tl!("Skip citations & bibliography")).changed() {
         let _ = app.run("readAloud.skipCitations", json!({"value": skip}));
     }
+    read_aloud_chunk(app, ui);
+}
+
+/// Change Read Aloud settings through `readAloud.settings` (the command agents use).
+fn speech(app: &mut WordApp, params: Value) {
+    if let Err(e) = app.run("readAloud.settings", params) {
+        app.status(e);
+    }
+}
+
+/// Read Aloud › how much is read at a time.
+fn read_aloud_chunk(app: &mut WordApp, ui: &mut Ui) {
+    use wordcraft_engine::speech::Chunk;
+    let chunk = app.session.read_aloud.settings().chunk;
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.label(tl!("Read at a time:"));
+        let name = |c: Chunk| match c {
+            Chunk::Paragraph => "One paragraph",
+            Chunk::Page => "One page",
+            Chunk::Document => "The whole document",
+        };
+        egui::ComboBox::from_id_salt("read_aloud_chunk").selected_text(tl!(name(chunk))).width(200.0).show_ui(ui, |ui| {
+            for c in [Chunk::Paragraph, Chunk::Page, Chunk::Document] {
+                if ui.selectable_label(chunk == c, tl!(name(c))).clicked() && chunk != c {
+                    speech(app, json!({"chunk": c.name()}));
+                }
+            }
+        });
+    });
+    note(ui, "Read Aloud prepares and reads this much text, then goes on to the next part.");
 }
 
 fn advanced(app: &mut WordApp, ui: &mut Ui) {
@@ -1007,7 +1038,8 @@ mod tests {
         assert!(h.query_by_label("Animation effects:").is_some());
         assert!(h.query_by_label("Your system has animation effects turned off.").is_some());
         assert!(!h.state().animations_on());
-        h.get_by_role(egui::accesskit::Role::ComboBox).click();
+        // The first box of the pane (Read Aloud's come after it).
+        h.get_all_by_role(egui::accesskit::Role::ComboBox).next().unwrap().click();
         h.run_steps(4);
         h.get_by_label("On").click();
         h.run_steps(4);

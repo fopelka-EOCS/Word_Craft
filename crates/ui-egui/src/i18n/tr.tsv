@@ -907,6 +907,7 @@ preview	Title	Örnek
 	Previous sentence	Önceki cümle
 	Play/Pause	Oynat/Duraklat
 	Read Aloud Status	Sesli Okuma Durumu
+	Read Aloud Settings	Sesli Okuma Ayarları
 	Reading Speed	Okuma Hızı
 	Skip Citations and Bibliography	Atıfları ve Kaynakçayı Atla
 	Skip citations & bibliography	Atıfları ve kaynakçayı atla
@@ -2696,3 +2697,9 @@ preview	Title	Örnek
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Herhangi bir birimde bir boyut yazın, örneğin 5 cm veya 300 px. Diğer kenar da buna uyar, böylece resim oranlarını korur.
 
 	Import…	İçe aktar…
+	Read at a time:	Bir seferde oku:
+	One paragraph	Bir paragraf
+	One page	Bir sayfa
+	The whole document	Belgenin tamamı
+	Read Aloud settings…	Sesli Okuma ayarları…
+	Read Aloud prepares and reads this much text, then goes on to the next part.	Sesli Okuma bu kadar metni hazırlar ve okur, sonra sonraki bölüme geçer.

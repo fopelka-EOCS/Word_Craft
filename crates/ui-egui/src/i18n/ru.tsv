@@ -900,6 +900,7 @@ preview	Title	Пример
 	Previous sentence	Предыдущее предложение
 	Play/Pause	Воспроизведение/пауза
 	Read Aloud Status	Состояние чтения вслух
+	Read Aloud Settings	Параметры чтения вслух
 	Reading Speed	Скорость чтения
 	Skip Citations and Bibliography	Пропускать ссылки и список литературы
 	Skip citations & bibliography	Пропускать ссылки и список литературы
@@ -2697,3 +2698,9 @@ preview	Title	Пример
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Введите размер в любых единицах, например 5 cm или 300 px. Другая сторона изменится вместе с ней, и рисунок сохранит пропорции.
 
 	Import…	Импорт…
+	Read at a time:	Читать за раз:
+	One paragraph	Один абзац
+	One page	Одна страница
+	The whole document	Весь документ
+	Read Aloud settings…	Параметры чтения вслух…
+	Read Aloud prepares and reads this much text, then goes on to the next part.	Чтение вслух готовит и читает столько текста, затем переходит к следующей части.

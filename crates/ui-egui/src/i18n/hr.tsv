@@ -1710,6 +1710,7 @@ template	Letter	Pismo
 	Raised/lowered	Podignuto/spušteno
 	Read Aloud	Čitaj naglas
 	Read Aloud Status	Status čitanja naglas
+	Read Aloud Settings	Postavke čitanja naglas
 	Read Mode	Čitanje
 	Read\nAloud	Čitaj\nnaglas
 	Read\nMode	Čitanje
@@ -2699,3 +2700,9 @@ preview	Title	Naslov
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Upišite veličinu u bilo kojoj jedinici, npr. 5 cm ili 300 px. Druga se strana prilagođava pa slika zadržava svoje proporcije.
 
 	Import…	Uvezi…
+	Read at a time:	Čitaj odjednom:
+	One paragraph	Jedan odlomak
+	One page	Jedna stranica
+	The whole document	Cijeli dokument
+	Read Aloud settings…	Postavke čitanja naglas…
+	Read Aloud prepares and reads this much text, then goes on to the next part.	Čitanje naglas priprema i čita ovoliko teksta, a zatim prelazi na sljedeći dio.
