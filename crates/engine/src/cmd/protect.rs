@@ -1148,6 +1148,26 @@ mod tests {
         assert_eq!(s.why_disabled("format.bold"), None);
     }
 
+    /// Track Changes Options stays available (its options are the user's own), but tracking
+    /// moves is the document's setting: protection refuses changing it, even with an exception.
+    #[test]
+    fn protection_refuses_changing_track_moves_but_not_the_view_options() {
+        let mut s = Session::new(Document::from_text("Locked intro.\nFill in here."));
+        select(&mut s, "Fill in here.");
+        s.run("review.restrict", &json!({"exception": "add"})).unwrap();
+        for mode in ["readOnly", "comments", "forms"] {
+            s.run("review.restrict", &json!({"mode": mode})).unwrap();
+            assert_eq!(s.why_disabled("review.trackingOptions"), None, "{mode}");
+            assert!(s.run("review.trackingOptions", &json!({"trackMoves": false})).is_err(), "{mode}");
+            assert!(s.doc.settings.track_moves, "{mode}");
+            s.run("review.trackingOptions", &json!({"insertColor": "00AA00"})).unwrap();
+            s.run("review.restrict", &json!({"stop": true})).unwrap();
+        }
+        s.run("review.restrict", &json!({"mode": "trackedChanges"})).unwrap();
+        s.run("review.trackingOptions", &json!({"trackMoves": false})).unwrap();
+        assert!(!s.doc.settings.track_moves);
+    }
+
     /// The ribbon greys out what forms mode refuses outright (as Word for Mac does), and only that:
     /// typing into the field and the rest of the ribbon stay live.
     #[test]
