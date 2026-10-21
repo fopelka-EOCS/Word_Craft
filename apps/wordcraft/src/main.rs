@@ -313,6 +313,13 @@ fn open_failure_message(path: &str, error: &str) -> String {
     wordcraft_ui_egui::i18n::fmt(wordcraft_ui_egui::tl!("Couldn't open {path}: {error}"), &[("path", path), ("error", error)])
 }
 
+/// A command-line file (or `--new` template) that failed at start-up: logged, and shown in the
+/// status bar, since otherwise the window is just blank.
+fn report_open_failure(app: &mut WordApp, what: &str, error: &str) {
+    log::warn!("{what}: {error}");
+    app.status(open_failure_message(what, error));
+}
+
 /// Open a file whose name isn't valid Unicode (#1440). `file.open` takes its path as text, so it
 /// gets the file's bytes under the lossy name, and the document then keeps the real path to save to.
 /// The bytes are read as `file.open` reads a path: only a regular file, and at most 2 GB.
@@ -324,7 +331,7 @@ fn open_non_unicode(app: &mut WordApp, path: &std::path::Path) {
         // Not when it waits for a password: that open names the document itself.
         Ok(r) if r.get("pending").is_none() => app.session.path = Some(path.into()),
         Ok(_) => {}
-        Err(e) => log::warn!("{name}: {e}"),
+        Err(e) => report_open_failure(app, &name, &e),
     }
 }
 
@@ -485,13 +492,11 @@ fn main() -> eframe::Result {
             if let Some(template) = &new_template
                 && let Err(e) = app.run("file.new", serde_json::json!({"template": template}))
             {
-                log::warn!("new {template}: {e}");
+                report_open_failure(&mut app, template, &e);
             }
             for f in files {
                 if let Err(e) = app.run("file.open", serde_json::json!({"path": f})) {
-                    log::warn!("{f}: {e}");
-                    // Otherwise a window launched with a file it can't open is just blank.
-                    app.status(open_failure_message(&f, &e.to_string()));
+                    report_open_failure(&mut app, &f, &e);
                 }
             }
             for f in other_files {
@@ -517,16 +522,6 @@ mod tests {
     use std::os::unix::ffi::OsStringExt;
 
     #[test]
-    fn new_takes_a_template_but_not_a_following_flag() {
-        let mut a = ["letter".to_string(), "x".into()].into_iter().peekable();
-        assert_eq!(new_template_arg(&mut a), "letter");
-        let mut a = ["--sample".to_string()].into_iter().peekable();
-        assert_eq!(new_template_arg(&mut a), "blank");
-        assert_eq!(a.next().as_deref(), Some("--sample"));
-        assert_eq!(new_template_arg(&mut std::iter::empty::<String>().peekable()), "blank");
-    }
-
-    #[test]
     fn a_file_whose_name_isnt_unicode_opens_and_saves_back_to_itself() {
         let dir = std::env::temp_dir().join(format!("wc-app-non-utf8-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -546,8 +541,11 @@ mod tests {
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "a second file was written");
 
         // A file that can't be read is a warning, as one that fails to open by name is.
+        app.status_msg = None;
         open_non_unicode(&mut app, &dir.join(std::ffi::OsString::from_vec(b"gon\xe9.txt".to_vec())));
         assert_eq!(app.session.path.as_deref(), Some(path.as_path()));
+        let shown = app.status_msg.as_ref().map(|(s, _)| s.clone()).unwrap_or_default();
+        assert!(shown.contains("gon"), "the failure is shown, not just logged: {shown:?}");
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -588,6 +586,25 @@ mod tests {
 
 #[cfg(test)]
 mod open_failure_tests {
+    use super::*;
+
+    #[test]
+    fn new_takes_a_template_but_not_a_following_flag() {
+        let mut a = ["letter".to_string(), "x".into()].into_iter().peekable();
+        assert_eq!(new_template_arg(&mut a), "letter");
+        let mut a = ["--sample".to_string()].into_iter().peekable();
+        assert_eq!(new_template_arg(&mut a), "blank");
+        assert_eq!(a.next().as_deref(), Some("--sample"));
+        assert_eq!(new_template_arg(&mut std::iter::empty::<String>().peekable()), "blank");
+    }
+
+    #[test]
+    fn a_startup_open_failure_is_shown_in_the_status_bar() {
+        let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
+        report_open_failure(&mut app, "a.docx", "no such file");
+        assert_eq!(app.status_msg.map(|(s, _)| s).as_deref(), Some("Couldn't open a.docx: no such file"));
+    }
+
     #[test]
     fn open_failure_message_names_the_file_and_the_error() {
         assert_eq!(super::open_failure_message("a.docx", "no such file"), "Couldn't open a.docx: no such file");

@@ -937,13 +937,14 @@ impl WordApp {
             self.dialog = dialogs::Dialog::open(name, self);
             return Ok(json!({"pending": name}));
         }
+        let unsaved = self.session.dirty || self.save_unconfirmed() || refused.is_some();
         if let Some(hook) = &self.services.new_window {
-            let reusable = window_is_reusable(
-                self.session.dirty || self.save_unconfirmed() || refused.is_some(),
-                self.session.path.is_some(),
-                self.session.doc.paragraph_count(),
-                self.session.doc.word_count(),
-            );
+            // A window whose document was closed (#1129) is empty too; opening the file this
+            // window already shows stays here rather than showing it twice.
+            let reusable = !self.has_document()
+                || window_is_reusable(unsaved, self.session.path.is_some(), self.session.doc.paragraph_count(), self.session.doc.word_count())
+                || (id == "file.open"
+                    && params.get("path").and_then(Value::as_str).is_some_and(|p| self.session.path.as_deref() == Some(std::path::Path::new(p))));
             if let Some(target) = new_window_for(id, &params, reusable) {
                 return match hook(target) {
                     Ok(()) => Ok(json!({"newWindow": true})),
@@ -955,7 +956,7 @@ impl WordApp {
                 };
             }
         }
-        if (self.session.dirty || self.save_unconfirmed() || refused.is_some()) && discards_document(id, &params) {
+        if unsaved && discards_document(id, &params) {
             let name = self.prompt_name();
             self.dialog = Some(dialogs::Dialog::SaveChanges {
                 name,
@@ -2935,6 +2936,9 @@ mod tests_perf;
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use egui_kittest::kittest::Queryable;
+
     #[test]
     fn reusable_window_is_only_an_untouched_blank_one() {
         assert!(window_is_reusable(false, false, 1, 0));
@@ -2978,14 +2982,17 @@ mod tests {
         assert_eq!(*seen.borrow(), vec![NewWindow::Open("/tmp/b.docx".into()), NewWindow::New("blank".into())]);
         assert!(a.dialog.is_none(), "no prompt: nothing is discarded");
         assert!(a.session.dirty && a.session.doc.plain_text(wordcraft_doc::StoryRef::Body).contains("Hello"));
+        // The file this window already shows is not opened a second time elsewhere.
+        a.session.path = Some("/tmp/b.docx".into());
+        let _ = a.run("file.open", json!({"path": "/tmp/b.docx"}));
+        assert_eq!(seen.borrow().len(), 2, "same file: handled here");
+        a.dialog = None;
+        a.session.path = None;
         // Without the hook (web, scripts) the old behaviour stays: the prompt.
         a.services.new_window = None;
         a.run("file.new", json!({})).unwrap();
         assert!(matches!(a.dialog, Some(dialogs::Dialog::SaveChanges { .. })));
     }
-
-    use super::*;
-    use egui_kittest::kittest::Queryable;
 
     fn mod_key(key: egui::Key) -> egui::Event {
         egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::COMMAND }

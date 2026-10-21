@@ -48,13 +48,13 @@ pub fn command_for(exe: &Path, target: &NewWindow) -> (PathBuf, Vec<String>) {
 
 /// Start the new window.
 pub fn spawn(target: NewWindow) -> Result<(), String> {
-    let exe = std::env::current_exe().map_err(|e| format!("can't find WordCraft's own program: {e}"))?;
+    let exe = std::env::current_exe().map_err(|e| failure(&e.to_string()))?;
     let (program, args) = command_for(&exe, &target);
     let mut cmd = std::process::Command::new(&program);
     cmd.args(&args).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
     // The control channel and its key belong to this window.
     cmd.env_remove("WORDCRAFT_CONTROL_PORT");
-    let fail = |e: std::io::Error| format!("Couldn't open a new window: {e}");
+    let fail = |e: std::io::Error| failure(&e.to_string());
     if program == Path::new("/usr/bin/open") {
         // Without `-W`, `open` returns once LaunchServices has accepted the request.
         return open_result(cmd.status().map_err(fail)?);
@@ -67,9 +67,14 @@ pub fn spawn(target: NewWindow) -> Result<(), String> {
     Ok(())
 }
 
+/// The status-bar text when the new window couldn't start.
+fn failure(error: &str) -> String {
+    wordcraft_ui_egui::i18n::fmt(wordcraft_ui_egui::tl!("Couldn't open a new window: {error}"), &[("error", error)])
+}
+
 /// `open`'s exit status as the hook's result.
 fn open_result(status: std::process::ExitStatus) -> Result<(), String> {
-    if status.success() { Ok(()) } else { Err(format!("Couldn't open a new window: open exited with {status}")) }
+    if status.success() { Ok(()) } else { Err(failure(&format!("open exited with {status}"))) }
 }
 
 /// The hook for `Services::new_window`.
