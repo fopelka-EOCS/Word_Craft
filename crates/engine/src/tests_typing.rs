@@ -311,6 +311,33 @@ fn list_autoformat_triggers() {
 }
 
 #[test]
+fn list_autoformat_triggers_before_existing_text() {
+    // #3352: typing "- " at the start of a line that already has text turns that line into a
+    // list item (it used to need an empty line first).
+    let mut s = typed("turn this into a list");
+    run(&mut s, "caret.home", json!({}));
+    typ(&mut s, "- ");
+    assert_eq!(label_at(&s, 0), "-");
+    assert_eq!(paras(&s), vec![para("Turn this into a list", Some(0))]);
+    // In the middle of a document, on the second line.
+    let mut s = typed("intro\nsecond line");
+    run(&mut s, "caret.home", json!({}));
+    typ(&mut s, "1. ");
+    assert_eq!(paras(&s), vec![para("Intro", None), para("Second line", Some(0))]);
+    assert_eq!(label_at(&s, 1), "%1.");
+}
+
+#[test]
+fn list_marker_not_at_the_start_of_the_paragraph_stays_text() {
+    let s = typed("word - ");
+    assert_eq!(paras(&s)[0].1, None);
+    let mut s = typed("tail");
+    run(&mut s, "caret.home", json!({}));
+    typ(&mut s, "x- ");
+    assert_eq!(paras(&s)[0].1, None);
+}
+
+#[test]
 fn typing_1_dot_starts_numbering_again() {
     let s = typed("1. a\nb\n\nmid\n1. c\nd");
     let num = |i: usize| s.doc.para_at(&Pos::body(i, 0)).and_then(|p| p.props.numbering).map(|n| n.num);
