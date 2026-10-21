@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 use serde_json::Value;
 use wordcraft_doc::props::{HeightRule, VMerge};
 use wordcraft_doc::table::{MAX_COLS, MAX_ROWS};
-use wordcraft_doc::{Block, Cell, Document, Path, Pos, StoryRef, Table, para_block};
+use wordcraft_doc::{Block, Cell, Document, PartKind, Path, Pos, StoryRef, Table, para_block};
 use wordcraft_geom::Rect;
 use wordcraft_layout::{DocLayout, Placed};
 
@@ -26,14 +26,14 @@ pub const ERASER_REACH: f32 = 4.0;
 /// A line closer than this (points) to an existing border lands on it.
 const SNAP: f32 = 3.0;
 /// The shortest stroke (points) that counts as a line.
-const MIN_LINE: f32 = 6.0;
+pub const MIN_LINE: f32 = 6.0;
 /// The share of a cell a line has to run along to split it when it runs on past the cell.
 const GRAZE: f32 = 0.4;
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("table.draw", "Draw Table", "Insert › Tables", draw).params(
-            r#"{"page": n, "x0": pt, "y0": pt, "x1": pt, "y1": pt, "reach"?: pt, "story"?: StoryRef} (a pen stroke in page points, 0-based page. A rectangle at least 12 pt each way makes a table, as in Word: starting at a table's bottom edge (within `reach`, default 4) a new last row of that table, one cell across and as tall as drawn; held inside one cell, a table nested in that cell; clear of every table, a one-cell table of that size at the paragraph under its start. A straight vertical or horizontal line inside a table splits every cell it crosses there. In the app the button turns the pen on.)"#,
+            r#"{"page": n, "x0": pt, "y0": pt, "x1": pt, "y1": pt, "reach"?: pt, "story"?: StoryRef} (a pen stroke in page points, 0-based page. A rectangle at least 12 pt each way makes a table: with its top at a table's bottom edge (within `reach`, default 4, at most 24) a new last row of that table, one cell across and as tall as drawn; held inside one cell, a table nested in that cell; clear of every table, a one-cell table of that size at the body paragraph under its start (in `story` when given). A straight vertical or horizontal line inside a table splits every cell it crosses there. In the app the button turns the pen on.)"#,
         ),
         CommandSpec::new("table.eraser", "Eraser", "Table Layout › Draw", eraser).params(
             r#"{"page": n, "x": pt, "y": pt} or {"page": n, "x0": pt, "y0": pt, "x1": pt, "y1": pt}, "reach"?: pt (a click erases the border within `reach` (default 4, at most 24) of the point, a border between two cells before the table's outside; a drag erases every border the rectangle from (x0, y0) to (x1, y1) touches, horizontal lines first. Two cells that make one rectangle merge, including cells merged down the same rows; otherwise the border is hidden: along the whole edge for a vertical line, where the two cells meet for a horizontal one, and always on the table's outside. In the app the button turns the eraser on.)"#,
@@ -93,10 +93,24 @@ pub fn stroke(l: &DocLayout, page: usize, x0: f32, y0: f32, x1: f32, y1: f32, re
     if ![x0, y0, x1, y1].iter().all(|v| v.is_finite()) {
         return None;
     }
+    // The same reach as the command's, so the preview shows what the stroke will do at any zoom.
+    let reach = if reach.is_finite() { reach.clamp(0.5, 24.0) } else { ERASER_REACH };
     let (dx, dy) = ((x1 - x0).abs(), (y1 - y0).abs());
     let boxes = cell_boxes(l, page);
+    let r = Rect::new(x0.min(x1), y0.min(y1), dx, dy);
+    let big = dx >= MIN_RECT && dy >= MIN_RECT;
+    let made = big.then(|| drawn(&boxes, &r, (x0, y0), reach)).flatten();
+    // A rectangle from a table's bottom edge adds a row, and one held in a cell nests a table,
+    // also when it is wide and low (or narrow and tall) or starts on the edge, where it would
+    // otherwise read as a line; a stroke that wavers less than four reaches (24 screen px in the
+    // app, at any zoom) off straight stays a line.
+    let wobble = dx.min(dy) <= MIN_RECT.max(dx.max(dy) * 0.2);
+    if matches!(made, Some(Drawn::Row(..) | Drawn::Nested(..))) && (!wobble || dx.min(dy) >= 4.0 * reach) {
+        return Some(Stroke::Rect(r));
+    }
     let (mx, my) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
-    if table_at(&boxes, x0, y0).is_some() || table_at(&boxes, mx, my).is_some() {
+    // Either end or the middle in a table: a line is classed the same whichever way it is drawn.
+    if table_at(&boxes, x0, y0).is_some() || table_at(&boxes, mx, my).is_some() || table_at(&boxes, x1, y1).is_some() {
         if dy >= dx && dy >= MIN_LINE && dx <= MIN_RECT.max(dy * 0.2) {
             return Some(Stroke::Vertical { x: mx, y0: y0.min(y1), y1: y0.max(y1) });
         }
@@ -104,8 +118,13 @@ pub fn stroke(l: &DocLayout, page: usize, x0: f32, y0: f32, x1: f32, y1: f32, re
             return Some(Stroke::Horizontal { y: my, x0: x0.min(x1), x1: x0.max(x1) });
         }
     }
-    let r = Rect::new(x0.min(x1), y0.min(y1), dx, dy);
-    (dx >= MIN_RECT && dy >= MIN_RECT && drawn(&boxes, &r, (x0, y0), reach).is_some()).then_some(Stroke::Rect(r))
+    match made {
+        // Clear of the cells but beside a table (in the margin next to a row): the text under the
+        // start is a cell's, where no new table can go, so the preview doesn't promise one.
+        Some(Drawn::Clear) if l.hit(page, x0, y0, StoryRef::Body).is_some_and(|p| p.path.cell().is_some()) => None,
+        Some(_) => Some(Stroke::Rect(r)),
+        None => None,
+    }
 }
 
 /// What a rectangle drawn with the pen makes.
@@ -122,7 +141,7 @@ enum Drawn {
 /// What rectangle `r`, drawn from `start`, makes among the cells `boxes`; `None` when it covers
 /// part of a table.
 fn drawn(boxes: &[CellBox], r: &Rect, start: (f32, f32), reach: f32) -> Option<Drawn> {
-    // Each table's left, right and bottom; the innermost first, so a nested table's row wins.
+    // Each table's left, right and bottom.
     let mut tables: Vec<(StoryRef, &Path, f32, f32, f32)> = Vec::new();
     for b in boxes {
         match tables.iter_mut().find(|t| t.0 == b.story && *t.1 == b.table) {
@@ -130,14 +149,24 @@ fn drawn(boxes: &[CellBox], r: &Rect, start: (f32, f32), reach: f32) -> Option<D
             None => tables.push((b.story, &b.table, b.rect.x, b.rect.right(), b.rect.bottom())),
         }
     }
-    tables.sort_by_key(|t| std::cmp::Reverse(t.1.0.len()));
-    if let Some(t) = tables.iter().find(|t| (r.y - t.4).abs() <= reach && r.x < t.3 && r.right() > t.2) {
+    // The table whose bottom is nearest the rectangle's top, the rectangle reaching below it; on
+    // a tie the innermost, so a nested table's row wins only when it really ends there.
+    let near = tables
+        .iter()
+        .filter(|t| (r.y - t.4).abs() <= reach && r.bottom() >= t.4 + MIN_RECT && r.x < t.3 && r.right() > t.2)
+        .min_by(|a, b| (r.y - a.4).abs().total_cmp(&(r.y - b.4).abs()).then(b.1.0.len().cmp(&a.1.0.len())));
+    if let Some(t) = near {
         return Some(Drawn::Row(t.0, t.1.clone()));
     }
     if table_at(boxes, start.0, start.1).is_some() {
+        // Among the innermost cells under the start (two on a border between cells), the one that
+        // holds the whole rectangle: a start on a border nests in the cell drawn into, and one in
+        // a nested table that runs out of it makes nothing (it covers part of that table).
+        let under: Vec<&CellBox> = boxes.iter().filter(|b| !b.covered && inside(&b.rect, start.0, start.1)).collect();
+        let depth = under.iter().map(|b| b.table.0.len()).max()?;
         let holds = |c: &Rect| r.x >= c.x && r.right() <= c.right() && r.y >= c.y && r.bottom() <= c.bottom();
-        let cell = boxes.iter().filter(|b| !b.covered && inside(&b.rect, start.0, start.1)).max_by_key(|b| b.table.0.len());
-        return cell.filter(|b| holds(&b.rect)).map(|b| Drawn::Nested(b.clone()));
+        let cell = under.into_iter().find(|b| b.table.0.len() == depth && holds(&b.rect));
+        return cell.map(|b| Drawn::Nested(b.clone()));
     }
     let clear = |c: &Rect| r.right() <= c.x || r.x >= c.right() || r.bottom() <= c.y || r.y >= c.bottom();
     boxes.iter().all(|b| clear(&b.rect)).then_some(Drawn::Clear)
@@ -232,7 +261,14 @@ fn one_cell(w: f32, h: f32) -> Table {
 
 /// A one-cell table the size of `r`, at the paragraph under the stroke's start.
 fn new_table(s: &mut Session, v: &Value, l: &DocLayout, page: usize, start: (f32, f32), r: Rect) -> CmdResult {
-    let story = super::story_param(s, v);
+    // The pen draws on the page: the body, not wherever the caret was (a footnote, a header left
+    // open); the caret's header or footer only for a rectangle drawn above or below the body text.
+    let given = v.get("story").and_then(|x| serde_json::from_value::<StoryRef>(x.clone()).ok());
+    let body = l.pages.get(page).map(|pg| pg.body);
+    let in_margin = body.is_some_and(|b| start.1 < b.y || start.1 > b.bottom());
+    let caret = s.sel.focus.story;
+    let hf = matches!(caret, StoryRef::Part(id) if s.doc.parts.get(&id).is_some_and(|p| matches!(p.kind, PartKind::Header | PartKind::Footer)));
+    let story = given.unwrap_or(if in_margin && hf { caret } else { StoryRef::Body });
     let pos = l.hit(page, start.0, start.1, story).ok_or_else(|| CmdError::Failed("there's no text to put a table at there".into()))?;
     let pos = s.doc.clamp(&pos);
     if pos.path.cell().is_some() {
@@ -259,11 +295,13 @@ fn new_table(s: &mut Session, v: &Value, l: &DocLayout, page: usize, start: (f32
 /// A one-cell table the size of `r` nested in `cell`, at the paragraph under the stroke's start:
 /// before it when the stroke starts at its beginning (or it's empty), else after it.
 fn nested_table(s: &mut Session, l: &DocLayout, page: usize, start: (f32, f32), r: Rect, cell: &CellBox) -> CmdResult {
-    let pos = l.hit(page, start.0, start.1, cell.story).ok_or_else(|| CmdError::Failed("there's no text to put a table at there".into()))?;
-    let pos = s.doc.clamp(&pos);
-    if pos.path.cell().is_none() {
-        return Err(CmdError::Failed("there's no cell text to put a table at there".into()));
-    }
+    let hit = l.hit(page, start.0, start.1, cell.story).map(|p| s.doc.clamp(&p));
+    // The nearest text can be another cell's (a neighbour whose text sits nearer the start than
+    // this cell's, a table nested here): then the end of this cell's last paragraph.
+    let pos = match hit.filter(|p| p.path.cell().is_some_and(|(tp, row, col)| tp == cell.table && row == cell.row && col == cell.cell)) {
+        Some(p) => p,
+        None => last_in_cell(s, cell).ok_or_else(|| CmdError::Failed("there's no cell text to put a table at there".into()))?,
+    };
     let len = s.doc.para(pos.story, &pos.path).map(|q| q.len()).ok_or_else(|| CmdError::Failed("there's no paragraph there".into()))?;
     // The room between the cell's margins.
     let m = s.doc.table(cell.story, &cell.table).map_or([0.0, 5.4, 0.0, 5.4], |t| wordcraft_layout::cell_margins(&s.doc, t, cell.row, cell.cell));
@@ -280,6 +318,15 @@ fn nested_table(s: &mut Session, l: &DocLayout, page: usize, start: (f32, f32), 
     first.extend([0, 0, 0]);
     s.sel = Selection::caret(Pos { story: pos.story, path: Path(first), off: 0 });
     sel_result(s)
+}
+
+/// The end of the last paragraph directly in `cell` (not in a table nested there).
+fn last_in_cell(s: &Session, cell: &CellBox) -> Option<Pos> {
+    let blocks = &s.doc.table(cell.story, &cell.table)?.rows.get(cell.row)?.cells.get(cell.cell)?.blocks;
+    let (i, len) = blocks.iter().enumerate().rev().find_map(|(i, b)| b.as_para().map(|q| (i, q.len())))?;
+    let mut path = cell.table.0.clone();
+    path.extend([u32::try_from(cell.row).ok()?, u32::try_from(cell.cell).ok()?, u32::try_from(i).ok()?]);
+    Some(Pos { story: cell.story, path: Path(path), off: len })
 }
 
 /// A new last row of table `tp`: one cell across the whole table, at least `h` tall (Word draws
@@ -444,15 +491,15 @@ fn split_columns(s: &mut Session, l: &DocLayout, page: usize, x: f32, (ya, yb): 
     if !g.is_finite() || g <= 0.0 {
         return Err(CmdError::Failed("the line doesn't cross a table cell".into()));
     }
-    let crossed_set: std::collections::BTreeSet<(usize, usize)> = cells.iter().map(|c| (c.0, c.1)).collect();
-    // A vertically merged cell splits only as a whole.
+    let mut crossed_set: std::collections::BTreeSet<(usize, usize)> = cells.iter().map(|c| (c.0, c.1)).collect();
+    // A vertically merged cell splits as a whole, also when the line runs down only part of it
+    // (the preview runs it down the whole cell).
     for &(r, c, _) in &cells {
         let (g0, g1) = vgroup(t, r, c);
         let gc = t.grid_col(r, c);
         for rr in g0..=g1 {
-            let ci = t.cell_at_grid(rr, gc).unwrap_or(usize::MAX);
-            if !crossed_set.contains(&(rr, ci)) {
-                return Err(CmdError::Failed("the line crosses only part of a merged cell; draw it across the whole cell".into()));
+            if let Some(ci) = t.cell_at_grid(rr, gc) {
+                crossed_set.insert((rr, ci));
             }
         }
     }
@@ -1090,6 +1137,246 @@ mod tests {
         let tables: Vec<_> = s.doc.body.iter().filter_map(|b| b.as_table()).collect();
         assert_eq!(tables.len(), 2);
         assert_eq!(shape(tables[1]), json!([[1]]), "a second, one-cell table");
+    }
+
+    /// A rectangle drawn from on the table's bottom edge, or just above it (inside the last row),
+    /// adds a row even when it is wide and low: it isn't taken for a line under the table, and
+    /// the preview says the same.
+    #[test]
+    fn a_wide_low_rectangle_from_the_bottom_edge_adds_a_row() {
+        for lift in [0.0, 2.0] {
+            let mut s = Session::new(wordcraft_doc::Document::new());
+            s.run("insert.table", &json!({"rows": 2, "cols": 3})).unwrap();
+            let (a, c) = (cell_rect(&mut s, 1, 0), cell_rect(&mut s, 1, 2));
+            let (x0, y0, x1, y1) = (a.x + 1.0, a.bottom() - lift, c.right(), a.bottom() - lift + 20.0);
+            assert!(x1 - x0 > 5.0 * (y1 - y0), "wide and low enough to pass for a line");
+            let l = s.layout();
+            assert!(matches!(stroke(&l, 0, x0, y0, x1, y1, ERASER_REACH), Some(Stroke::Rect(_))), "preview, lift {lift}");
+            s.run("table.draw", &json!({"page": 0, "x0": x0, "y0": y0, "x1": x1, "y1": y1})).unwrap();
+            assert_eq!(shape(&first_table(&s)), json!([[1, 1, 1], [1, 1, 1], [3]]), "lift {lift}");
+        }
+    }
+
+    /// The first table's row heights set in place (the layout picks them up).
+    fn set_row_height(s: &mut Session, row: usize, h: f32) {
+        let t = s.doc.body.iter_mut().find_map(|b| match std::sync::Arc::make_mut(b) {
+            Block::Table(t) => Some(t),
+            _ => None,
+        });
+        t.unwrap().rows[row].props.height = Some(h);
+        s.touch();
+    }
+
+    /// A rectangle held in one cell nests a table there also when it is wide and low or narrow
+    /// and tall: it isn't taken for a line that splits the cell.
+    #[test]
+    fn a_wide_low_or_narrow_tall_rectangle_in_a_cell_nests_a_table() {
+        // Both within a fifth of a line's slant (25 ≤ 140 / 5, 18 ≤ 100 / 5).
+        for (w, h) in [(140.0, 25.0), (18.0, 100.0)] {
+            let mut s = Session::new(wordcraft_doc::Document::new());
+            s.run("insert.table", &json!({"rows": 2, "cols": 3})).unwrap();
+            set_row_height(&mut s, 0, 120.0);
+            let b = cell_rect(&mut s, 0, 1);
+            let (x0, y0) = (b.x + 5.0, b.y + 5.0);
+            let l = s.layout();
+            assert!(matches!(stroke(&l, 0, x0, y0, x0 + w, y0 + h, ERASER_REACH), Some(Stroke::Rect(_))), "preview {w}×{h}");
+            s.run("table.draw", &json!({"page": 0, "x0": x0, "y0": y0, "x1": x0 + w, "y1": y0 + h})).unwrap();
+            let t = first_table(&s);
+            assert_eq!(t.rows.len(), 2, "{w}×{h}: no row split");
+            assert!(t.rows[0].cells[1].blocks.iter().any(|x| x.as_table().is_some()), "{w}×{h}: a table nested in B1");
+        }
+    }
+
+    /// A line is classed the same whichever way it is drawn: from outside the table into C1 it
+    /// splits C1 as the same line drawn from C1 outwards does.
+    #[test]
+    fn a_line_splits_the_same_drawn_either_way() {
+        let shapes: Vec<Value> = [false, true]
+            .into_iter()
+            .map(|back| {
+                let mut s = Session::new(wordcraft_doc::Document::new());
+                s.run("insert.table", &json!({"rows": 1, "cols": 3})).unwrap();
+                set_row_height(&mut s, 0, 60.0);
+                let c = cell_rect(&mut s, 0, 2);
+                let (y, a, b) = (c.y + 30.0, c.x + c.w * 0.25, c.right() + 150.0);
+                let (x0, x1) = if back { (b, a) } else { (a, b) };
+                s.run("table.draw", &json!({"page": 0, "x0": x0, "y0": y, "x1": x1, "y1": y})).unwrap();
+                shape(&first_table(&s))
+            })
+            .collect();
+        assert_eq!(shapes[0], shapes[1]);
+        assert_eq!(shapes[0], json!([[1, 1, 1], [1, 1, 1]]), "C1 split");
+    }
+
+    /// A rectangle started on the border between two cells and drawn into the left one nests in
+    /// that one (a start on a border is in both cells).
+    #[test]
+    fn a_rectangle_from_a_cell_border_nests_in_the_cell_it_fills() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.table", &json!({"rows": 2, "cols": 2})).unwrap();
+        set_row_height(&mut s, 0, 80.0);
+        let a = cell_rect(&mut s, 0, 0);
+        assert!(cell_rect(&mut s, 0, 1).x <= a.right(), "the start is in B1 too");
+        s.run("table.draw", &json!({"page": 0, "x0": a.right(), "y0": a.y + 10.0, "x1": a.right() - 50.0, "y1": a.y + 50.0})).unwrap();
+        let t = first_table(&s);
+        assert!(t.rows[0].cells[0].blocks.iter().any(|x| x.as_table().is_some()), "nested in A1");
+        assert!(!t.rows[0].cells[1].blocks.iter().any(|x| x.as_table().is_some()), "not in B1");
+    }
+
+    /// A rectangle drawn low in a tall cell whose text is at its top nests in that cell, not in
+    /// the cell below, whose text is nearer the start.
+    #[test]
+    fn a_rectangle_drawn_low_in_a_cell_nests_there() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.table", &json!({"rows": 2, "cols": 2})).unwrap();
+        set_row_height(&mut s, 0, 80.0);
+        let b = cell_rect(&mut s, 0, 1);
+        s.run("table.draw", &json!({"page": 0, "x0": b.x + 60.0, "y0": b.bottom() - 6.0, "x1": b.x + 10.0, "y1": b.bottom() - 40.0})).unwrap();
+        let t = first_table(&s);
+        assert!(t.rows[0].cells[1].blocks.iter().any(|x| x.as_table().is_some()), "nested in B1");
+        assert!(!t.rows[1].cells[1].blocks.iter().any(|x| x.as_table().is_some()), "not in B2");
+        assert!(t.rows[0].cells[1].blocks.last().is_some_and(|x| x.as_para().is_some()), "the cell still ends with a paragraph");
+    }
+
+    /// A short vertical line in a vertically merged cell splits all of it, as its preview shows.
+    #[test]
+    fn a_short_line_in_a_merged_cell_splits_all_of_it() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.table", &json!({"rows": 2, "cols": 2})).unwrap();
+        let t = s.doc.body.iter_mut().find_map(|b| match std::sync::Arc::make_mut(b) {
+            Block::Table(t) => Some(t),
+            _ => None,
+        });
+        let t = t.unwrap();
+        t.rows[0].cells[0].props.vmerge = VMerge::Restart;
+        t.rows[1].cells[0].props.vmerge = VMerge::Continue;
+        s.touch();
+        let a = cell_rect(&mut s, 0, 0);
+        let x = a.x + a.w / 2.0;
+        let line = (a.y + 2.0, a.y + 16.0);
+        let l = s.layout();
+        assert!(line_extent(&l, 0, Stroke::Vertical { x, y0: line.0, y1: line.1 }).is_some_and(|(p, q)| (q.1 - p.1 - a.h).abs() < 0.5));
+        s.run("table.draw", &json!({"page": 0, "x0": x, "y0": line.0, "x1": x, "y1": line.1})).unwrap();
+        let t = first_table(&s);
+        assert_eq!(t.grid.len(), 3);
+        assert_eq!(shape(&t), json!([[1, 1, 1], [1, 1, 1]]), "both rows of the merged cell split");
+        assert_eq!(t.rows[1].cells[1].props.vmerge, VMerge::Continue, "the right half stays merged down");
+    }
+
+    /// The pen draws on the page: a new table goes in the body even when the caret was in the
+    /// header before the pen was picked up.
+    #[test]
+    fn a_new_table_goes_in_the_body_whatever_the_caret_story() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.editHeader", &json!({"page": 0})).unwrap();
+        s.run("text.insert", &json!({"text": "Head"})).unwrap();
+        assert_ne!(s.sel.focus.story, StoryRef::Body, "the caret is in the header");
+        let body = s.layout().pages[0].body;
+        let (x0, y0) = (body.x + 40.0, body.y + 2.0);
+        s.run("table.draw", &json!({"page": 0, "x0": x0, "y0": y0, "x1": x0 + 200.0, "y1": y0 + 60.0})).unwrap();
+        assert!(s.doc.body.iter().any(|b| b.as_table().is_some()), "the table is in the body");
+        // A `story` that isn't one is no story: still the body, not the caret's header.
+        s.run("edit.undo", &json!({})).unwrap();
+        s.run("table.draw", &json!({"page": 0, "x0": x0, "y0": y0, "x1": x0 + 200.0, "y1": y0 + 60.0, "story": null})).unwrap();
+        assert!(s.doc.body.iter().any(|b| b.as_table().is_some()), "`story: null` is the body too");
+    }
+
+    /// With the caret in the header, a rectangle drawn above the body text (in the header's
+    /// area) still goes in the header.
+    #[test]
+    fn with_the_header_open_a_rectangle_above_the_text_goes_in_it() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        let r = s.run("insert.editHeader", &json!({"page": 0})).unwrap();
+        let id = u32::try_from(r["story"].as_u64().unwrap()).unwrap();
+        s.run("text.insert", &json!({"text": "Head"})).unwrap();
+        let body = s.layout().pages[0].body;
+        let (x0, y0) = (body.x + 40.0, body.y - 30.0);
+        s.run("table.draw", &json!({"page": 0, "x0": x0, "y0": y0, "x1": x0 + 120.0, "y1": y0 + 20.0})).unwrap();
+        assert!(s.doc.parts.get(&id).is_some_and(|p| p.blocks.iter().any(|b| b.as_table().is_some())), "in the header");
+        assert!(!s.doc.body.iter().any(|b| b.as_table().is_some()), "not in the body");
+    }
+
+    /// A stroke that wavers a little off straight inside a tall cell stays a line at any zoom (the
+    /// app's reach is 6 screen px, so 4 pt at 400 % and 24 pt at 25 %); in the last row it adds no
+    /// row either.
+    #[test]
+    fn a_slanted_line_stays_a_line_at_any_zoom() {
+        for reach in [4.0f32, 12.0, 24.0] {
+            let mut s = Session::new(wordcraft_doc::Document::new());
+            s.run("insert.table", &json!({"rows": 1, "cols": 1})).unwrap();
+            set_row_height(&mut s, 0, 120.0);
+            let a = cell_rect(&mut s, 0, 0);
+            let (x0, y0) = (a.x + 20.0, a.y + 50.0);
+            let l = s.layout();
+            assert!(matches!(stroke(&l, 0, x0, y0, x0 + 300.0, y0 + 13.0, reach), Some(Stroke::Horizontal { .. })), "reach {reach}");
+            for lift in [0.0f32, 2.0] {
+                let (x0, y0) = (a.x + 20.0, a.bottom() - lift);
+                assert!(
+                    !matches!(stroke(&l, 0, x0, y0, x0 + 300.0, y0 + 13.0, reach), Some(Stroke::Rect(_))),
+                    "last row, reach {reach}, lift {lift}"
+                );
+            }
+        }
+    }
+
+    /// A rectangle started in a nested table and drawn out of it, down the outer cell, covers
+    /// part of that table: it makes nothing, as over part of any table.
+    #[test]
+    fn a_rectangle_out_of_a_nested_table_makes_nothing() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.table", &json!({"rows": 1, "cols": 1})).unwrap();
+        set_row_height(&mut s, 0, 200.0);
+        let a = cell_rect(&mut s, 0, 0);
+        s.run("table.draw", &json!({"page": 0, "x0": a.x + 10.0, "y0": a.y + 5.0, "x1": a.x + 200.0, "y1": a.y + 40.0})).unwrap();
+        let before = s.doc.body.clone();
+        let r = s.run("table.draw", &json!({"page": 0, "x0": a.x + 30.0, "y0": a.y + 20.0, "x1": a.x + 120.0, "y1": a.y + 150.0}));
+        assert!(r.is_err());
+        assert_eq!(s.doc.body, before, "nothing changed");
+    }
+
+    /// A rectangle in the margin beside a table's row is clear of the cells, but the text under
+    /// its start is a cell's: the preview doesn't promise a table the command refuses.
+    #[test]
+    fn beside_a_table_the_preview_and_the_command_agree() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.table", &json!({"rows": 1, "cols": 3})).unwrap();
+        set_row_height(&mut s, 0, 60.0);
+        let c = cell_rect(&mut s, 0, 2);
+        let (x0, y0, x1, y1) = (c.right() + 10.0, c.y + 2.0, c.right() + 60.0, c.y + 40.0);
+        let l = s.layout();
+        let shown = stroke(&l, 0, x0, y0, x1, y1, ERASER_REACH).is_some();
+        let done = s.run("table.draw", &json!({"page": 0, "x0": x0, "y0": y0, "x1": x1, "y1": y1})).is_ok();
+        assert!(!shown && !done, "preview {shown}, command {done}");
+    }
+
+    /// A rectangle from the outer table's bottom adds the row to the outer table, not to a table
+    /// nested in its last row whose bottom is within a wide reach too (at low zoom).
+    #[test]
+    fn a_row_goes_to_the_table_whose_bottom_it_starts_at() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.table", &json!({"rows": 1, "cols": 1})).unwrap();
+        set_row_height(&mut s, 0, 80.0);
+        let a = cell_rect(&mut s, 0, 0);
+        // A tall nested table, its bottom just above the outer table's (the cell's last paragraph
+        // between them).
+        s.run("table.draw", &json!({"page": 0, "x0": a.x + 10.0, "y0": a.y + 5.0, "x1": a.x + 200.0, "y1": a.y + 70.0})).unwrap();
+        let mut bottom = |depth: usize| {
+            s.layout().pages[0]
+                .items
+                .iter()
+                .filter_map(|it| match it {
+                    Placed::Cell { rect, table, .. } if table.0.len() == depth => Some(rect.bottom()),
+                    _ => None,
+                })
+                .fold(f32::NEG_INFINITY, f32::max)
+        };
+        let (outer, inner) = (bottom(1), bottom(4));
+        assert!(inner.is_finite() && outer - inner <= 24.0, "the nested table ends within reach: {inner} vs {outer}");
+        s.run("table.draw", &json!({"page": 0, "x0": a.x + 1.0, "y0": outer, "x1": a.x + 100.0, "y1": outer + 30.0, "reach": 24})).unwrap();
+        let t = first_table(&s);
+        assert_eq!(t.rows.len(), 2, "a row of the outer table");
+        let nested = t.rows[0].cells[0].blocks.iter().find_map(|x| x.as_table()).unwrap();
+        assert_eq!(nested.rows.len(), 1, "the nested table keeps its one row");
     }
 
     /// A line splits every cell it crosses (Word: one from the middle of A1 to the middle of B1

@@ -120,9 +120,16 @@ fn erase_click(st: &PenStroke, points: f32) -> bool {
     (st.to.0 - st.from.0).abs() < near && (st.to.1 - st.from.1).abs() < near
 }
 
-/// Whether a pen stroke is too short to draw anything (a click).
+/// Whether a pen stroke is too short to draw anything (a click): under about 23 screen points,
+/// and never shorter than the shortest line the command takes (at 400 % 23 px is under 6 pt).
 fn pen_short(st: &PenStroke, points: f32) -> bool {
-    (st.to.0 - st.from.0).abs().max((st.to.1 - st.from.1).abs()) < PEN_MIN_PX * points
+    (st.to.0 - st.from.0).abs().max((st.to.1 - st.from.1).abs()) < (PEN_MIN_PX * points).max(table_draw::MIN_LINE)
+}
+
+/// The pen preview's thin grey: dark on white paper, light on the dark paper of Switch Modes
+/// (whatever the interface theme), so it shows on the page it is drawn on.
+fn preview_grey(dark_paper: bool) -> egui::Color32 {
+    if dark_paper { egui::Color32::from_gray(0xB0) } else { egui::Color32::from_gray(0x60) }
 }
 
 /// The page point under screen point `p` on page `page` (its screen rect from `rects`).
@@ -277,8 +284,8 @@ pub fn paint(app: &WordApp, painter: &egui::Painter, t: &Tokens, layout: &DocLay
         let sc = layout.pages.get(page).filter(|pg| pg.w > 0.0).map_or(scale, |pg| r.width() / pg.w);
         Some(pos2(r.min.x + x * sc, r.min.y + y * sc))
     };
-    // Word previews the pen thin and grey, whatever the pen's style.
-    let ink = Stroke::new(1.0, t.text_dim);
+    // The pen previews thin and grey, whatever the pen's style.
+    let ink = Stroke::new(1.0, preview_grey(app.session.view.dark_mode));
     match (tool, app.canvas.table_stroke) {
         // Nothing until the stroke is long enough to count; a line across the whole of the cells
         // it splits.
@@ -330,6 +337,29 @@ pub fn paint(app: &WordApp, painter: &egui::Painter, t: &Tokens, layout: &DocLay
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// At 400 % (a quarter of a point per pixel) 23 px is under the 6 pt the command needs for a
+    /// line: such a stroke is a click, not an error in the status bar.
+    #[test]
+    fn a_stroke_shorter_than_the_shortest_line_is_a_click_at_any_zoom() {
+        let st = PenStroke { page: 0, from: (100.0, 100.0), to: (105.9, 100.0) };
+        assert!(pen_short(&st, 0.25), "5.9 pt at 400 %");
+        assert!(!pen_short(&PenStroke { to: (106.1, 100.0), ..st }, 0.25), "6.1 pt at 400 % is a line");
+        assert!(pen_short(&PenStroke { to: (117.0, 100.0), ..st }, 0.75), "17 pt (22.7 px) at 100 %");
+    }
+
+    /// The preview stands out from the paper it is drawn on (contrast at least 3:1), white or the
+    /// dark paper of Switch Modes, whatever the interface theme.
+    #[test]
+    fn the_pen_preview_shows_on_white_and_on_dark_paper() {
+        let lum = |g: u8| {
+            let c = f32::from(g) / 255.0;
+            if c <= 0.039_28 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+        };
+        let contrast = |a: u8, b: u8| (lum(a).max(lum(b)) + 0.05) / (lum(a).min(lum(b)) + 0.05);
+        assert!(contrast(preview_grey(false).r(), 0xFF) >= 3.0, "on white paper");
+        assert!(contrast(preview_grey(true).r(), wordcraft_render::DARK_PAPER) >= 3.0, "on dark paper");
+    }
 
     /// The buttons toggle the tools (one at a time); coordinates go to the engine.
     #[test]
