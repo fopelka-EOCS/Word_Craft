@@ -49,6 +49,8 @@ const OUTSIDE: &str = "Refused: this edit reaches outside the paragraphs the use
 /// Per-request harness state.
 #[derive(Clone, Default)]
 pub(crate) struct Guard {
+    /// The user's setting before temporary assistant tracking, including in Undo snapshots.
+    pub original_tracking: bool,
     /// The model read the document since the user's message.
     pub read: bool,
     /// The model edited since it last read the document.
@@ -288,10 +290,18 @@ impl Local<'_> {
         let before = measure(&self.session.doc, &author);
         let snap = self.session.edit_snapshot();
         let rev0 = self.session.rev();
-        if self.guard.last_rev == Some(rev0) {
-            self.session.join_next_undo();
+        if self.guard.last_rev != Some(rev0) {
+            let tracking = self.session.doc.settings.track_changes;
+            self.session.doc.settings.track_changes = self.guard.original_tracking;
+            self.session.checkpoint(label);
+            self.session.doc.settings.track_changes = tracking;
         }
+        self.session.join_next_undo();
         let r = self.session.run(id, p).map_err(|e| e.to_string());
+        if r.is_err() {
+            self.take_back(snap, rev0);
+            return r;
+        }
         if self.session.rev() == rev0 {
             return r;
         }

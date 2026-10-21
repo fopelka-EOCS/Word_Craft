@@ -107,6 +107,8 @@ pub struct Services {
     /// the response body (or an error) through the returned channel and wakes the UI. `None` (the
     /// web, for now): the Assistant pane says the assistant isn't available here.
     pub http: Option<Box<wordcraft_assistant::Http>>,
+    /// Native ChatGPT connection. Only sanitized status crosses this boundary.
+    pub chatgpt: Option<Box<dyn wordcraft_assistant::chatgpt::Connection>>,
 }
 
 /// Files delivered asynchronously.
@@ -558,6 +560,9 @@ impl WordApp {
                 self.session.dirty = false;
             }
             return Ok(json!({"downloaded": name, "bytes": bytes.len()}));
+        }
+        if discards_document(id, &params) {
+            assistant::reset(self);
         }
         let document = self.session.document_id();
         let r = self.session.run(id, &params).map_err(|e| e.to_string());

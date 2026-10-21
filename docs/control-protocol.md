@@ -77,4 +77,13 @@ pending: null | {kind: "question", question, options} | {kind: "permission", per
 plan: [{text, done}]}`, plus `models: {loading, list, error}` when asked. Provider settings and API
 keys are never returned; a key echoed in any text is blanked.
 
+The local macOS ChatGPT prototype also accepts `provider: "chatgpt"` (or any existing preset
+ID), `model: "<available model slug>"`, `chatgpt: "signIn" | "cancel" | "disconnect" |
+"acknowledgeUsage"`, and `consent: true | false` on `ui.assistant`. These are explicit user
+actions: never grant consent or acknowledge usage on the user's behalf. Every response adds
+`documentConsent` and sanitized `chatgpt` connection status (`connected`, `busy`, `account`,
+`usageAcknowledged`, `verifiedRequest`, `error`, `generation`), or null when unsupported.
+Tokens, authorization URLs/codes and provider settings are never returned. Consent does not
+survive document/account changes or restart. See [local prototype](chatgpt-oauth-prototype.md).
+
 Positions are `{"story": "body" | {"part": n}, "path": [block, row, cell, block, …], "off": byteOffset}`.

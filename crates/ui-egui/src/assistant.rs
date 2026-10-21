@@ -9,7 +9,11 @@
 
 use egui::{Align, Color32, Layout, Rect, RichText, Stroke, Ui, vec2};
 use serde_json::{Value, json};
-use wordcraft_assistant::{Agent, Decision, Entry, PRESETS, Pending, PermissionKind, PlanStep, Protocol, Settings, providers::CUSTOM, wire};
+use wordcraft_assistant::{
+    Agent, Decision, Entry, PRESETS, Pending, PermissionKind, PlanStep, Protocol, Settings,
+    providers::{CHATGPT, CUSTOM},
+    wire,
+};
 
 use crate::WordApp;
 use crate::theme::{Tokens, regular, semibold};
@@ -17,6 +21,11 @@ use crate::widgets::icon_text_button;
 
 #[derive(Default)]
 pub struct AssistantPane {
+    /// Consent and conversation belong to this document and connection only, never preferences.
+    consent: bool,
+    document: Option<u64>,
+    connection: Option<(u64, bool)>,
+    provider: String,
     pub open: bool,
     pub agent: Agent,
     /// Provider, keys and models. The host loads and saves them; never in `UiState`.
@@ -37,6 +46,7 @@ struct ModelList {
     /// Protocol, URL and key it was fetched with: any change makes the list stale.
     key: String,
     list: Vec<String>,
+    names: std::collections::BTreeMap<String, String>,
     error: Option<String>,
 }
 
@@ -67,7 +77,15 @@ fn cache_key(ep: &wordcraft_assistant::Endpoint) -> String {
 /// Ask the chosen provider for its models, unless a list for the same key and URL is cached (or
 /// `force`), a fetch is running, the key is missing or there is no HTTP client.
 fn fetch_models(app: &mut WordApp, force: bool) {
-    let Some(http) = app.services.http.as_deref() else { return };
+    let Some(http) = selected_http(&app.services, &app.assistant.settings) else { return };
+    if is_chatgpt(&app.assistant)
+        && !app.services.chatgpt.as_ref().is_some_and(|c| {
+            let s = c.status();
+            s.connected && !s.busy && s.usage_acknowledged
+        })
+    {
+        return;
+    }
     let pane = &mut app.assistant;
     if pane.models.flight.is_some() {
         return;
@@ -91,11 +109,20 @@ fn poll_models(app: &mut WordApp) -> bool {
         Err(std::sync::mpsc::TryRecvError::Disconnected) => Err("the request failed".into()),
     };
     let Some(f) = models.flight.take() else { return false };
-    let (list, error) = match res.and_then(|body| wire::parse_models(f.protocol, &body)) {
+    let mut names = std::collections::BTreeMap::new();
+    let (list, error) = match res.and_then(|body| {
+        if f.protocol == Protocol::Responses {
+            let v: Value = serde_json::from_str(&body).map_err(|_| "Invalid ChatGPT model catalog.")?;
+            for m in wordcraft_assistant::responses::models(&v)? {
+                names.insert(m.slug, m.display_name);
+            }
+        }
+        wire::parse_models(f.protocol, &body)
+    }) {
         Ok(list) => (list, None),
         Err(e) => (Vec::new(), Some(e)),
     };
-    models.lists.insert(f.provider, ModelList { key: f.key, list, error });
+    models.lists.insert(f.provider, ModelList { key: f.key, list, names, error });
     false
 }
 
@@ -127,6 +154,30 @@ enum Reply {
 /// (`[{text, done}]`) — never the settings or the key. `models: true` fetches the chosen provider's
 /// model list (or reuses it) and adds `models: {loading, list, error}`.
 pub fn command(app: &mut WordApp, p: &Value) -> Result<Value, String> {
+    sync(app);
+    if let Some(provider) = p.get("provider").and_then(Value::as_str) {
+        if wordcraft_assistant::providers::preset(provider).is_none() {
+            return Err("Unknown assistant provider.".into());
+        }
+        if app.assistant.settings.provider_id() != provider {
+            app.assistant.settings.provider = provider.to_string();
+            app.assistant.settings_changed = true;
+            sync(app);
+        }
+    }
+    if let Some(model) = p.get("model").and_then(Value::as_str) {
+        if model.is_empty() || model.len() > 200 {
+            return Err("Invalid assistant model.".into());
+        }
+        if is_chatgpt(&app.assistant) && !current_models(&app.assistant).is_some_and(|m| m.list.iter().any(|id| id == model)) {
+            return Err("Load this ChatGPT account's model list first and choose an available model.".into());
+        }
+        if app.assistant.settings.current_mut().model != model {
+            reset(app);
+            app.assistant.settings.current_mut().model = model.to_string();
+            app.assistant.settings_changed = true;
+        }
+    }
     let flag = |k: &str| p.get(k).and_then(Value::as_bool) == Some(true);
     let ask = p.get("ask").and_then(Value::as_str);
     let answer = p.get("answer").and_then(Value::as_str);
@@ -139,15 +190,26 @@ pub fn command(app: &mut WordApp, p: &Value) -> Result<Value, String> {
             _ => return Err("`decide` must be allowOnce, allowRequest or deny".into()),
         }),
     };
+    if let Some(action) = p.get("chatgpt").and_then(Value::as_str) {
+        account_action(app, action)?;
+    }
+    if let Some(consent) = p.get("consent").and_then(Value::as_bool) {
+        if !consent {
+            reset(app);
+        } else {
+            app.assistant.consent = true;
+        }
+    }
     if flag("models") {
         fetch_models(app, false);
         poll_models(app);
     }
     if flag("clear") {
+        stop(app);
         app.assistant.agent.clear(&mut app.session);
     }
     if flag("stop") {
-        app.assistant.agent.stop(&mut app.session);
+        stop(app);
     }
     let replying = answer.is_some() || decide.is_some();
     match p.get("open").and_then(Value::as_bool) {
@@ -157,8 +219,7 @@ pub fn command(app: &mut WordApp, p: &Value) -> Result<Value, String> {
         None => {}
     }
     if let Some(text) = ask {
-        let Some(http) = app.services.http.as_deref() else { return Err(unavailable().into()) };
-        app.assistant.agent.ask(text, &app.assistant.settings, &mut app.session, http)?;
+        send_request(app, text)?;
     }
     if let Some(text) = answer {
         if !matches!(app.assistant.agent.pending(), Some(Pending::Question { .. })) {
@@ -173,6 +234,8 @@ pub fn command(app: &mut WordApp, p: &Value) -> Result<Value, String> {
         reply(app, Reply::Decide(d));
     }
     let mut out = state(&app.assistant);
+    out["documentConsent"] = json!(app.assistant.consent);
+    out["chatgpt"] = app.services.chatgpt.as_ref().map(|c| serde_json::to_value(c.status()).unwrap_or(Value::Null)).unwrap_or(Value::Null);
     if flag("models") {
         out["models"] = models_state(&app.assistant);
     }
@@ -180,7 +243,7 @@ pub fn command(app: &mut WordApp, p: &Value) -> Result<Value, String> {
 }
 
 fn reply(app: &mut WordApp, r: Reply) {
-    let Some(http) = app.services.http.as_deref() else { return };
+    let Some(http) = selected_http(&app.services, &app.assistant.settings) else { return };
     let (agent, session) = (&mut app.assistant.agent, &mut app.session);
     match r {
         Reply::Answer(text) => agent.answer(&text, session, http),
@@ -233,6 +296,10 @@ fn state(pane: &AssistantPane) -> Value {
 
 /// Each frame: take the model's answer if it has arrived (runs its tool calls).
 pub(crate) fn poll(app: &mut WordApp, ctx: &egui::Context) {
+    sync(app);
+    if app.services.chatgpt.as_ref().is_some_and(|c| c.status().busy) {
+        ctx.request_repaint_after(std::time::Duration::from_millis(100));
+    }
     if poll_models(app) {
         ctx.request_repaint_after(std::time::Duration::from_millis(150));
     }
@@ -240,7 +307,7 @@ pub(crate) fn poll(app: &mut WordApp, ctx: &egui::Context) {
     if !app.assistant.agent.busy() || app.assistant.agent.pending().is_some() {
         return;
     }
-    if let Some(http) = app.services.http.as_deref()
+    if let Some(http) = selected_http(&app.services, &app.assistant.settings)
         && app.assistant.agent.poll(&mut app.session, http)
     {
         ctx.request_repaint();
@@ -269,16 +336,21 @@ fn pane(app: &mut WordApp, ui: &mut Ui, t: &Tokens) {
         app.assistant.open = false;
         return;
     }
-    let available = app.services.http.is_some();
+    let available = selected_http(&app.services, &app.assistant.settings).is_some();
     ui.horizontal(|ui| {
         let busy = app.assistant.agent.busy();
         if ui.add_enabled(!app.assistant.agent.log.is_empty() || busy, egui::Button::new(tl!("New chat"))).clicked() {
+            stop(app);
             app.assistant.agent.clear(&mut app.session);
         }
     });
     if let Some(refresh) = settings(&mut app.assistant, ui) {
         fetch_models(app, refresh);
         ui.ctx().request_repaint();
+    }
+    sync(app);
+    if is_chatgpt(&app.assistant) {
+        chatgpt_controls(app, ui);
     }
     ui.separator();
     plan(ui, app.assistant.agent.plan(), t);
@@ -329,6 +401,149 @@ fn pane(app: &mut WordApp, ui: &mut Ui, t: &Tokens) {
     }
     ui.separator();
     input(app, ui, available, t);
+}
+
+fn is_chatgpt(pane: &AssistantPane) -> bool {
+    pane.settings.provider_id() == CHATGPT
+}
+fn selected_http<'a>(services: &'a crate::Services, settings: &Settings) -> Option<&'a wordcraft_assistant::Http> {
+    if settings.provider_id() == CHATGPT { services.chatgpt.as_ref().map(|c| c.http()) } else { services.http.as_deref() }
+}
+
+fn stop(app: &mut WordApp) {
+    if let Some(c) = app.services.chatgpt.as_mut() {
+        c.cancel_requests();
+    }
+    app.assistant.agent.stop(&mut app.session);
+}
+/// Restore the current document's author/tracking BEFORE replacing its session.
+pub(crate) fn reset(app: &mut WordApp) {
+    stop(app);
+    app.assistant.agent.clear(&mut app.session);
+    app.assistant.consent = false;
+    app.assistant.input.clear();
+    app.assistant.models = Models::default();
+}
+fn sync(app: &mut WordApp) {
+    let document = app.session.document_id();
+    let connection = app.services.chatgpt.as_ref().map(|c| {
+        let s = c.status();
+        (s.generation, s.connected)
+    });
+    let provider = app.assistant.settings.provider_id().to_string();
+    if app.assistant.document.is_some()
+        && (app.assistant.document != Some(document) || app.assistant.connection != connection || app.assistant.provider != provider)
+    {
+        reset(app);
+    }
+    app.assistant.document = Some(document);
+    app.assistant.connection = connection;
+    app.assistant.provider = provider;
+}
+fn send_request(app: &mut WordApp, text: &str) -> Result<(), String> {
+    sync(app);
+    let result = (|| {
+        let http = selected_http(&app.services, &app.assistant.settings).ok_or(unavailable())?;
+        if is_chatgpt(&app.assistant) {
+            let status = app.services.chatgpt.as_ref().ok_or(unavailable())?.status();
+            if !status.connected || status.busy {
+                return Err("Connect your ChatGPT account first.".into());
+            }
+            if !status.usage_acknowledged {
+                return Err("Review ChatGPT usage controls and choose Got it first.".into());
+            }
+            if !app.assistant.consent {
+                return Err("Allow sending text from this document to ChatGPT first.".into());
+            }
+            let ep = app.assistant.settings.endpoint()?;
+            let valid = current_models(&app.assistant).is_some_and(|m| m.list.contains(&ep.model));
+            if !valid {
+                return Err("Choose a model from this ChatGPT account's model list.".into());
+            }
+            app.assistant.agent.ask_endpoint(text, ep, &mut app.session, http)
+        } else {
+            app.assistant.agent.ask(text, &app.assistant.settings, &mut app.session, http)
+        }
+    })();
+    if let Err(e) = &result
+        && is_chatgpt(&app.assistant)
+    {
+        app.assistant.agent.log.push(Entry::Error(e.clone()));
+    }
+    result
+}
+fn account_action(app: &mut WordApp, action: &str) -> Result<(), String> {
+    if !matches!(action, "signIn" | "cancel" | "disconnect" | "acknowledgeUsage") {
+        return Err("Unknown ChatGPT account action.".into());
+    }
+    if app.services.chatgpt.as_ref().is_some_and(|c| c.status().busy) && !matches!(action, "cancel" | "disconnect") {
+        return Err("A ChatGPT account operation is already running.".into());
+    }
+    reset(app);
+    let c = app.services.chatgpt.as_mut().ok_or("ChatGPT sign-in is available in the macOS prototype only.")?;
+    match action {
+        "signIn" => c.sign_in(),
+        "cancel" => c.cancel(),
+        "disconnect" => c.disconnect(),
+        "acknowledgeUsage" => c.acknowledge_usage(),
+        _ => {}
+    }
+    sync(app);
+    Ok(())
+}
+fn chatgpt_controls(app: &mut WordApp, ui: &mut Ui) {
+    let Some(c) = app.services.chatgpt.as_ref() else {
+        ui.label("ChatGPT sign-in is available in the macOS prototype only.");
+        return;
+    };
+    let status = c.status();
+    if let Some(error) = &status.error {
+        ui.colored_label(Tokens::get(ui.ctx()).red, error);
+    }
+    let mut action = None;
+    if status.busy {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label("Connecting to ChatGPT…");
+        });
+        if ui.button("Cancel sign-in").clicked() {
+            action = Some("cancel");
+        }
+    } else if status.connected {
+        ui.label(status.account.as_deref().unwrap_or("ChatGPT account"));
+        ui.label("Using ChatGPT plan");
+        if !status.verified_request {
+            ui.small("Account eligibility will be verified by a completed request.");
+        }
+        if ui.button("Disconnect").clicked() {
+            action = Some("disconnect");
+        }
+        if !status.usage_acknowledged {
+            ui.label("Eligible requests use your ChatGPT plan or credits balance. Review app limits and credit settings in Manage usage. Limits do not guarantee zero credit use.");
+            if ui.button("Got it").clicked() {
+                action = Some("acknowledgeUsage");
+            }
+        } else if !app.assistant.consent {
+            ui.label("Allow ChatGPT to receive this document's text, selection, your messages and tool results? Edits remain tracked. Permission lasts for this document session.");
+            if ui.button("Allow document access").clicked() {
+                app.assistant.consent = true;
+            }
+        } else {
+            ui.label("Document access allowed for this session");
+            if ui.button("Revoke document access").clicked() {
+                reset(app);
+            }
+        }
+    } else if ui.button("Continue with ChatGPT").clicked() {
+        action = Some("signIn");
+    }
+    ui.hyperlink_to("Manage usage", wordcraft_assistant::responses::USAGE);
+    if let Some(action) = action {
+        let _ = account_action(app, action);
+    }
+    if status.connected && status.usage_acknowledged && !status.busy {
+        fetch_models(app, false);
+    }
 }
 
 /// The model's plan as a checklist; collapsible, and scrolls when long.
@@ -513,7 +728,7 @@ fn input(app: &mut WordApp, ui: &mut Ui, available: bool, t: &Tokens) {
             send = ui.add_enabled(can, egui::Button::new(tl!("Send"))).clicked() || (enter && can);
         }
         if busy && ui.button(tl!("Stop")).clicked() {
-            app.assistant.agent.stop(&mut app.session);
+            stop(app);
             send = false;
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -526,9 +741,8 @@ fn input(app: &mut WordApp, ui: &mut Ui, available: bool, t: &Tokens) {
     let text = std::mem::take(&mut app.assistant.input);
     if answering {
         reply(app, Reply::Answer(text));
-    } else if let Some(http) = app.services.http.as_deref() {
-        // A refusal (no key yet…) is shown in the log; keep what was typed.
-        if app.assistant.agent.ask(&text, &app.assistant.settings, &mut app.session, http).is_err() {
+    } else {
+        if send_request(app, &text).is_err() {
             app.assistant.input = text;
         }
     }
@@ -562,6 +776,7 @@ fn settings(pane: &mut AssistantPane, ui: &mut Ui) -> Option<bool> {
             let loading = pane.models.flight.as_ref().is_some_and(|f| f.provider == id);
             let cached = current_models(pane);
             let list: Vec<String> = cached.map(|l| l.list.clone()).unwrap_or_default();
+            let names = cached.map(|l| l.names.clone()).unwrap_or_default();
             let status = if loading {
                 Some((false, tl!("Loading models…").to_string()))
             } else {
@@ -578,7 +793,9 @@ fn settings(pane: &mut AssistantPane, ui: &mut Ui) -> Option<bool> {
                 ui.label(tl!(label));
                 ui.add(egui::TextEdit::singleline(value).hint_text(hint).password(password).desired_width(f32::INFINITY)).changed()
             };
-            changed |= field(ui, "API key", &mut cur.api_key, "", true);
+            if id != CHATGPT {
+                changed |= field(ui, "API key", &mut cur.api_key, "", true);
+            }
             ui.label(tl!("Model"));
             let mut pick = None;
             ui.horizontal(|ui| {
@@ -600,7 +817,10 @@ fn settings(pane: &mut AssistantPane, ui: &mut Ui) -> Option<bool> {
                         let row_h = ui.spacing().interact_size.y;
                         egui::ScrollArea::vertical().max_height(260.0).show_rows(ui, row_h, shown.len(), |ui, range| {
                             for m in shown.get(range).unwrap_or_default() {
-                                let r = ui.add_sized([ui.available_width(), row_h], egui::Button::selectable(*m == cur.model, m.as_str()).truncate());
+                                let r = ui.add_sized(
+                                    [ui.available_width(), row_h],
+                                    egui::Button::selectable(*m == cur.model, names.get(m).map(String::as_str).unwrap_or(m.as_str())).truncate(),
+                                );
                                 if r.on_hover_text(m.as_str()).clicked() {
                                     pick = Some(m.clone());
                                     ui.close();
@@ -620,7 +840,9 @@ fn settings(pane: &mut AssistantPane, ui: &mut Ui) -> Option<bool> {
                 ui.add(egui::Label::new(RichText::new(text).font(regular(11.0)).color(color)).wrap());
             }
             let url_hint = preset.map(|p| p.base_url).filter(|u| !u.is_empty()).unwrap_or("https://");
-            changed |= field(ui, if custom { "Base URL (required)" } else { "Base URL" }, &mut cur.base_url, url_hint, false);
+            if id != CHATGPT {
+                changed |= field(ui, if custom { "Base URL (required)" } else { "Base URL" }, &mut cur.base_url, url_hint, false);
+            }
             if custom {
                 ui.label(tl!("Protocol"));
                 let now = cur.protocol.unwrap_or(Protocol::OpenAi);
@@ -946,3 +1168,7 @@ mod tests {
         assert!(a.assistant.settings_changed);
     }
 }
+
+#[cfg(test)]
+#[path = "assistant_chatgpt_tests.rs"]
+mod chatgpt_tests;

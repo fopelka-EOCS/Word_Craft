@@ -15,6 +15,8 @@ pub enum Protocol {
     Anthropic,
     /// OpenAI-compatible Chat Completions (`POST {base}/chat/completions`).
     OpenAi,
+    /// ChatGPT OAuth: streaming Responses, credentials supplied by the native host.
+    Responses,
 }
 
 pub struct Preset {
@@ -25,6 +27,8 @@ pub struct Preset {
     /// Suggested model; the user can type any other. Model names go stale: update them here.
     pub model: &'static str,
 }
+
+pub const CHATGPT: &str = "chatgpt";
 
 pub const CUSTOM: &str = "custom";
 
@@ -38,6 +42,7 @@ pub const PRESETS: &[Preset] = &[
         model: "gemini-2.5-flash",
     },
     Preset { id: "openai", name: "OpenAI", protocol: Protocol::OpenAi, base_url: "https://api.openai.com/v1", model: "gpt-5" },
+    Preset { id: CHATGPT, name: "ChatGPT", protocol: Protocol::Responses, base_url: "https://api.openai.com/v1", model: "" },
     Preset {
         id: "nvidia",
         name: "Nvidia",
@@ -119,6 +124,14 @@ impl Settings {
         let p = preset(id).ok_or("unknown provider")?;
         let user = self.providers.get(id).cloned().unwrap_or_default();
         let pick = |user: &str, preset: &str| if user.trim().is_empty() { preset.to_string() } else { user.trim().to_string() };
+        if id == CHATGPT {
+            return Ok(Endpoint {
+                protocol: Protocol::Responses,
+                base_url: p.base_url.into(),
+                model: user.model.trim().into(),
+                api_key: String::new(),
+            });
+        }
         let ep = Endpoint {
             protocol: if id == CUSTOM { user.protocol.unwrap_or(Protocol::OpenAi) } else { p.protocol },
             base_url: pick(&user.base_url, p.base_url).trim_end_matches('/').to_string(),

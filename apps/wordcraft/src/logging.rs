@@ -256,7 +256,8 @@ impl AppLogger {
 
 impl log::Log for AppLogger {
     fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
-        metadata.level() <= self.filter.level_for(metadata.target())
+        // OAuth worker diagnostics can contain credentials even when dependencies trace HTTP.
+        !std::thread::current().name().is_some_and(|n| n.starts_with("chatgpt-")) && metadata.level() <= self.filter.level_for(metadata.target())
     }
 
     fn log(&self, record: &log::Record<'_>) {
@@ -659,5 +660,26 @@ mod tests {
         );
         assert_eq!(panic_report(None, None, None), "panic at an unknown place: (no message)");
         assert_eq!(panic_report(Some("a.rs:1:1"), Some("boom"), Some("   0: main\n")), "panic at a.rs:1:1: boom\n   0: main");
+    }
+}
+
+#[cfg(test)]
+mod oauth_log_tests {
+    use super::*;
+    use log::Log;
+    #[test]
+    fn oauth_worker_logs_stay_disabled_even_with_trace_enabled() {
+        std::thread::Builder::new()
+            .name("chatgpt-responses".into())
+            .spawn(|| {
+                let logger = AppLogger::new(Filter::parse("trace"), false);
+                let metadata = log::Metadata::builder().target("ureq::run").level(log::Level::Error).build();
+                assert!(!logger.enabled(&metadata));
+                logger.log(&log::Record::builder().metadata(metadata).args(format_args!("synthetic-secret")).build());
+                assert!(logger.sink.lock().unwrap().pending.is_empty());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 }

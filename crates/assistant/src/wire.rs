@@ -45,13 +45,19 @@ pub struct ToolOutput {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Msg {
     User(String),
-    Assistant { text: String, calls: Vec<ToolCall> },
+    Assistant {
+        text: String,
+        calls: Vec<ToolCall>,
+    },
     Tools(Vec<ToolOutput>),
+    /// Completed Responses output, including encrypted reasoning for the next turn.
+    ResponseItems(Vec<Value>),
 }
 
 /// What the model answered.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Reply {
+    pub items: Vec<Value>,
     pub text: String,
     pub calls: Vec<ToolCall>,
 }
@@ -74,6 +80,7 @@ pub fn build(ep: &Endpoint, system: &str, msgs: &[Msg], tools: &[Value]) -> Http
             });
             (format!("{}/messages", ep.base_url), ("x-api-key".to_string(), ep.api_key.clone()), body)
         }
+        Protocol::Responses => return crate::responses::build(ep, system, msgs, tools),
         Protocol::OpenAi => {
             let tools: Vec<Value> = tools
                 .iter()
@@ -108,7 +115,9 @@ pub fn build(ep: &Endpoint, system: &str, msgs: &[Msg], tools: &[Value]) -> Http
 pub fn models_request(ep: &Endpoint) -> HttpRequest {
     let (url, auth) = match ep.protocol {
         Protocol::Anthropic => (format!("{}/models?limit=1000", ep.base_url), ("x-api-key".to_string(), ep.api_key.clone())),
-        Protocol::OpenAi => (format!("{}/models", ep.base_url), ("authorization".to_string(), format!("Bearer {}", ep.api_key))),
+        Protocol::OpenAi | Protocol::Responses => {
+            (format!("{}/models", ep.base_url), ("authorization".to_string(), format!("Bearer {}", ep.api_key)))
+        }
     };
     let mut headers = vec![auth];
     if ep.protocol == Protocol::Anthropic {
@@ -118,10 +127,13 @@ pub fn models_request(ep: &Endpoint) -> HttpRequest {
 }
 
 /// Model ids from a `/models` reply, exactly as the provider spells them: sorted, unique, capped.
-pub fn parse_models(_protocol: Protocol, body: &str) -> Result<Vec<String>, String> {
+pub fn parse_models(protocol: Protocol, body: &str) -> Result<Vec<String>, String> {
     let v: Value = serde_json::from_str(body).map_err(|e| format!("unreadable reply ({e})"))?;
     if v.get("error").is_some_and(|e| !e.is_null()) {
         return Err(error_message(body));
+    }
+    if protocol == Protocol::Responses {
+        return crate::responses::models(&v).map(|models| models.into_iter().map(|m| m.slug).collect());
     }
     // Both protocols answer {"data":[{"id":...}]}.
     let mut ids: Vec<String> = v
@@ -158,6 +170,7 @@ fn anthropic_msgs(msgs: &[Msg]) -> Vec<Value> {
 
 fn anthropic_msg(m: &Msg) -> (&'static str, Vec<Value>) {
     match m {
+        Msg::ResponseItems(_) => ("assistant", vec![]),
         // An empty text block is rejected by the API.
         Msg::User(t) if t.is_empty() => ("user", vec![]),
         Msg::User(t) => ("user", vec![json!({"type": "text", "text": t})]),
@@ -180,6 +193,7 @@ fn nonempty(t: &str) -> &str {
 
 fn openai_msgs(m: &Msg, out: &mut Vec<Value>) {
     match m {
+        Msg::ResponseItems(_) => {}
         Msg::User(t) => out.push(json!({"role": "user", "content": t})),
         Msg::Assistant { text, calls } => {
             // A tool-call turn without text sends `content: null`, as the OpenAI spec and SDKs
@@ -205,6 +219,9 @@ fn object(v: &Value) -> Value {
 
 /// Read a successful response body.
 pub fn parse(protocol: Protocol, body: &str) -> Result<Reply, String> {
+    if protocol == Protocol::Responses {
+        return crate::responses::parse(body);
+    }
     let v: Value = serde_json::from_str(body).map_err(|e| format!("unreadable reply ({e})"))?;
     if v.get("error").is_some_and(|e| !e.is_null()) {
         return Err(error_message(body));
@@ -212,6 +229,7 @@ pub fn parse(protocol: Protocol, body: &str) -> Result<Reply, String> {
     let str_of = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
     let mut reply = Reply::default();
     match protocol {
+        Protocol::Responses => return crate::responses::parse(body),
         Protocol::Anthropic => {
             for block in v.get("content").and_then(Value::as_array).into_iter().flatten() {
                 match block.get("type").and_then(Value::as_str) {

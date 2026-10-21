@@ -15,8 +15,10 @@
 //! channel, and the UI calls [`Agent::poll`] every frame, so the session stays on the UI thread.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod chatgpt;
 pub mod guard;
 pub mod providers;
+pub mod responses;
 pub mod wire;
 
 use std::sync::mpsc::{Receiver, TryRecvError};
@@ -132,6 +134,7 @@ pub struct PlanStep {
 
 /// A model turn whose tool calls are being run (one at a time, so the request can pause).
 struct Round {
+    items: Vec<Value>,
     text: String,
     calls: Vec<ToolCall>,
     outs: Vec<ToolOutput>,
@@ -207,6 +210,21 @@ impl Agent {
             return Err("busy".into());
         }
         let ep = settings.endpoint().inspect_err(|e| self.log.push(Entry::Error(e.clone())))?;
+        self.ask_endpoint(text, ep, session, http)
+    }
+
+    /// OAuth credentials remain in the host; this endpoint contains no token.
+    pub fn ask_endpoint(&mut self, text: &str, ep: Endpoint, session: &mut Session, http: &Http) -> Result<(), String> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Err("empty".into());
+        }
+        if self.busy() {
+            return Err("busy".into());
+        }
+        if ep.model.is_empty() {
+            return Err("Choose a model.".into());
+        }
         self.log.push(Entry::User(text.to_string()));
         let mut msg = text.to_string();
         if !session.sel.is_collapsed() {
@@ -218,7 +236,12 @@ impl Agent {
         self.transcript.push(Msg::User(msg));
         self.plan.clear();
         let author = std::mem::replace(&mut session.author, format!("AI ({})", ep.model));
-        let guard = Guard { scope: Scope::of(session), base_total: guard::measure(&session.doc, &session.author).total(), ..Default::default() };
+        let guard = Guard {
+            original_tracking: session.doc.settings.track_changes,
+            scope: Scope::of(session),
+            base_total: guard::measure(&session.doc, &session.author).total(),
+            ..Default::default()
+        };
         let run = Run {
             waiting: Some(http(wire::build(&ep, SYSTEM_PROMPT, &self.transcript, &tool_definitions()))),
             author,
@@ -245,7 +268,11 @@ impl Agent {
                 for c in round.calls.iter().skip(outs.len()) {
                     outs.push(ToolOutput { id: c.id.clone(), text: "Not run: the user stopped the request.".into(), is_error: true });
                 }
-                self.transcript.push(Msg::Assistant { text: round.text, calls: round.calls });
+                self.transcript.push(if run.ep.protocol == Protocol::Responses {
+                    Msg::ResponseItems(round.items)
+                } else {
+                    Msg::Assistant { text: round.text, calls: round.calls }
+                });
                 self.transcript.push(Msg::Tools(outs));
             }
             session.author = run.author;
@@ -309,7 +336,11 @@ impl Agent {
         if reply.calls.is_empty() {
             // An empty turn is rejected by Anthropic when sent back; leave it out.
             if !reply.text.is_empty() {
-                self.transcript.push(Msg::Assistant { text: reply.text, calls: vec![] });
+                self.transcript.push(if run.ep.protocol == Protocol::Responses {
+                    Msg::ResponseItems(reply.items)
+                } else {
+                    Msg::Assistant { text: reply.text, calls: vec![] }
+                });
             }
             // Edited without reading the result back: remind once, then go on.
             if run.guard.unverified && !run.reminded {
@@ -319,7 +350,7 @@ impl Agent {
             }
             return self.finish(session, None);
         }
-        run.round = Some(Round { text: reply.text, calls: reply.calls, outs: Vec::new() });
+        run.round = Some(Round { items: reply.items, text: reply.text, calls: reply.calls, outs: Vec::new() });
         self.advance(session, http)
     }
 
@@ -347,7 +378,11 @@ impl Agent {
         // The results are pushed right after the calls, so the transcript never ends on a
         // tool-call turn without its results, whatever happens next (error, Stop).
         if let Some(round) = run.round.take() {
-            self.transcript.push(Msg::Assistant { text: round.text, calls: round.calls });
+            self.transcript.push(if run.ep.protocol == Protocol::Responses {
+                Msg::ResponseItems(round.items)
+            } else {
+                Msg::Assistant { text: round.text, calls: round.calls }
+            });
             self.transcript.push(Msg::Tools(round.outs));
             elide(&mut self.transcript);
         }

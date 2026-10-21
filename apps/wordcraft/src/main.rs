@@ -12,6 +12,8 @@
 #[cfg(target_os = "macos")]
 mod apple_events;
 mod assistant_http;
+#[cfg(target_os = "macos")]
+mod chatgpt;
 mod control_server;
 mod file_dialogs;
 #[cfg(any(target_os = "windows", test))]
@@ -193,6 +195,8 @@ fn save_prefs(app: &WordApp) {
 fn services(file_dialog: file_dialogs::Hook, ctx: &egui::Context) -> Services {
     Services {
         http: Some(assistant_http::hook(ctx)),
+        #[cfg(target_os = "macos")]
+        chatgpt: Some(chatgpt::connection(ctx)),
         file_dialog: Some(file_dialog),
         print: Some(print::hook()),
         clipboard_picture: Some(Box::new(clipboard_picture)),

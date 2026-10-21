@@ -35,6 +35,14 @@ winresource = "0.1"
 # by PdfCraft and PhotoCraft) registers the handler (Objective-C interop needs unsafe, which our
 # workspace forbids) behind a safe API. Pinned exactly: review the diff before bumping.
 fmv-macos-events = "=0.1.0"
+# OAuth primitives and audited platform credential storage (native prototype only).
+security-framework = "3"
+jsonwebtoken = { version = "9.3", default-features = false }
+url = "2"
+base64 = { workspace = true }
+sha2 = { workspace = true }
+serde = { workspace = true }
+uuid = "1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rfd = { workspace = true }

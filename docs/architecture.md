@@ -1,6 +1,6 @@
 # WordCraft architecture
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** trivial (`assistant` crate added, M25; previously major: first committed version; `plan/architecture.md` is local-only) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-21 · **Change:** trivial (M25 native ChatGPT credential service and Responses transport; previously: `assistant` crate added, M25; previously major: first committed version; `plan/architecture.md` is local-only) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 How WordCraft is built today (origin/main `40c5d51`). The longer design notes in
 `plan/architecture.md` are gitignored and local to the original author's machine; this file is the
@@ -61,9 +61,12 @@ winit or rfd.
 - GitHub Actions on PRs: packaging lint, and FreeBSD / Windows ARM64 when build files change;
   release builds on pushes to `release`.
 
+Native ChatGPT OAuth/Keychain stays in `apps/wordcraft`; `Services.chatgpt` exposes sanitized status and an authenticated HTTP hook. The assistant crate constructs Responses requests without credentials. See [prototype](chatgpt-oauth-prototype.md).
+
 ## Revision history
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-21 | trivial | M25 native ChatGPT credential service and Responses transport; see [local prototype](chatgpt-oauth-prototype.md) |
 | 2026-10-12 | trivial | `assistant` crate (L5, M25) in the crate table |
 | 2026-10-10 | major | First committed architecture doc, from the crates' sources and `AGENTS.md` |
