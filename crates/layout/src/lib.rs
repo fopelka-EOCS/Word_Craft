@@ -1142,7 +1142,7 @@ fn layout_box(
                     // A table in the text flow starts below the floating objects in its way.
                     None => {
                         let h = tl.rows.iter().map(|r| r.height).sum::<f32>();
-                        (tl.x, below(&excl, y, tl.x, tl.x + tl.width, h))
+                        (tl.x, below(&excl, y, tl.x, tl.x + tl.width, h.min(f32::INFINITY)))
                     }
                 };
                 let mut row_y = ty;
@@ -3670,7 +3670,7 @@ fn place_table(ctx: &mut Ctx, pb: &mut PageBuilder, t: &wordcraft_doc::Table, bl
         tl.x = float_table_x(pb, tl.width, &f, legacy, ctx.mirror) - pb.col_x();
     }
     // A table in the text flow starts below the floating objects in its way.
-    below_floats(pb, pb.col_x() + tl.x, pb.col_x() + tl.x + tl.width, table_h);
+    below_floats(pb, pb.col_x() + tl.x, pb.col_x() + tl.x + tl.width, table_h.min(pb.uncapped_bottom() - pb.y).max(0.0));
     let header_rows: Vec<usize> = (0..t.rows.len()).take_while(|r| t.rows.get(*r).is_some_and(|row| row.props.header)).collect();
     // Header rows are re-placed on every page a table spills onto, so a table with many header
     // rows that each spill onto their own page is O(header rows × pages) placed items — a few KB
