@@ -5,7 +5,7 @@ use wordcraft_doc::para::{COLUMN_BREAK, NB_HYPHEN, NBSP, OBJ, PAGE_BREAK, SOFT_H
 use wordcraft_doc::props::{Border, BorderStyle, NumRef};
 use wordcraft_doc::{Block, ListKind, Path, Pos, StoryRef, Table};
 
-use super::{delete_selection, non_mac, sel_result, split_para, type_text};
+use super::{delete_selection, non_mac, sel_result, split_para, type_page_break, type_text};
 use crate::{CmdError, CmdResult, CommandSpec, Selection, Session, p};
 
 pub fn specs() -> Vec<CommandSpec> {
@@ -13,7 +13,11 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("text.insert", "Type Text", "Editing", insert).params(r#"{"text": string}"#),
         CommandSpec::new("text.newParagraph", "New Paragraph", "Editing", new_paragraph).key("Enter"),
         CommandSpec::new("text.lineBreak", "Line Break", "Editing", |s, _| ins_char(s, '\n')).key("Shift+Enter"),
-        CommandSpec::new("text.pageBreak", "Page Break", "Insert › Pages", |s, _| ins_char(s, PAGE_BREAK)).key("Mod+Enter"),
+        CommandSpec::new("text.pageBreak", "Page Break", "Insert › Pages", |s, _| {
+            type_page_break(s)?;
+            sel_result(s)
+        })
+        .key("Mod+Enter"),
         CommandSpec::new("text.columnBreak", "Column Break", "Layout › Breaks", |s, _| ins_char(s, COLUMN_BREAK)).key("Mod+Shift+Enter"),
         CommandSpec::new("text.tab", "Tab", "Editing", tab).key("Tab"),
         CommandSpec::new("text.backTab", "Shift+Tab", "Editing", back_tab).key("Shift+Tab"),
@@ -733,6 +737,16 @@ fn backspace_inner(s: &mut Session, _: &Value) -> CmdResult {
     match s.doc.block(f.story, &prev_path) {
         Some(Block::Para(prev)) => {
             let a = Pos { story: f.story, path: prev_path, off: prev.len() };
+            // A page break ending the paragraph above goes first; the paragraphs stay (Word).
+            let brk = a.off.saturating_sub(PAGE_BREAK.len_utf8());
+            if prev.text.ends_with(PAGE_BREAK) && prev.props_of_char(brk).del.is_none() {
+                s.sel = Selection { anchor: Pos { off: brk, ..a.clone() }, focus: a };
+                delete_selection(s)?;
+                if !s.doc.settings.track_changes {
+                    s.sel = Selection::caret(f);
+                }
+                return sel_result(s);
+            }
             // An empty paragraph before a non-empty one takes the latter's formatting (Word).
             if s.doc.settings.track_changes {
                 // Tracked: the paragraph mark above is marked deleted (or removed, when this

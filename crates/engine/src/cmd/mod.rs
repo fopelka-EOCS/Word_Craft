@@ -271,6 +271,14 @@ pub fn type_text(s: &mut Session, text: &str) -> Result<(), CmdError> {
     insert_text(s, text, true)
 }
 
+/// Type a page break. In the main text it ends its paragraph, as in Word, so the caret goes on
+/// at the top of the next page; in a table cell or a one-line control it stays inside.
+pub fn type_page_break(s: &mut Session) -> Result<(), CmdError> {
+    let (at, _) = s.sel.ordered();
+    let ends_para = at.story == StoryRef::Body && at.path.depth() == 0 && !controls::refuses_paragraph(s);
+    type_text(s, if ends_para { "\u{000C}\r" } else { "\u{000C}" })
+}
+
 /// Insert pasted plain text like [`type_text`], except that its paragraph separators are text
 /// being transferred, not Enter key presses: an empty list item between them stays (Enter on
 /// one would end the list).

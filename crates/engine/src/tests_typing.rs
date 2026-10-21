@@ -2160,3 +2160,114 @@ fn right_arrow_moves_through_a_ligature_one_letter_at_a_time() {
     assert_eq!(offs, [0, 1, 2, 3]);
     assert!(xs.windows(2).all(|w| w[0].1 < w[1].1), "caret x after each Right press: {xs:?}");
 }
+
+/// Word (checked in Word for the web): a page break ends its paragraph, so the first Enter after
+/// it adds a line on the new page, not one beside the break on the page before.
+#[test]
+fn a_page_break_ends_its_paragraph() {
+    let caret_page = |s: &mut Session| {
+        let at = s.sel.focus.clone();
+        s.layout().page_of(&at)
+    };
+    for id in ["text.pageBreak", "insert.pageBreak"] {
+        let mut s = typed("One");
+        run(&mut s, id, json!({}));
+        assert_eq!(caret_page(&mut s), Some(1), "{id}");
+        typ(&mut s, "\n");
+        assert_eq!(caret_page(&mut s), Some(1), "{id}");
+        assert_eq!(texts(&s), ["one\u{c}", "", ""], "{id}");
+        // At the start of a paragraph Enter moves its text down the new page.
+        let mut s = typed("One");
+        run(&mut s, "caret.home", json!({}));
+        run(&mut s, id, json!({}));
+        typ(&mut s, "\n");
+        assert_eq!(caret_page(&mut s), Some(1), "{id}");
+        assert_eq!(texts(&s), ["\u{c}", "", "one"], "{id}");
+        // In the middle the text after the break is its own paragraph: centring leaves the rest.
+        let mut s = typed("OneTwo");
+        s.sel = crate::Selection::caret(Pos::body(0, 3));
+        run(&mut s, id, json!({}));
+        run(&mut s, "para.alignCenter", json!({}));
+        let align = |s: &Session, i: usize| s.doc.body.get(i).and_then(|b| b.as_para()).and_then(|p| p.props.align);
+        assert_eq!((align(&s, 0), align(&s, 1)), (None, Some(wordcraft_doc::props::Align::Center)), "{id}");
+        run(&mut s, "edit.undo", json!({}));
+        run(&mut s, "edit.undo", json!({}));
+        assert_eq!(texts(&s), ["onetwo"], "{id}");
+    }
+    let mut s = typed("One");
+    run(&mut s, "insert.blankPage", json!({}));
+    assert_eq!(texts(&s), ["one\u{c}", "\u{c}", ""]);
+    assert_eq!(caret_page(&mut s), Some(2));
+    // A break in a table cell starts no page, and a one-line control refuses a paragraph mark.
+    let mut s = typed("");
+    run(&mut s, "insert.table", json!({"rows": 1, "cols": 1}));
+    typ(&mut s, "a");
+    run(&mut s, "text.pageBreak", json!({}));
+    assert_eq!(s.doc.para_at(&s.sel.focus).map(|p| p.text.as_str()), Some("a\u{c}"));
+    let mut s = typed("");
+    run(&mut s, "developer.plainText", json!({}));
+    typ(&mut s, "a");
+    run(&mut s, "text.pageBreak", json!({}));
+    let obj = wordcraft_doc::para::OBJ;
+    assert_eq!(texts(&s), [format!("{obj}a\u{c}{obj}")]);
+    // A selection over the control's edge counts from its start, whichever way it was made.
+    let w = obj.len_utf8();
+    let (inside, after) = (1 + w + 1, 1 + 2 * w + 2);
+    for (a, b, expect) in [(0, inside, vec![String::from("\u{c}"), format!("{obj}b{obj}y")]), (inside, after, vec![format!("x{obj}a\u{c}{obj}y")])] {
+        for (anchor, focus) in [(a, b), (b, a)] {
+            let mut s = typed("x");
+            run(&mut s, "developer.plainText", json!({}));
+            typ(&mut s, "ab");
+            run(&mut s, "caret.docEnd", json!({}));
+            typ(&mut s, "y");
+            s.sel = crate::Selection { anchor: Pos::body(0, anchor), focus: Pos::body(0, focus) };
+            run(&mut s, "text.pageBreak", json!({}));
+            assert_eq!(texts(&s), expect, "{anchor}..{focus}");
+        }
+    }
+}
+
+/// Word (checked in Word for the web): Backspace after a page break and Delete before it remove
+/// only the break; the paragraphs join with the next press.
+#[test]
+fn backspace_or_delete_by_a_page_break_removes_only_the_break() {
+    for (caret, key) in [(Pos::body(1, 0), "text.backspace"), (Pos::body(0, 3), "text.delete")] {
+        let mut s = typed("OneTwo");
+        s.sel = crate::Selection::caret(Pos::body(0, 3));
+        run(&mut s, "text.pageBreak", json!({}));
+        s.sel = crate::Selection::caret(caret.clone());
+        run(&mut s, key, json!({}));
+        assert_eq!(texts(&s), ["one", "two"], "{key}");
+        assert_eq!(s.sel.focus, caret, "{key}");
+        assert_eq!(s.layout().pages.len(), 1, "{key}");
+        run(&mut s, key, json!({}));
+        assert_eq!(texts(&s), ["onetwo"], "{key}");
+        run(&mut s, "edit.undo", json!({}));
+        run(&mut s, "edit.undo", json!({}));
+        assert_eq!(texts(&s), ["one\u{c}", "two"], "{key}");
+    }
+    // A list item after the break loses its number, then its indent, before the break goes.
+    let mut s = typed("One");
+    run(&mut s, "text.pageBreak", json!({}));
+    typ(&mut s, "1. Two");
+    s.sel = crate::Selection::caret(Pos::body(1, 0));
+    run(&mut s, "text.backspace", json!({}));
+    assert_eq!(paras(&s)[1], ("Two".into(), None, true));
+    run(&mut s, "text.backspace", json!({}));
+    assert_eq!(paras(&s)[1], ("Two".into(), None, false));
+    assert_eq!(texts(&s), ["one\u{c}", "two"]);
+    run(&mut s, "text.backspace", json!({}));
+    assert_eq!(texts(&s), ["one", "two"]);
+    // Tracked, the break is marked deleted and the caret moves before it.
+    let mut s = typed("One");
+    run(&mut s, "text.pageBreak", json!({}));
+    s.doc.settings.track_changes = true;
+    run(&mut s, "text.backspace", json!({}));
+    assert_eq!(texts(&s), ["one\u{c}", ""]);
+    assert_eq!(s.sel.focus, Pos::body(0, 3));
+    assert!(s.doc.body.first().and_then(|b| b.as_para()).is_some_and(|p| p.props_of_char(3).del.is_some()));
+    // From the next paragraph again, Backspace goes on to the paragraph mark.
+    s.sel = crate::Selection::caret(Pos::body(1, 0));
+    run(&mut s, "text.backspace", json!({}));
+    assert!(s.doc.body.first().and_then(|b| b.as_para()).is_some_and(|p| p.mark.del.is_some()));
+}
