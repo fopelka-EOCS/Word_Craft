@@ -84,6 +84,15 @@ pub struct CanvasState {
     /// While the vertical scrollbar is dragged: the page at the top of the window (0-based),
     /// which a tip beside the pointer names (#2551).
     pub scrollbar_page: Option<usize>,
+    /// The text WordCraft itself last put on the primary selection (Linux, #1934), so a middle
+    /// click knows the selection still holds our own copy and may paste it with its formatting.
+    /// `None` when WordCraft has not written one, or the write failed: the selection is then
+    /// another program's, and its text must not bring our old formatting with it.
+    ///
+    /// The primary selection carries no owner, so a selection another program made that reads
+    /// exactly like our copy cannot be told apart from ours; that one comes in with our
+    /// formatting.
+    pub primary_selection_ours: Option<String>,
     /// Effective scale (screen points per document point).
     pub scale: f32,
     pub canvas_rect: Option<Rect>,
@@ -241,6 +250,7 @@ impl Default for CanvasState {
             open_url: None,
             page_rects: Vec::new(),
             scrollbar_page: None,
+            primary_selection_ours: None,
             scale: PX_PER_PT,
             canvas_rect: None,
             focused: false,
@@ -1645,11 +1655,17 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         && let Some(get_text) = &app.services.primary_selection_text
         && let Some(text) = get_text()
     {
-        // `edit.paste`, not a plain-text paste: when the primary selection holds what WordCraft
-        // last copied, the engine pastes that copy with its formatting, as Ctrl+V does. The empty
-        // `html` keeps the system clipboard's own formats out of it — this is the primary
-        // selection, not what Ctrl+V would paste.
-        let _ = app.run("edit.paste", json!({"text": text, "html": ""}));
+        if app.canvas.primary_selection_ours.as_deref() == Some(text.as_str()) {
+            // Our own copy: `edit.paste`, not a plain-text paste, so the engine pastes that copy
+            // with its formatting, as Ctrl+V does. The empty `html` keeps the system clipboard's
+            // own formats out of it — this is the primary selection, not what Ctrl+V would paste.
+            let _ = app.run("edit.paste", json!({"text": text, "html": ""}));
+        } else {
+            // Another program's selection: plain text, and only that. Pasting it as WordCraft's
+            // own copy would bring the formatting of an earlier copy along, so a selection that
+            // merely reads the same would come in bold or italic against its will.
+            let _ = app.run("edit.pasteText", json!({"text": text}));
+        }
     }
     // Double-click the space between two pages (or the line between them) to hide or show it.
     if resp.double_clicked()
@@ -5192,10 +5208,18 @@ mod tests {
         let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text(&text)), Default::default());
         a.canvas.auto_scroll.supported = true;
         a.session.prefs.middle_click_paste = true;
+        // The primary selection holds what the copy puts there.
         let copied: std::rc::Rc<std::cell::RefCell<String>> = std::rc::Rc::default();
         a.services.primary_selection_text = Some(Box::new({
             let c = copied.clone();
             move || Some(c.borrow().clone())
+        }));
+        a.services.set_primary_text = Some(Box::new({
+            let c = copied.clone();
+            move |t: &str| {
+                *c.borrow_mut() = t.to_string();
+                true
+            }
         }));
         let mut h: H = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
             |ui, app: &mut WordApp| {
@@ -5208,8 +5232,8 @@ mod tests {
         h.run_steps(6);
         h.state_mut().session.run("select.range", &json!({"anchor": {"block": 0, "off": 0}, "focus": {"block": 0, "off": 6}})).unwrap();
         h.state_mut().session.run("format.bold", &json!({"value": true})).unwrap();
-        let r = h.state_mut().session.run("edit.copy", &json!({})).unwrap();
-        *copied.borrow_mut() = r["text"].as_str().unwrap_or("").to_string();
+        // The app's Copy, so the copy reaches the primary selection as it does in the app.
+        h.state_mut().run("edit.copy", json!({})).unwrap();
         assert_eq!(copied.borrow().as_str(), "Studio", "the copy put its text on the primary selection");
 
         // Paste it at the end of the document, with the middle button.
@@ -5227,6 +5251,51 @@ mod tests {
         assert_eq!(focus.off, 40, "the six characters were pasted after the line's own text");
         let bold = h.state().session.doc.para_at(&focus).and_then(|p| p.props_of_char(34).bold);
         assert_eq!(bold, Some(true), "the middle click paste kept the bold, like Ctrl+V");
+    }
+
+    /// #1934: another program's selection is plain text, even when it reads the same as a copy
+    /// WordCraft made. Pasting it must not bring that copy's formatting with it: the text would
+    /// come in bold against the will of the program it came from.
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn a_foreign_primary_selection_pastes_without_our_formatting() {
+        // A bold "Studio" copied in WordCraft, and a primary selection that holds the same word
+        // as plain text — another program's, which WordCraft never put there.
+        let text = format!("Studio\n{}", vec!["A line of text in a long document."; 400].join("\n"));
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text(&text)), Default::default());
+        a.canvas.auto_scroll.supported = true;
+        a.session.prefs.middle_click_paste = true;
+        a.services.primary_selection_text = Some(Box::new(|| Some("Studio".to_string())));
+        // WordCraft's copy never reached the primary selection: another program owns it.
+        a.services.set_primary_text = Some(Box::new(|_| false));
+        let mut h: H = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(6);
+        h.state_mut().session.run("select.range", &json!({"anchor": {"block": 0, "off": 0}, "focus": {"block": 0, "off": 6}})).unwrap();
+        h.state_mut().session.run("format.bold", &json!({"value": true})).unwrap();
+        h.state_mut().run("edit.copy", json!({})).unwrap();
+
+        // Paste it at the end of the document, with the middle button.
+        h.state_mut().session.run("caret.docEnd", &json!({})).unwrap();
+        h.run_steps(3);
+        let anchor = h.state().canvas.viewport.expect("the canvas is shown").center();
+        h.event(egui::Event::PointerMoved(anchor));
+        h.event(egui::Event::PointerButton { pos: anchor, button: egui::PointerButton::Middle, pressed: true, modifiers: Default::default() });
+        h.step();
+        h.event(egui::Event::PointerButton { pos: anchor, button: egui::PointerButton::Middle, pressed: false, modifiers: Default::default() });
+        h.run_steps(3);
+
+        // The text is there, but not the bold our copy carried.
+        let focus = h.state().session.sel.focus.clone();
+        assert_eq!(focus.off, 40, "the six characters were pasted after the line's own text");
+        let bold = h.state().session.doc.para_at(&focus).and_then(|p| p.props_of_char(34).bold);
+        assert_ne!(bold, Some(true), "the foreign selection came in as plain text");
     }
 
     /// A right-click at `at`, the button pressed and released a frame apart.
