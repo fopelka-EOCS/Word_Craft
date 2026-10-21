@@ -42,7 +42,7 @@ fn control_print_discovery_reports_metadata_without_host_side_effects() {
             assert!(command["params"].as_str().unwrap().contains(field), "{id}: {field}");
         }
     }
-    app.printing.printers.push(Printer { name: "Queue".into(), default: true });
+    app.printing.printers.push(Printer { name: "Queue".into(), label: String::new(), default: true });
     app.run("ui.printSettings", json!({"printer":"Queue"})).unwrap();
     let Outcome::Done(reply) = handle(&mut app, &ctx, &request) else { panic!("metadata replies immediately") };
     for id in ["ui.printSubmit", "ui.print"] {
@@ -69,10 +69,17 @@ fn native_print_uses_selected_settings_and_reports_spool_errors() {
     }));
     assert!(app.run("ui.print", json!({})).is_err());
     assert!(jobs.borrow().is_empty(), "opening settings/exporting does not spool");
-    app.printing.printers.push(Printer { name: "Chosen queue".into(), default: false });
+    app.printing.printers.push(Printer { name: "Chosen queue".into(), label: String::new(), default: false });
     let configured = app.run("ui.printSettings", json!({"printer":"Chosen queue", "copies":3,"duplex":"shortEdge","grayscale":true})).unwrap();
     assert_eq!(configured["ready"], true);
     assert_eq!(configured["printers"][0]["name"], "Chosen queue");
+    assert_eq!(configured["printers"][0]["label"], "Chosen queue", "no description: the label is the name");
+    // CUPS can't put dots in a queue name: the printer at 192.0.2.15 is the queue `_192_0_2_15`.
+    // Agents see the name File › Print shows, and still choose the queue by its name.
+    app.printing.printers.push(Printer { name: "_192_0_2_15".into(), label: "192.0.2.15".into(), default: false });
+    let listed = app.run("ui.printSettings", json!({})).unwrap();
+    assert_eq!(listed["printers"][1], json!({"name": "_192_0_2_15", "label": "192.0.2.15", "default": false}));
+    assert!(app.run("ui.printSettings", json!({"printer": "192.0.2.15"})).is_err(), "the label is not a destination");
     app.run("ui.print", json!({})).unwrap();
     assert!(app.printing.busy());
     assert!(!app.close_requested(), "a pending print job cannot be interrupted by normal close");
@@ -98,7 +105,7 @@ fn print_settings_are_visible_in_a_narrow_window() {
     app.run("text.insert", json!({"text": "A document to print"})).unwrap();
     app.services.printers = Some(Box::new(|| {
         let (sender, receiver) = std::sync::mpsc::channel();
-        sender.send(vec![Printer { name: "Test queue".into(), default: true }]).unwrap();
+        sender.send(vec![Printer { name: "Test queue".into(), label: String::new(), default: true }]).unwrap();
         receiver
     }));
     app.services.print_native = Some(Box::new(|_, _, _, _| {
@@ -127,7 +134,7 @@ fn print_settings_are_visible_in_a_narrow_window() {
 #[test]
 fn invalid_print_settings_are_rejected_without_partial_changes() {
     let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
-    app.printing.printers.push(Printer { name: "Queue".into(), default: true });
+    app.printing.printers.push(Printer { name: "Queue".into(), label: String::new(), default: true });
     let before = app.run("ui.printSettings", json!({})).unwrap();
     for params in [
         json!({"printer":"Missing"}),
@@ -150,7 +157,7 @@ fn invalid_print_settings_are_rejected_without_partial_changes() {
 #[test]
 fn repeated_fast_jobs_each_surface_an_identical_receipt() {
     let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
-    app.printing.printers.push(Printer { name: "Queue".into(), default: true });
+    app.printing.printers.push(Printer { name: "Queue".into(), label: String::new(), default: true });
     app.run("ui.printSettings", json!({"printer":"Queue"})).unwrap();
     app.services.print_native = Some(Box::new(|_, _, _, _| {
         let (sender, receiver) = std::sync::mpsc::channel();
@@ -184,7 +191,7 @@ fn native_ranges_and_parity_do_not_duplicate_spooler_copies() {
         }
     }
     assert_eq!(app.session.export_layout().pages.len(), 3);
-    app.printing.printers.push(Printer { name: "Queue".into(), default: true });
+    app.printing.printers.push(Printer { name: "Queue".into(), label: String::new(), default: true });
     app.run("ui.printSettings", json!({"printer":"Queue","copies":3})).unwrap();
     let jobs = Rc::new(RefCell::new(Vec::new()));
     let observed = jobs.clone();
@@ -214,7 +221,7 @@ fn native_ranges_and_parity_do_not_duplicate_spooler_copies() {
 fn native_print_passes_orientation_options_to_spooler() {
     let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
     app.run("text.insert", json!({"text": "Test orientation"})).unwrap();
-    app.printing.printers.push(Printer { name: "Queue".into(), default: true });
+    app.printing.printers.push(Printer { name: "Queue".into(), label: String::new(), default: true });
     app.run("ui.printSettings", json!({"printer":"Queue"})).unwrap();
     let jobs = Rc::new(RefCell::new(Vec::new()));
     let observed = jobs.clone();
@@ -251,7 +258,7 @@ fn native_print_passes_orientation_options_to_spooler() {
 fn native_print_scales_to_the_chosen_paper() {
     let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
     app.run("text.insert", json!({"text": "Scale me"})).unwrap();
-    app.printing.printers.push(Printer { name: "Queue".into(), default: true });
+    app.printing.printers.push(Printer { name: "Queue".into(), label: String::new(), default: true });
     app.run("ui.printSettings", json!({"printer":"Queue"})).unwrap();
     let jobs = Rc::new(RefCell::new(Vec::new()));
     let observed = jobs.clone();
