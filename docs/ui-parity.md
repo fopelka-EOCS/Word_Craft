@@ -60,6 +60,8 @@ Document title opens Rename Document; the account badge opens Options › Genera
 | Screen readers (VoiceOver, Narrator, Orca) | AccessKit on; the document canvas describes paragraphs, headings (level), list items, tables, links, pictures (alt text) and the caret and selection, for the pages on screen (#488); Windows Magnifier follows the caret, also onto an empty line after Enter or Shift+Enter (#1119); not yet tried with real screen readers | full | 50% | 5–8 |
 | Right-to-left (mirrored) interface | ❌ | ✅ (Arabic, Hebrew Word) | 0% | in localization |
 
+> **Header/footer preset update:** 2026-10-15 · Three columns creates a one-row, three-cell borderless table (#2197). The active header/footer story has screen-only cell guides while editing, even with View Gridlines off. Closing the story removes automatic guides; explicit View Gridlines still outlines every table. No document border is changed by showing these guides. Readiness estimates unchanged.
+
 Save Changes exposes the document-specific question as an alert-dialog name and the loss warning plus any failed-save explanation as its description (#1015). Full-app AccessKit coverage checks the focused choice's dialog ancestry, all three choices and cancellation. This is accessibility-tree evidence; native Windows screen-reader and spoken VoiceOver verification remain pending. Visual layout, wording and save policy are unchanged.
 
 The Language dialog reads effective character formatting, including document defaults, paragraph styles and character styles. Accepting it unchanged keeps inherited language and no-proof choices (#2717); explicit direct formatting still takes precedence. Other proofing and Windows-specific reports remain separate.
@@ -74,6 +76,7 @@ Footnote and endnote editing keeps body and note text at normal opacity, on ligh
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | trivial | Three-column header/footer table preset and automatic screen-only cell guides while editing (#2197) |
 | 2026-10-18 | trivial | Long navigation headings wrap onto further lines inside the pane instead of ending in an ellipsis; the row grows with the text and the pane still resizes (#759, #3015) |
 | 2026-10-18 | trivial | Font list starts at its first row after clearing a no-match query; recent heading remains visible (#2068) |
 | 2026-10-16 | trivial | Dragging the vertical scrollbar shows a tip beside the pointer with the page at the top of the window ("Page 7 of 10"); nothing said where the drag would land (#2551) |
