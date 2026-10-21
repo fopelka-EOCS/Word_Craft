@@ -266,6 +266,7 @@ impl Attempt {
                 ("response_type", "code"),
                 ("redirect_uri", &self.redirect),
                 ("scope", "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct"),
+                ("resource", responses::BASE),
                 ("state", &self.state),
                 ("nonce", &self.nonce),
                 ("code_challenge_method", "S256"),

@@ -86,6 +86,7 @@ fn oauth_success_uses_mock_endpoints_and_remembers_secure_login() {
     let q: BTreeMap<_, _> = url.query_pairs().collect();
     assert_eq!(q["client_id"], "dynamic_agent_client");
     assert_eq!(q["agent_name_hint"], "WordCraft");
+    assert_eq!(q.get("resource").map(|value| value.as_ref()), Some(responses::BASE));
     assert_eq!(q["code_challenge"], URL_SAFE_NO_PAD.encode(Sha256::digest(a.verifier.as_bytes())));
     let target = format!("/auth/callback?state={}&code=one-time-code&client_id=oaiapp_wordcraft_test", a.state);
     let (code, id) = a.callback(&target).unwrap();
@@ -114,6 +115,7 @@ fn oauth_success_uses_mock_endpoints_and_remembers_secure_login() {
     let u = next.url(&restarted.registration, restarted.credentials.as_ref()).unwrap();
     let q: BTreeMap<_, _> = u.query_pairs().collect();
     assert_eq!(q["client_id"], id);
+    assert_eq!(q.get("resource").map(|value| value.as_ref()), Some(responses::BASE));
     assert!(!q.contains_key("agent_name_hint"));
     assert!(q.contains_key("id_token_hint"));
 }

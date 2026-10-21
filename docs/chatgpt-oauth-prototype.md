@@ -46,6 +46,7 @@ pending assistant work conservatively. Save As keeps the current document sessio
 - `apps/wordcraft/src/chatgpt.rs`: system-browser PKCE (S256), random state and nonce, bounded
   loopback callback, five-minute authorization deadline, JWKS signature/issuer/audience/expiry/
   nonce verification, granted-scope checks, serialized refresh, and Keychain storage.
+  Authorization and code exchange both specify the same public API resource.
 - Keychain service: `ai.storyteller.wordcraft.chatgpt.local-prototype`. `registration` retains the
   opaque host ID and the single account/client mapping. `credentials` atomically binds that
   registration to its access/refresh/ID tokens and expiry. Disconnect deletes `credentials`;
@@ -154,5 +155,6 @@ craftrules repository was unavailable (404); the supplied WordCraft AGENTS.md wa
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-21 | trivial | Authorization now supplies the documented API resource, pinned for initial and returning sign-in; browser invalid_state during final live acceptance remains under investigation |
 | 2026-10-21 | minor | Final review: noncancellable, retryable Disconnect; bounded fragmented callbacks; mocked tracking-on/off Undo/Redo; final-build and platform gates recorded separately |
 | 2026-10-21 | minor | Initial macOS OAuth/Keychain prototype on #815; historical owner live acceptance completed |
