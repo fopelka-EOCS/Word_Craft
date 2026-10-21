@@ -354,6 +354,25 @@ fn new_page(app: &mut WordApp, ui: &mut Ui) {
     });
 }
 
+/// How the × of a recent row is drawn (#2716): not at all while nothing is hovered, dimmed while
+/// the row is, and with the stronger fill only when the pointer is on the × itself.
+#[derive(Debug, PartialEq, Eq)]
+enum RemoveCue {
+    Hidden,
+    Dim,
+    Strong,
+}
+
+fn remove_cue(row_active: bool, x_active: bool) -> RemoveCue {
+    if x_active {
+        RemoveCue::Strong
+    } else if row_active {
+        RemoveCue::Dim
+    } else {
+        RemoveCue::Hidden
+    }
+}
+
 /// Width of the × that sits at the right end of a recent row (#2716).
 const REMOVE_W: f32 = 28.0;
 
@@ -386,9 +405,17 @@ fn open_list(app: &mut WordApp, ui: &mut Ui) {
         let xr = Rect::from_min_max(pos2(r.max.x + 2.0, r.min.y + 4.0), pos2(r.max.x + REMOVE_W, r.max.y - 4.0));
         let xresp = ui.interact(xr, ui.id().with(("recent-remove", &p)), Sense::click());
         xresp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tl!("Remove from list")));
-        if xresp.hovered() {
-            ui.painter().rect_filled(xr, 4.0, t.hover);
-            ui.painter().text(xr.center(), Align2::CENTER_CENTER, "×", medium(15.0), t.text);
+        // The × shows (dimmed) as soon as the row or the × is hovered or focused, so the Remove can
+        // be found; only the × itself gets the stronger fill and full-strength glyph.
+        match remove_cue(resp.hovered() || resp.has_focus(), xresp.hovered() || xresp.has_focus()) {
+            RemoveCue::Hidden => {}
+            RemoveCue::Dim => {
+                ui.painter().text(xr.center(), Align2::CENTER_CENTER, "×", medium(15.0), t.text_dim);
+            }
+            RemoveCue::Strong => {
+                ui.painter().rect_filled(xr, 4.0, t.hover);
+                ui.painter().text(xr.center(), Align2::CENTER_CENTER, "×", medium(15.0), t.text);
+            }
         }
         if resp.clicked() {
             let failed = open_recent(app, &p).err();
@@ -717,6 +744,17 @@ mod tests {
         assert_eq!(ids("re"), ["resume", "report"]);
         assert_eq!(ids("résumé"), ["resume"]);
         assert!(ids("no such template").is_empty());
+    }
+
+    /// #2716: the × of a recent row is a cue, not a secret: dimmed when only the row is hovered,
+    /// stronger on the × itself, absent when neither is.
+    #[test]
+    fn recent_remove_cross_shows_when_the_row_is_hovered() {
+        use super::{remove_cue, RemoveCue};
+        assert_eq!(remove_cue(false, false), RemoveCue::Hidden);
+        assert_eq!(remove_cue(true, false), RemoveCue::Dim, "row hovered shows the glyph");
+        assert_eq!(remove_cue(false, true), RemoveCue::Strong);
+        assert_eq!(remove_cue(true, true), RemoveCue::Strong);
     }
 
     /// #2716: each recent row has its own Remove (× at the right end, so it opens nothing), and
