@@ -597,7 +597,7 @@ pub fn update_toc_pages(s: &mut Session) -> Result<(), CmdError> {
             .enumerate()
             .filter_map(|(k, o)| match o {
                 InlineObject::Field { instr, locked: false, .. } if wordcraft_layout::fields::field_name(instr) == "PAGEREF" => {
-                    let (n, fmt) = marks.get(instr.split_whitespace().nth(1)?).and_then(page_at)?;
+                    let (n, fmt) = marks.get(&ref_target(instr)).and_then(page_at)?;
                     Some((k, wordcraft_layout::fields::format_switch(instr).unwrap_or(fmt).format(n)))
                 }
                 _ => None,
@@ -1041,6 +1041,13 @@ pub fn update_seq(s: &mut Session) -> Result<(), CmdError> {
     Ok(())
 }
 
+/// The bookmark a `REF` or `PAGEREF` field points to, quoted or not, with any switch run into it
+/// left out (#2149).
+fn ref_target(instr: &str) -> String {
+    let f = FieldCode::parse(instr);
+    f.args.first().map(|s| s.split('\\').next().unwrap_or("").trim_matches('"').to_string()).unwrap_or_default()
+}
+
 /// Whether `instr` has the one-letter switch `\sw`, also run together with another (`\p\h`).
 fn has_switch(instr: &str, sw: char) -> bool {
     instr.split('\\').skip(1).any(|s| {
@@ -1112,12 +1119,11 @@ pub fn update_fields_in(s: &mut Session, all: bool, toc_pages_only: bool) -> Res
                     updates.push((k, super::insert::format_date(&pic)));
                 }
                 "REF" | "PAGEREF" => {
-                    let f = FieldCode::parse(instr);
-                    let target = f.args.first().map(|s| s.split('\\').next().unwrap_or("").trim_matches('"')).unwrap_or("");
+                    let target = ref_target(instr);
                     let r = if name == "REF" {
-                        if !has_switch(instr, 'p') { bookmark_text(&s.doc, target) } else { None }
+                        if !has_switch(instr, 'p') { bookmark_text(&s.doc, &target) } else { None }
                     } else if !has_switch(instr, 'p') {
-                        pages.get(target).map(|(num, page_fmt)| {
+                        pages.get(&target).map(|(num, page_fmt)| {
                             let fmt = wordcraft_layout::fields::format_switch(instr).unwrap_or(*page_fmt);
                             fmt.format(*num)
                         })
