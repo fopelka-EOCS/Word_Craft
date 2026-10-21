@@ -9,6 +9,7 @@
 //! [`EmbeddedManifest`](crate::package::EmbeddedManifest). The font table and the fonts it embeds
 //! are kept the same way.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use wordcraft_doc::graphic::{Embedded, EmbeddedRef};
@@ -64,6 +65,36 @@ pub const HANDLED_RELS: &[&str] = &[
 /// Most relationship ids one object's markup may use.
 const MAX_IDS: usize = 64;
 
+/// The relationship ids the main document's markup refers to: the ids that appear in it as a
+/// quoted value, the way an attribute names one (`r:id="rId5"`).
+///
+/// One pass over the part, not one search per id: the ids are looked up as they go, so the cost
+/// is the size of the part rather than its size times the number of relationships (#12). A
+/// quoted run that isn't an id is skipped, and the run ends at the next quote — the same set of
+/// places a search for `"id"` would have found.
+fn referenced_ids<'a>(main: &[u8], document: &'a Rels) -> HashSet<&'a [u8]> {
+    let ids: HashSet<&[u8]> = document.list.iter().map(|r| r.id.as_bytes()).collect();
+    let mut found = HashSet::new();
+    if ids.is_empty() {
+        return found;
+    }
+    let mut i = 0;
+    while i < main.len() {
+        if main[i] != b'"' {
+            i += 1;
+            continue;
+        }
+        let start = i + 1;
+        let Some(p) = main[start..].iter().position(|&b| b == b'"') else { break };
+        let end = start + p;
+        if let Some(id) = ids.get(&main[start..end]) {
+            found.insert(*id);
+        }
+        i = end + 1;
+    }
+    found
+}
+
 impl Reader<'_> {
     /// Keep custom XML stores reached from the main document or package, without evaluating
     /// bindings. A bibliography already loaded into the source model belongs to its writer.
@@ -102,10 +133,11 @@ impl Reader<'_> {
     pub(super) fn keep_unmodelled(&mut self, package: &Rels, document: &Rels) {
         let pkg = self.pkg;
         let main = pkg.get(&self.main).unwrap_or_default();
-        let referenced = |id: &str| {
-            let needle = format!("\"{id}\"");
-            main.windows(needle.len()).any(|w| w == needle.as_bytes())
-        };
+        // The ids the main document's markup refers to, in one pass over it: an id appears in
+        // the markup as a quoted value, the way an attribute names it (`r:id="rId5"`). One
+        // scan for all of them, not one search per relationship — a large document with many
+        // relationships took minutes to open (#12).
+        let referenced = referenced_ids(main, document);
         let mut roots = String::new();
         // One glossary per main document (its first relationship; see `read_glossary`).
         let mut glossary = false;
@@ -113,7 +145,7 @@ impl Reader<'_> {
             for rel in rels.list.iter().filter(|r| !r.external).take(MAX_EMBEDDED_RELS) {
                 let tail = rel.kind.rsplit('/').next().unwrap_or("");
                 if HANDLED_RELS.contains(&tail)
-                    || (owner == "D" && referenced(&rel.id))
+                    || (owner == "D" && referenced.contains(rel.id.as_bytes()))
                     || (owner == "D" && tail == "glossaryDocument" && std::mem::replace(&mut glossary, true))
                     || ![&rel.kind, &rel.target].iter().all(|s| manifest_field_ok(s))
                 {
@@ -246,4 +278,81 @@ fn standalone_xml(e: &El) -> Option<String> {
     }
     s.push_str(rest);
     (s.len() <= MAX_EMBEDDED_XML).then_some(s)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+
+    use crate::package::UNMODELLED_ROOTS;
+
+    const W_NS: &str = r#"xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships""#;
+    const ROOT_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#;
+    const CONTENT_TYPES: &str = r#"<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="bin" ContentType="application/octet-stream"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>"#;
+
+    /// A package whose main part holds `body`, and which relates to `rels` parts the reader
+    /// doesn't model, so each one is looked for in the part.
+    fn package(body: &str, rels: &[(&str, &str)], parts: &[(&str, &[u8])]) -> Vec<u8> {
+        let doc = format!(
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document {W_NS}><w:body><w:p><w:r><w:t xml:space="preserve">{body}</w:t></w:r></w:p></w:body></w:document>"#
+        );
+        let mut r = String::from(r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">"#);
+        for (id, target) in rels {
+            r.push_str(&format!(
+                r#"<Relationship Id="{id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/attachedTemplate" Target="{target}"/>"#
+            ));
+        }
+        r.push_str("</Relationships>");
+
+        let mut zw = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let opts = zip::write::SimpleFileOptions::default();
+        zw.start_file("[Content_Types].xml", opts).unwrap();
+        zw.write_all(CONTENT_TYPES.as_bytes()).unwrap();
+        zw.start_file("_rels/.rels", opts).unwrap();
+        zw.write_all(ROOT_RELS.as_bytes()).unwrap();
+        zw.start_file("word/document.xml", opts).unwrap();
+        zw.write_all(doc.as_bytes()).unwrap();
+        zw.start_file("word/_rels/document.xml.rels", opts).unwrap();
+        zw.write_all(r.as_bytes()).unwrap();
+        for (name, bytes) in parts {
+            zw.start_file(name, opts).unwrap();
+            zw.write_all(bytes).unwrap();
+        }
+        zw.finish().unwrap().into_inner()
+    }
+
+    /// The parts the reader carries over unchanged, as one string.
+    fn unmodelled_roots(d: &wordcraft_doc::Document) -> String {
+        d.passthrough.get(UNMODELLED_ROOTS).map(|v| String::from_utf8_lossy(v).to_string()).unwrap_or_default()
+    }
+
+    /// Opening a document costs the size of its main part, not that size times the number of its
+    /// relationships (#12). Eight megabytes of main part with a thousand relationships used to
+    /// take half a minute; the scan is now one pass over the part.
+    #[test]
+    fn a_document_with_many_relationships_opens_in_the_time_its_part_takes() {
+        let rels: Vec<(String, String)> = (0..1024).map(|i| (format!("rIdT{i}"), format!("file{i}.bin"))).collect();
+        let rels: Vec<(&str, &str)> = rels.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
+        let bytes = package(&"a".repeat(8 << 20), &rels, &[]);
+        let t = std::time::Instant::now();
+        let doc = crate::read(&bytes).unwrap();
+        let took = t.elapsed();
+        assert_eq!(doc.plain_text(wordcraft_doc::StoryRef::Body).len(), 8 << 20, "the text is there");
+        assert!(took.as_secs() < 15, "opening it took {took:?}");
+    }
+
+    /// The scan finds the relationships the markup names, so a part the document already refers
+    /// to is not carried over a second time (#12).
+    #[test]
+    fn a_relationship_the_markup_names_is_not_carried_over_again() {
+        // The markup names the relationship, so the part goes with the element that names it.
+        let named = package(r#"before "rIdDoc1" after"#, &[("rIdDoc1", "keep.bin")], &[("word/keep.bin", b"kept")]);
+        let roots = unmodelled_roots(&crate::read(&named).unwrap());
+        assert!(!roots.contains("keep.bin"), "the part is carried twice: {roots}");
+
+        // A part the markup doesn't name is carried over, as before.
+        let unnamed = package("no mention here", &[("rIdDoc1", "keep.bin")], &[("word/keep.bin", b"kept")]);
+        let roots = unmodelled_roots(&crate::read(&unnamed).unwrap());
+        assert!(roots.contains("keep.bin"), "the part is dropped: {roots}");
+    }
 }
