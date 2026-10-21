@@ -1891,6 +1891,36 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
     pl
 }
 
+/// Does the word that starts at cluster `c0` fit in `full` points?
+///
+/// The word is the clusters up to the first break opportunity that isn't a hyphenation point,
+/// and its width is their advance, spaces aside — the same set the scan this replaces gathered,
+/// which stopped at that first opportunity rather than running on to the end of the paragraph.
+///
+/// The measurement stops as soon as the word is clearly wider than the room there is: then the
+/// answer is already known, and the advances are widths, so measuring the rest of it could only
+/// make it wider. That keeps a long word beside a float from costing a pass over the whole
+/// paragraph for every line it takes (#18).
+fn word_fits(pl: &ParaLayout, c0: usize, n: usize, full: f32) -> bool {
+    let mut word = 0.0f32;
+    let mut done = false;
+    for (k, c) in (c0..n).filter_map(|k| pl.clusters.get(k).map(|c| (k, c))) {
+        let end = c.break_after && pl.hyph_after.binary_search(&(k as u32)).is_err();
+        if done {
+            // The cluster after a break opportunity ends the word.
+            break;
+        }
+        done = end;
+        if c.kind != ClKind::Space {
+            word += c.adv;
+            if word > full + 0.01 {
+                return false;
+            }
+        }
+    }
+    word <= full + 0.01
+}
+
 /// Lays a paragraph out as nothing: no height, no spacing, no label, its lines (kept for the
 /// caret and hit testing) all at its top with no height.
 fn collapse(pl: &mut ParaLayout) {
@@ -2189,17 +2219,8 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                     // floating object and the word fits the full line; then it tries the row's
                     // next span, or the next row. The word runs to the next break that isn't a
                     // hyphenation point.
-                    let word: f32 = (c0..n)
-                        .filter_map(|k| pl.clusters.get(k).map(|c| (k, c)))
-                        .scan(false, |done, (k, c)| {
-                            let end = c.break_after && pl.hyph_after.binary_search(&(k as u32)).is_err();
-                            (!std::mem::replace(done, end)).then_some(c)
-                        })
-                        .filter(|c| c.kind != ClKind::Space)
-                        .map(|c| c.adv)
-                        .sum();
                     let full = base_right - row_lo;
-                    skip = narrowed && skipped < 50 && word <= full + 0.01;
+                    skip = narrowed && skipped < 50 && word_fits(pl, c0, n, full);
                     // Never split a ligature's letters across lines: the glyph sits on the first
                     // letter, so back up to it (unless it starts the line).
                     let glyphless = |k: usize| pl.clusters.get(k).is_some_and(|c| c.kind == ClKind::Text && c.g1 <= c.g0);
