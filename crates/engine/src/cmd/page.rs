@@ -72,15 +72,18 @@ pub fn specs() -> Vec<CommandSpec> {
         }),
         CommandSpec::new("layout.pageNumberFormat", "Format Page Numbers", "Insert › Header & Footer › Page Number", |s, v| {
             let fmt = p::str(v, "format").map(wordcraft_doc::section::NumFormat::from_ooxml);
+            let has_start = v.get("start").is_some();
             let start = p::u64(v, "start").map(|x| x.min(100_000) as u32);
             with_sect(s, |x| {
                 if let Some(f) = fmt {
                     x.page_num_format = f;
                 }
-                x.page_num_start = start;
+                if has_start {
+                    x.page_num_start = start;
+                }
             })
         })
-        .params(r#"{"format"?: "decimal|lowerRoman|upperRoman|lowerLetter|upperLetter", "start"?: n}"#),
+        .params(r#"{"format"?: "decimal|lowerRoman|upperRoman|lowerLetter|upperLetter", "start"?: n | null (omit to leave unchanged; null to continue numbering from previous section)}"#),
         CommandSpec::new("layout.documentGrid", "Document Grid", "Layout › Page Setup › Document Grid", document_grid).params(
             r#"{"type"?: "none|lines|linesAndChars|snapToChars", "linesPerPage"?: n (sets the line pitch from the text height), "charsPerLine"?: n (sets the character pitch from the text width), "linePitch"?: pt, "charSpace"?: n (4096ths of a point added to the default font size: the character pitch)} — left out stays as it is; returns the grid with its lines per page and characters per line"#,
         ),
@@ -1170,5 +1173,28 @@ mod tests {
         assert!(found > 0, "no candidates");
         assert_eq!(s.doc.plain_text(wordcraft_doc::StoryRef::Body).matches('\u{ad}').count(), found);
         assert!(s.run("layout.manualHyphenation", &json!({"from": {"block": 999, "off": 0}})).unwrap()["done"] == true);
+    }
+
+    /// #3489: Format Page Numbers preserves existing Start at value when only format is passed,
+    /// and allows null to explicitly clear start to continue from previous section.
+    #[test]
+    fn format_page_numbers_preserves_start_at() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("layout.pageNumberFormat", &json!({"start": 5})).unwrap();
+        assert_eq!(sect(&s).page_num_start, Some(5));
+
+        // Passing only format must not clear start
+        s.run("layout.pageNumberFormat", &json!({"format": "lowerRoman"})).unwrap();
+        assert_eq!(sect(&s).page_num_format, wordcraft_doc::section::NumFormat::LowerRoman);
+        assert_eq!(sect(&s).page_num_start, Some(5));
+
+        // Passing empty params (e.g. from menu item) must not clear start
+        s.run("layout.pageNumberFormat", &json!({})).unwrap();
+        assert_eq!(sect(&s).page_num_start, Some(5));
+
+        // Passing explicit null clears start (continue numbering from previous section)
+        s.run("layout.pageNumberFormat", &json!({"start": null})).unwrap();
+        assert_eq!(sect(&s).page_num_start, None);
+        assert_eq!(sect(&s).page_num_format, wordcraft_doc::section::NumFormat::LowerRoman);
     }
 }
