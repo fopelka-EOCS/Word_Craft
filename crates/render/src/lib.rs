@@ -374,10 +374,14 @@ fn draw_page_picture(ctx: &mut RenderContext, doc: &Document, page: &Page, view:
         return;
     }
     let tile = pic.fill_type.eq_ignore_ascii_case("tile");
-    // A tiled fill draws at its natural 96-dpi size (0.75 pt per pixel); a stretch covers the page.
-    let scales = |pw: f64, ph: f64| if tile { (0.75, 0.75) } else { (w / pw, h / ph) };
-    let (pw, ph) = (pm.width().max(1) as f64, pm.height().max(1) as f64);
-    let (sx, sy) = scales(pw, ph);
+    let (pw0, ph0) = (pm.width().max(1) as f64, pm.height().max(1) as f64);
+    // How much page the whole picture covers: its natural 96-dpi size (0.75 pt per pixel) when
+    // tiled, the page when stretched. Both come from the original pixels, never from a resampled
+    // copy — a copy has fewer pixels, and scaling each of them by 0.75 pt would shrink the tile
+    // period by the resample ratio (a 100-px tile repeating every 56 pt instead of 75).
+    let (tw, th) = if tile { (pw0 * 0.75, ph0 * 0.75) } else { (w, h) };
+    let scales = |pw: f64, ph: f64| (tw / pw, th / ph);
+    let (sx, sy) = scales(pw0, ph0);
     // The same minification treatment as a document picture: a letterhead background is usually
     // much larger than the page, and plain bilinear aliases on any reduction.
     let pm = picture_at_device_size(doc, &pic.media, view, sx, sy).unwrap_or(pm);
@@ -394,6 +398,8 @@ fn draw_page_picture(ctx: &mut RenderContext, doc: &Document, page: &Page, view:
     ctx.reset_paint_transform();
 }
 
+/// The full decode of a media key, cached and shared: decoding a picture twice is the expensive
+/// part of scrolling a picture-heavy page. `None` (also cached) when the bytes aren't an image.
 fn pixmap_for(doc: &Document, key: &str) -> Option<Arc<Pixmap>> {
     let bytes = doc.media.get(key)?;
     if let Some(v) = lock(images()).get(key, bytes) {
@@ -405,6 +411,8 @@ fn pixmap_for(doc: &Document, key: &str) -> Option<Arc<Pixmap>> {
     pm
 }
 
+/// The cache holding one resampled copy per (media key, output size), bounded like the decode
+/// cache above it. Its entries are pure functions of the source bytes, so a hit is always safe.
 fn resampled() -> &'static Mutex<MediaCache<Option<Arc<Pixmap>>>> {
     static C: std::sync::OnceLock<Mutex<MediaCache<Option<Arc<Pixmap>>>>> = std::sync::OnceLock::new();
     C.get_or_init(|| Mutex::new(MediaCache { map: HashMap::new(), bytes: 0 }))
@@ -429,8 +437,12 @@ fn picture_at_device_size(doc: &Document, key: &str, view: Affine, sx: f64, sy: 
     if !(dx.is_finite() && dy.is_finite()) || dx.min(dy) >= 0.98 {
         return Some(pm);
     }
-    let ow = ((pw * dx).round() as u16).max(1);
-    let oh = ((ph * dy).round() as u16).max(1);
+    // Resample only the axes that shrink. An axis that grows keeps its source pixels and the
+    // sampler magnifies it smoothly; pre-scaling it would box-replicate (blocky, banded) a buffer
+    // up to 65535 px a side — a 4000×100 background stretched down a tall page asked for tens of
+    // MB per render, before the cache budget ever saw it.
+    let ow = (pw * dx.min(1.0)).round().clamp(1.0, pw) as u16;
+    let oh = (ph * dy.min(1.0)).round().clamp(1.0, ph) as u16;
     Some(minified_for(doc, key, ow, oh).unwrap_or(pm))
 }
 
@@ -558,7 +570,13 @@ fn unsharp(px: &mut [vello_cpu::color::PremulRgba8], w: usize, h: usize) {
                 (v as f32 + amount * (v as f32 - blur) + 0.5).clamp(0.0, 255.0) as u8
             };
             let o = &mut px[y * w + x];
-            *o = vello_cpu::color::PremulRgba8 { r: sharp(p.r, r), g: sharp(p.g, g), b: sharp(p.b, b), a: sharp(p.a, a) };
+            // Premultiplied invariant: a colour channel can never exceed alpha. Sharpening the
+            // channels apart breaks it where a channel equals alpha (a white glyph pixel) and its
+            // neighbours are darker but just as opaque — the channel overshoots while alpha stays
+            // put, and source-over then adds more light than the coverage allows (bright fringes
+            // on transparent logos and letterheads). Clamp to the sharpened alpha.
+            let alpha = sharp(p.a, a);
+            *o = vello_cpu::color::PremulRgba8 { r: sharp(p.r, r).min(alpha), g: sharp(p.g, g).min(alpha), b: sharp(p.b, b).min(alpha), a: alpha };
         }
     }
 }
@@ -1699,6 +1717,68 @@ mod tests {
         // size still decides: 8 pt of picture resamples to 8×8 instead of crashing or aliasing.
         let pm = picture_at_device_size(&d, &media, Affine::scale(f64::NAN), 0.5, 0.5).unwrap();
         assert_eq!((pm.width(), pm.height()), (8, 8));
+    }
+
+    /// A test picture: PNG bytes for a `w`×`h` image coloured by `f`.
+    fn test_png(w: u32, h: u32, f: impl Fn(u32, u32) -> image::Rgba<u8>) -> Vec<u8> {
+        let mut png = Vec::new();
+        image::RgbaImage::from_fn(w, h, f).write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+        png
+    }
+
+    #[test]
+    fn tiled_background_keeps_its_96_dpi_period() {
+        // An 8-px tile (4 px red, 4 px blue) at 96 dpi covers 6 pt, so at 100% zoom it repeats
+        // every 6 device px. Resampling it to the device size (75%) and then still drawing every
+        // resampled pixel at 0.75 pt squeezed the period to 4.5 px — every tiled background came
+        // out too small, at any zoom.
+        let png = test_png(8, 8, |x, _| if x < 4 { image::Rgba([200, 0, 0, 255]) } else { image::Rgba([0, 0, 200, 255]) });
+        let mut d = Document::new();
+        d.media.insert("bg.png".into(), Arc::new(png));
+        d.settings.page_picture = Some(wordcraft_doc::PagePicture { media: "bg.png".into(), fill_type: "tile".into(), title: String::new() });
+        let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+        let img = render_page(&d, &l.pages[0], 1.0, &RenderOptions::default());
+        let red = |x: u32| matches!(img.pixel(x, 300), [r, g, b, _] if r > 120 && r > b && g < 80);
+        let blue = |x: u32| matches!(img.pixel(x, 300), [r, g, b, _] if b > 120 && b > r && g < 80);
+        for x in 0..3 {
+            assert!(red(x), "x {x} is in the red half, got {:?}", img.pixel(x, 300));
+        }
+        for x in 3..6 {
+            assert!(blue(x), "x {x} is in the blue half, got {:?}", img.pixel(x, 300));
+        }
+        // The period itself, not just one tile's colours: the second tile starts at 6, not 4.5.
+        for x in 0..30 {
+            assert_eq!(red(x), red(x + 6), "tile period broken at x {x}");
+            assert_eq!(blue(x), blue(x + 6), "tile period broken at x {x}");
+        }
+    }
+
+    #[test]
+    fn a_minified_axis_is_never_upsampled_before_drawing() {
+        // Drawn 12 pt wide but 128 pt tall: only the horizontal axis shrinks. The vertical axis
+        // keeps its 16 source rows — the sampler magnifies those smoothly, whereas pre-scaling
+        // them box-replicated 16 rows into 128 and allocated 12×128 pixels for a 16×16 source.
+        let mut d = Document::new();
+        let media = d.add_media(test_png(16, 16, |_, _| image::Rgba([10, 90, 200, 255])), "png");
+        let pm = picture_at_device_size(&d, &media, Affine::IDENTITY, 12.0 / 16.0, 8.0).unwrap();
+        assert_eq!((pm.width(), pm.height()), (12, 16));
+        let pm = picture_at_device_size(&d, &media, Affine::IDENTITY, 8.0, 12.0 / 16.0).unwrap();
+        assert_eq!((pm.width(), pm.height()), (16, 12));
+    }
+
+    #[test]
+    fn sharpening_keeps_premultiplied_colours_within_alpha() {
+        // A pixel whose colour equals its alpha (a white stroke at 78% coverage) beside darker
+        // but equally opaque neighbours: sharpening the channels apart lifted red to 239 while
+        // alpha stayed at 200. `r > a` is not a premultiplied colour; source-over then adds more
+        // light than the coverage allows and the edge shows a bright fringe.
+        let px = |v: u8, a: u8| vello_cpu::color::PremulRgba8 { r: v, g: v, b: v, a };
+        let mut data: Vec<_> = (0..9).map(|_| px(0, 200)).collect();
+        data[4] = px(200, 200);
+        unsharp(&mut data, 3, 3);
+        for p in &data {
+            assert!(p.r <= p.a && p.g <= p.a && p.b <= p.a, "invalid premultiplied pixel {:?}", (p.r, p.g, p.b, p.a));
+        }
     }
 
     #[test]
