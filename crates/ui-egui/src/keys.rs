@@ -441,6 +441,11 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
                     app.canvas.context_menu_from_keys = true;
                     continue;
                 }
+                // Escape during a drag on the page cancels only the drag (its own code reads the
+                // key): it neither closes the header nor selects the text box the caret is in.
+                if key == Key::Escape && dragging_on_the_page(app) {
+                    continue;
+                }
                 // Escape in a text box (or WordArt) selects the box itself, so Delete then removes
                 // it (#1538). The anchor position is just after the box's object character.
                 if key == Key::Escape
@@ -475,6 +480,14 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
     }
 }
 
+/// Whether a drag on the page or its ruler is under way (an object, a table border or the
+/// table, a link being drawn, a tab stop): Escape then goes no further than the drag, which
+/// cancels itself where it can.
+fn dragging_on_the_page(app: &WordApp) -> bool {
+    let c = &app.canvas;
+    c.obj_drag.is_some() || c.table_resize.is_some() || c.table_drag.is_some() || c.link_from.is_some() || c.tab_drag.is_some()
+}
+
 /// Escape leaves Focus or Full Screen View (#1678), then Full Screen (#980), once nothing nearer
 /// took it: a pen, a text box, a header, a dialog, a menu or a popup, a drag on the page, and in
 /// the document (`canvas`) a selection, which Escape collapses first (`select.collapse`), as in a
@@ -485,8 +498,7 @@ fn leave_full_screen(app: &mut WordApp, key: Key, m: Modifiers, canvas: bool) ->
     if key != Key::Escape || !m.is_none() || !app.escape_free {
         return false;
     }
-    let c = &app.canvas;
-    if c.obj_drag.is_some() || c.table_resize.is_some() || c.table_drag.is_some() || c.link_from.is_some() {
+    if dragging_on_the_page(app) {
         return false;
     }
     if canvas && !app.session.sel.is_collapsed() {

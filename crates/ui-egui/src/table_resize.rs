@@ -434,6 +434,53 @@ pub(crate) mod tests {
         assert_eq!(header_cell(&mut h, 0), a1, "the header's table is untouched");
     }
 
+    /// Escape while dragging a header table's border drops just the drag: the header stays open
+    /// (the caret in it), the table and the undo history are untouched.
+    #[test]
+    fn escape_during_a_header_table_drag_cancels_only_the_drag() {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("insert.editHeader", json!({})).unwrap();
+        let story = a.session.sel.focus.story;
+        a.run("insert.table", json!({"rows": 1, "cols": 3})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        steps(&mut h, 6);
+        let header_cell = |h: &mut H| {
+            h.state_mut().session.layout().pages[0]
+                .header
+                .iter()
+                .find_map(|it| match it {
+                    wordcraft_layout::Placed::Cell { rect, cell: 0, story: st, .. } if *st == story => Some(*rect),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        let a = header_cell(&mut h);
+        let depth = h.state().session.undo_depth();
+        let y = a.y + a.h / 2.0;
+        let (start, end) = (screen(&mut h, a.right(), y), screen(&mut h, a.right() + 30.0, y));
+        h.event(egui::Event::PointerMoved(start));
+        steps(&mut h, 2);
+        button(&h, start, true);
+        steps(&mut h, 2);
+        h.event(egui::Event::PointerMoved(end));
+        steps(&mut h, 2);
+        assert!(h.state().canvas.table_resize.is_some(), "the drag is under way");
+        h.key_press(egui::Key::Escape);
+        steps(&mut h, 2);
+        button(&h, end, false);
+        steps(&mut h, 2);
+        assert_eq!(h.state().session.sel.focus.story, story, "the header stays open");
+        assert_eq!(h.state().session.undo_depth(), depth, "nothing to undo");
+        assert_eq!(header_cell(&mut h), a, "the table is untouched");
+    }
+
     /// A real mouse drag of a column border: the resize arrow on hover, a preview and no change
     /// while dragging, then one undo step on release, the selection untouched.
     #[test]

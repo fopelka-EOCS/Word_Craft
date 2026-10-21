@@ -2933,13 +2933,14 @@ fn table_design(app: &mut WordApp, ui: &mut Ui) {
     });
 }
 
-/// Table Layout › Cell Size: the caret cell's row height and column width, in inches. They show
-/// the size on the page (a row without a set height shows the height its text gives it) and
-/// editing runs `table.rowHeight` / `table.columnWidth`; dragging one is a single Undo.
-fn cell_size_boxes(ui: &mut Ui, app: &mut WordApp) {
+/// What Cell Size's Height and Width boxes show for the caret's cell, in points, and whether the
+/// row's height is exact: the row's set height, else the height its cells are drawn at (in the
+/// body, the header or the footer); the cell's drawn width, else its grid column's. `None` when
+/// the caret isn't in a table.
+fn cell_size_values(app: &mut WordApp) -> Option<(f32, f32, bool)> {
     let story = app.session.sel.focus.story;
-    let Some((tp, r, c)) = app.session.sel.focus.path.cell() else { return };
-    let Some(t) = app.session.doc.table(story, &tp) else { return };
+    let (tp, r, c) = app.session.sel.focus.path.cell()?;
+    let t = app.session.doc.table(story, &tp)?;
     let row = t.rows.get(r).map(|x| x.props.clone()).unwrap_or_default();
     let stored_w = t.grid.get(t.grid_col(r, c)).copied();
     // A header's or footer's table is drawn with the page's header and footer.
@@ -2962,18 +2963,28 @@ fn cell_size_boxes(ui: &mut Ui, app: &mut WordApp) {
             _ => None,
         })
         .reduce(f32::min);
-    let unit = crate::options::unit();
-    let k = unit.pt_per_unit();
     let h0 = row.height.or(row_h).unwrap_or(0.0);
     let w0 = laid.map(|x| x.w).or(stored_w).unwrap_or(0.0);
-    let exact = row.height_rule == wordcraft_doc::props::HeightRule::Exact;
+    Some((h0, w0, row.height_rule == wordcraft_doc::props::HeightRule::Exact))
+}
+
+/// Table Layout › Cell Size: the caret cell's row height and column width, in inches. They show
+/// the size on the page (a row without a set height shows the height its text gives it) and
+/// editing runs `table.rowHeight` / `table.columnWidth`; dragging one is a single Undo.
+fn cell_size_boxes(ui: &mut Ui, app: &mut WordApp) {
+    let Some((h0, w0, exact)) = cell_size_values(app) else { return };
+    let unit = crate::options::unit();
+    let k = unit.pt_per_unit();
     // The edited value in points, and whether it continues a drag (joins the previous Undo step).
     let boxed = |ui: &mut Ui, label: &str, pt: f32| -> Option<(f32, bool)> {
         let mut out = None;
         crate::widgets::row(ui, |ui| {
             ui.add_sized(vec2(48.0, 18.0), egui::Label::new(egui::RichText::new(tl!(label)).small()));
             let mut v = pt / k;
-            let r = ui.add_sized(vec2(72.0, 18.0), egui::DragValue::new(&mut v).speed(0.01).range(0.02..=22.0).measure(unit).max_decimals(2));
+            // Not clamped when shown: a size the box can't show (0 when the cell isn't drawn, in
+            // Draft or with the header unlaid) would be raised to the minimum and written back.
+            let value = egui::DragValue::new(&mut v).speed(0.01).range(0.02..=22.0).clamp_existing_to_range(false);
+            let r = ui.add_sized(vec2(72.0, 18.0), value.measure(unit).max_decimals(2));
             if r.changed() {
                 out = Some((v * k, r.dragged() && !r.drag_started()));
             }
@@ -3527,8 +3538,8 @@ mod tests {
     }
 
     /// #1930: Table Layout › Cell Size shows a header table's cell as drawn. Its row has no set
-    /// height, so the Height box shows the height its text gives it, not 0 (which the box would
-    /// raise to its 0.02" minimum and write to the row): showing the boxes changes nothing.
+    /// height, so the Height box shows the height its text gives it, not 0, and the width it is
+    /// drawn at; showing the boxes changes nothing.
     #[test]
     fn cell_size_boxes_show_a_header_tables_cell_without_changing_it() {
         let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
@@ -3550,6 +3561,38 @@ mod tests {
         let (tp, ..) = h.state().session.sel.focus.path.cell().unwrap();
         let t = h.state().session.doc.table(story, &tp).unwrap();
         assert_eq!(t.rows[0].props.height, None, "no row height written");
+        let (height, width, _) = cell_size_values(h.state_mut()).unwrap();
+        assert!(height > 5.0 && width > 50.0, "the header cell as drawn: {height} × {width}");
+    }
+
+    /// In Draft and Web Layout the header isn't laid out, so its table's cell has no box
+    /// and the Height box has nothing to show: still, showing it writes nothing to the row.
+    /// (Outline switches to its own tab, so Cell Size isn't shown there.)
+    #[test]
+    fn cell_size_boxes_change_nothing_when_the_header_isnt_drawn() {
+        for view in ["view.draft", "view.webLayout"] {
+            let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+            app.run("insert.editHeader", json!({})).unwrap();
+            app.run("insert.table", json!({"rows": 2, "cols": 2})).unwrap();
+            app.run(view, json!({})).unwrap();
+            app.ui.tab = "Table Layout".into();
+            let (story, depth) = (app.session.sel.focus.story, app.session.undo_depth());
+            assert_ne!(story, wordcraft_doc::StoryRef::Body, "{view}: the caret stays in the header");
+            let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+                |ui, app: &mut WordApp| {
+                    let ctx = ui.ctx().clone();
+                    app.logic(&ctx);
+                    app.ui(ui);
+                },
+                app,
+            );
+            h.run_steps(3);
+            assert_eq!(h.state().ui.tab, "Table Layout", "{view}: Cell Size is shown");
+            assert_eq!(h.state().session.undo_depth(), depth, "{view}: showing the boxes changes nothing");
+            let (tp, ..) = h.state().session.sel.focus.path.cell().unwrap();
+            let t = h.state().session.doc.table(story, &tp).unwrap();
+            assert_eq!(t.rows[0].props.height, None, "{view}: no row height written");
+        }
     }
 
     #[test]
