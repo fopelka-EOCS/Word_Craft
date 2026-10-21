@@ -48,6 +48,7 @@ sync_github_name = false
 [people.alexanderalber]
 real_name = "Alexander Alber"
 
-# Public profile name enabled at the contributor's request.
 [people.kmitanovski]
-sync_github_name = true
+real_name = "Kosta Mitanovski"
+display_name = "Kosta Mitanovski"
+sync_github_name = false
