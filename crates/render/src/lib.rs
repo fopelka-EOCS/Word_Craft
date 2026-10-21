@@ -466,21 +466,10 @@ fn minified_for(doc: &Document, key: &str, ow: u16, oh: u16) -> Option<Arc<Pixma
 /// exact area integral, but it also flattens stroke contrast — a 1-px glyph line spread over two
 /// source pixels comes out as one pale grey column, which next to Word or WPS reads as "smoothed,
 /// low contrast". A mild zero-sum unsharp pass puts the slope back without moving any flat colour.
+/// A constant, not an environment knob: this decides how every picture in every document looks,
+/// and a hidden switch that only some builds honour would make bug reports and the parity
+/// screenshots incomparable. Judge a change by rebuilding with a different value.
 const UNSHARP: f32 = 0.22;
-
-/// The strength [`unsharp`] actually uses: [`UNSHARP`] unless `WORDCRAFT_UNSHARP` names another
-/// value, so the amount can be compared across runs without a rebuild when judging a picture
-/// against Word or WPS. Read once per process; anything outside `0.0..=1.5` is ignored.
-fn unsharp_amount() -> f32 {
-    static OVERRIDE: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
-    *OVERRIDE.get_or_init(|| {
-        std::env::var("WORDCRAFT_UNSHARP")
-            .ok()
-            .and_then(|v| v.trim().parse::<f32>().ok())
-            .filter(|v| (0.0..=1.5).contains(v))
-            .unwrap_or(UNSHARP)
-    })
-}
 
 /// Resample a premultiplied pixmap to `ow × oh`, the exact device size it is about to be drawn at,
 /// in two steps. First a fractional-coverage box average in sRGB space: each output pixel averages
@@ -541,12 +530,12 @@ fn resample_to(pm: &Pixmap, ow: u16, oh: u16) -> Option<Pixmap> {
     Some(Pixmap::from_parts(out, ow as u16, oh as u16))
 }
 
-/// A mild zero-sum unsharp pass: each pixel moves [`unsharp_amount`] of the way from the 3×3 box
+/// A mild zero-sum unsharp pass: each pixel moves [`UNSHARP`] of the way from the 3×3 box
 /// average around it back towards its own value. The weights sum to zero, so a flat colour and the
 /// picture's overall brightness are untouched; only local slopes steepen, which is what the area
 /// average flattened.
 fn unsharp(px: &mut [vello_cpu::color::PremulRgba8], w: usize, h: usize) {
-    let amount = unsharp_amount();
+    let amount = UNSHARP;
     if amount == 0.0 {
         return;
     }
@@ -1768,17 +1757,24 @@ mod tests {
 
     #[test]
     fn sharpening_keeps_premultiplied_colours_within_alpha() {
-        // A pixel whose colour equals its alpha (a white stroke at 78% coverage) beside darker
-        // but equally opaque neighbours: sharpening the channels apart lifted red to 239 while
-        // alpha stayed at 200. `r > a` is not a premultiplied colour; source-over then adds more
-        // light than the coverage allows and the edge shows a bright fringe.
-        let px = |v: u8, a: u8| vello_cpu::color::PremulRgba8 { r: v, g: v, b: v, a };
-        let mut data: Vec<_> = (0..9).map(|_| px(0, 200)).collect();
-        data[4] = px(200, 200);
-        unsharp(&mut data, 3, 3);
-        for p in &data {
-            assert!(p.r <= p.a && p.g <= p.a && p.b <= p.a, "invalid premultiplied pixel {:?}", (p.r, p.g, p.b, p.a));
+        /// Every pixel of a premultiplied image obeys `r, g, b <= a`.
+        fn within_alpha(px: &[vello_cpu::color::PremulRgba8]) {
+            for p in px {
+                assert!(p.r <= p.a && p.g <= p.a && p.b <= p.a, "invalid premultiplied pixel {:?}", (p.r, p.g, p.b, p.a));
+            }
         }
+        let px = |v: u8, a: u8| vello_cpu::color::PremulRgba8 { r: v, g: v, b: v, a };
+        // A semi-transparent white edge beside opaque black — the shape a logo or a letterhead
+        // has. For such a pixel the 3×3 blur of alpha is 241 while the blur of red is 14, so
+        // sharpening the channels apart pulls alpha down to 103 and pushes red up to 153: a colour
+        // larger than its own coverage, which source-over paints as a bright fringe.
+        let logo: Vec<_> = (0..16 * 16).map(|i| if i % 16 < 8 { px(0, 255) } else { px(128, 128) }).collect();
+        let mut sharpened = logo.clone();
+        unsharp(&mut sharpened, 16, 16);
+        within_alpha(&sharpened);
+        // And the whole path a picture takes: area average down to 7×7, then the sharpening pass.
+        let m = resample_to(&Pixmap::from_parts(logo, 16, 16), 7, 7).unwrap();
+        within_alpha(m.data());
     }
 
     #[test]
