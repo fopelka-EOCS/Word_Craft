@@ -1159,14 +1159,20 @@ mod tests {
             },
             a,
         );
-        h.run_steps(4);
+        h.run_steps(10);
         assert!(h.state().ui.backstage);
         assert_eq!(h.state().ui.backstage_page, "home");
+
         h.state_mut().run("ui.backstage", json!({"value": true, "page": "options"})).unwrap();
-        h.run_steps(4);
+        h.run_steps(1);
+        assert!(h.ctx.has_requested_repaint(), "backstage page change should trigger repaint/animation");
+        h.run_steps(15);
         assert_eq!(h.state().ui.backstage_page, "options");
+
         h.state_mut().run("ui.backstage", json!({"value": false})).unwrap();
-        h.run_steps(4);
+        h.run_steps(1);
+        assert!(h.ctx.has_requested_repaint(), "closing backstage should trigger repaint/animation");
+        h.run_steps(15);
         assert!(!h.state().ui.backstage);
     }
 }

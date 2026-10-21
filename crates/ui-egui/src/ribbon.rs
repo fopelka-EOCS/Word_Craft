@@ -3522,27 +3522,35 @@ mod tests {
             },
             a,
         );
-        h.run_steps(2);
+        h.run_steps(10);
         assert_eq!(h.state().ui.tab, "Home");
 
         // Move right: Home -> View
         h.state_mut().run("ui.tab", json!({"tab": "View"})).unwrap();
-        h.run_steps(2);
+        h.run_steps(1);
+        assert!(h.ctx.has_requested_repaint(), "ribbon tab transition should trigger repaint/animation");
+        h.run_steps(15);
         assert_eq!(h.state().ui.tab, "View");
 
         // Move left: View -> Home
         h.state_mut().run("ui.tab", json!({"tab": "Home"})).unwrap();
-        h.run_steps(2);
+        h.run_steps(1);
+        assert!(h.ctx.has_requested_repaint(), "ribbon tab transition back to Home should trigger repaint/animation");
+        h.run_steps(15);
         assert_eq!(h.state().ui.tab, "Home");
 
         // Move right: Home -> Layout
         h.state_mut().run("ui.tab", json!({"tab": "Layout"})).unwrap();
-        h.run_steps(2);
+        h.run_steps(1);
+        assert!(h.ctx.has_requested_repaint(), "ribbon tab transition to Layout should trigger repaint/animation");
+        h.run_steps(15);
         assert_eq!(h.state().ui.tab, "Layout");
 
         // Move left: Layout -> Insert
         h.state_mut().run("ui.tab", json!({"tab": "Insert"})).unwrap();
-        h.run_steps(2);
+        h.run_steps(1);
+        assert!(h.ctx.has_requested_repaint(), "ribbon tab transition to Insert should trigger repaint/animation");
+        h.run_steps(15);
         assert_eq!(h.state().ui.tab, "Insert");
     }
 }
