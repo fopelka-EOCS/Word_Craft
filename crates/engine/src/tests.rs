@@ -711,6 +711,43 @@ fn find_replace() {
 }
 
 #[test]
+fn find_and_select_reach_the_body_from_a_note() {
+    // #3270: `references.footnote` leaves the caret in the note; a search for text that exists
+    // only in the body must still find it, the way Word's Find covers the main text. Replace
+    // keeps the caret's story (its scope is a separate, already-tracked matter).
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Main sentence. Catalogue here."}));
+    run(&mut s, "references.footnote", json!({"text": "Footnote text."}));
+    assert_ne!(s.sel.focus.story, StoryRef::Body, "the footnote leaves the caret in the note");
+
+    // `edit.find` finds the body text and moves the selection into the body.
+    let r = run(&mut s, "edit.find", json!({"text": "Main sentence"}));
+    assert!(r["count"].as_u64().unwrap() >= 1, "the body is searched from a note: {r}");
+    assert_eq!(s.sel.focus.story, StoryRef::Body, "the first body match becomes the selection");
+
+    // `select.text` finds it too, from the other note.
+    run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [0], "off": 0}}));
+    run(&mut s, "references.footnote", json!({"text": "Second note."}));
+    let r = run(&mut s, "select.text", json!({"text": "Main sentence"}));
+    assert_eq!(s.sel.focus.story, StoryRef::Body, "select.text: {r}");
+
+    // An explicit `story` searches only that story.
+    run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [0], "off": 0}}));
+    run(&mut s, "references.footnote", json!({"text": "Third note."}));
+    run(&mut s, "select.text", json!({"text": "Main sentence", "story": "body"}));
+    assert_eq!(s.sel.focus.story, StoryRef::Body);
+    assert!(s.run("select.text", &json!({"text": "Third note.", "story": "body"})).is_err(), "an explicit story searches only that story");
+
+    // Replace replaces in the caret's story only: from a fresh note the body stays untouched.
+    run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [0], "off": 0}}));
+    run(&mut s, "references.footnote", json!({"text": "Fourth note."}));
+    let before = s.doc.plain_text(StoryRef::Body);
+    let r = run(&mut s, "edit.replaceAll", json!({"text": "Main sentence", "with": "Replaced"}));
+    assert_eq!(r["replaced"], 0, "replace stays on the caret's story");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), before);
+}
+
+#[test]
 fn find_replace_special_codes() {
     // ^p finds paragraph marks across paragraphs; Replace All with ^p splits paragraphs and is one undo step.
     let mut s = s();

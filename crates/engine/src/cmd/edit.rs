@@ -429,6 +429,19 @@ pub(crate) fn search(s: &Session, story: StoryRef) -> Result<Vec<(Pos, Pos)>, Cm
     Ok(search_full(s, story, false)?.into_iter().map(|f| (f.a, f.b)).collect())
 }
 
+/// What find-style commands address from the caret search with no `story` selector: the
+/// caret's story, and the main text too when the caret is elsewhere — from a footnote the
+/// body is searched as well, the way Word's Find reaches it (#3270). A `story` parameter
+/// searches only that story.
+pub(crate) fn search_reach(s: &Session, v: &Value) -> Result<Vec<(Pos, Pos)>, CmdError> {
+    let mut out = search(s, super::story_param(s, v))?;
+    if v.get("story").is_none() && s.sel.focus.story != StoryRef::Body {
+        out.extend(search(s, StoryRef::Body)?);
+    }
+    out.sort();
+    Ok(out)
+}
+
 fn find_opts(f: &crate::session::FindState) -> find_pattern::Opts {
     find_pattern::Opts {
         match_case: f.match_case,
@@ -606,8 +619,7 @@ fn find(s: &mut Session, v: &Value) -> CmdResult {
         s.ui_requests.push(json!({"focus": "navSearch"}));
         return Ok(json!({"count": s.find.results.len()}));
     }
-    let story = s.sel.focus.story;
-    s.find.results = search(s, story)?;
+    s.find.results = search_reach(s, v)?;
     // Select the first match after the caret.
     let caret = s.sel.focus.clone();
     let idx = s.find.results.iter().position(|(a, _)| *a >= caret).unwrap_or(0);
@@ -651,8 +663,15 @@ fn advanced_find(s: &mut Session, v: &Value) -> CmdResult {
 }
 
 fn step(s: &mut Session, dir: i64) -> CmdResult {
+    // Find Next/Previous runs the same reach as `edit.find`: from a note the body matches are
+    // there too, they just sit behind the note's own matches in document order (#3270).
     let story = s.sel.focus.story;
-    s.find.results = search(s, story)?;
+    let mut results = search(s, story)?;
+    if story != StoryRef::Body {
+        results.extend(search(s, StoryRef::Body)?);
+        results.sort();
+    }
+    s.find.results = results;
     let n = s.find.results.len();
     if n == 0 {
         return Err(CmdError::Failed("no matches".into()));
