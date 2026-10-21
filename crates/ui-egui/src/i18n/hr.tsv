@@ -1441,6 +1441,7 @@ template	Letter	Pismo
 	No-Width Optional Break	Nulta širina s mogućim prijelomom
 	Nonbreaking Hyphen	Spojnica bez prijeloma
 	Nonbreaking Space	Razmak bez prijeloma
+	Zero-Width Non-Joiner	Znak za nespajanje nulte širine
 	None	Nema
 	Normal	Uobičajeni
 	Normal  {size} all	Normalno  {size} sa svih strana

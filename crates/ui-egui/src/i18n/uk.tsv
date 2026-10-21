@@ -616,6 +616,7 @@
 	No Paragraph Space	Без інтервалу між абзацами
 	Nonbreaking Hyphen	Нерозривний дефіс
 	Nonbreaking Space	Нерозривний пробіл
+	Zero-Width Non-Joiner	Нерозривний роздільник нульової ширини
 	None	Немає
 	Normal  {size} all	Звичайні — усі по {size}
 	Normal Style	Звичайний стиль

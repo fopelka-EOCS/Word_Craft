@@ -558,6 +558,7 @@
 	No Paragraph Space	Sans espacement entre les paragraphes
 	Nonbreaking Hyphen	Tiret insécable
 	Nonbreaking Space	Espace insécable
+	Zero-Width Non-Joiner	Antiliant sans chasse
 	None	Aucun
 	Normal  {size} all	Normales — {size} partout
 	Normal Style	Style Normal

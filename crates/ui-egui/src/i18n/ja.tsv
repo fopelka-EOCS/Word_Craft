@@ -601,6 +601,7 @@
 	No Paragraph Space	段落間隔なし
 	Nonbreaking Hyphen	改行なしハイフン
 	Nonbreaking Space	改行なしスペース
+	Zero-Width Non-Joiner	ゼロ幅非接合子
 	None	なし
 	Normal  {size} all	標準  上下左右 {size}
 	Normal Style	標準スタイル

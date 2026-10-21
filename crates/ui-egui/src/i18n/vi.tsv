@@ -541,6 +541,7 @@
 	No templates match your search.	Không có mẫu nào khớp với tìm kiếm của bạn.
 	Nonbreaking Hyphen	Gạch nối không ngắt dòng
 	Nonbreaking Space	Khoảng trắng không ngắt dòng
+	Zero-Width Non-Joiner	Ký tự không nối có độ rộng bằng 0
 	None	Không có
 	Normal  {size} all	Thường  {size} mọi cạnh
 	Normal Style	Kiểu Thường

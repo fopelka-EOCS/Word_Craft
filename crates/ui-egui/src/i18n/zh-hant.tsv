@@ -602,6 +602,7 @@
 	No Paragraph Space	無段落間距
 	Nonbreaking Hyphen	不分行連字號
 	Nonbreaking Space	不分行空格
+	Zero-Width Non-Joiner	零寬度非連接符
 	None	無
 	Normal  {size} all	一般  四周 {size}
 	Normal Style	內文樣式

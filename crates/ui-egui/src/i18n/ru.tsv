@@ -476,6 +476,7 @@
 	No Spacing	Без интервала
 	Nonbreaking Hyphen	Неразрывный дефис
 	Nonbreaking Space	Неразрывный пробел
+	Zero-Width Non-Joiner	Несоединитель нулевой ширины
 	None	Нет
 	Normal	Обычный
 	Normal  {size} all	Обычные  {size} со всех сторон

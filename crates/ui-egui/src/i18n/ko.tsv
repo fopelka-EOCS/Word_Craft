@@ -595,6 +595,7 @@
 	No Paragraph Space	단락 간격 없음
 	Nonbreaking Hyphen	줄 바꿈하지 않는 하이픈
 	Nonbreaking Space	줄 바꿈하지 않는 공백
+	Zero-Width Non-Joiner	폭 없는 비결합자
 	None	없음
 	Normal  {size} all	보통(모든 여백 {size})
 	Normal Style	표준 스타일

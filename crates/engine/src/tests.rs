@@ -116,6 +116,7 @@ fn word_default_shortcuts_resolve() {
     assert_eq!(id("Mod+Alt+N"), Some("view.draft"));
     assert_eq!(id("Mod+Alt+S"), Some("view.split"));
     assert_eq!(id("Mod+Alt+-"), Some("text.emDash"));
+    assert_eq!(id("Mod+Shift+2"), Some("text.zwnj"));
     assert_eq!(id("Mod+Shift+F5"), Some("insert.bookmark"));
     assert_eq!(id("Alt+F7"), Some("review.spelling"));
     assert_eq!(id("Shift+F12"), Some("file.save"));
@@ -195,6 +196,8 @@ fn reset_shortcuts_remove_direct_formatting_but_keep_styles() {
     run(&mut s, "caret.docEnd", json!({}));
     run(&mut s, "text.emDash", json!({}));
     assert_eq!(text(&s), "Hello world—");
+    run(&mut s, "text.zwnj", json!({}));
+    assert_eq!(text(&s), "Hello world—\u{200C}");
 }
 
 #[test]

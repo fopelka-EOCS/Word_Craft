@@ -602,6 +602,7 @@
 	No Paragraph Space	Sem espaço entre parágrafos
 	Nonbreaking Hyphen	Hífen inseparável
 	Nonbreaking Space	Espaço inseparável
+	Zero-Width Non-Joiner	Não separador de largura zero
 	None	Nenhuma
 	Normal  {size} all	Normal  {size} em todas as margens
 	Normal Style	Estilo Normal

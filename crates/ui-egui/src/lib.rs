@@ -5806,6 +5806,37 @@ mod tests {
         assert!(closes(&h), "⌘Q still quits on the Mac");
     }
 
+    /// #3447: Ctrl+Shift+2 inserts Persian half-space / zero-width non-joiner (ZWNJ \u{200C}).
+    #[test]
+    fn ctrl_shift_2_inserts_zwnj() {
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app(),
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        h.event(egui::Event::Text("\u{0645}\u{06CC}".into()));
+        h.step();
+        let ctrl_shift = if cfg!(target_os = "macos") {
+            egui::Modifiers::COMMAND | egui::Modifiers::SHIFT
+        } else {
+            egui::Modifiers::CTRL | egui::Modifiers::COMMAND | egui::Modifiers::SHIFT
+        };
+        h.event(egui::Event::Key { key: egui::Key::Num2, physical_key: None, pressed: true, repeat: false, modifiers: ctrl_shift });
+        h.step();
+        h.event(egui::Event::Text("\u{062E}\u{0648}\u{0627}\u{0647}\u{0645}".into()));
+        h.step();
+        assert_eq!(
+            h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body),
+            "\u{0645}\u{06CC}\u{200C}\u{062E}\u{0648}\u{0627}\u{0647}\u{0645}"
+        );
+    }
+
     /// #819: Alt+Q opens Search with its box focused, as in Word: the Q isn't typed into the
     /// document, and what is typed next goes into the search box.
     #[cfg(not(target_os = "macos"))]

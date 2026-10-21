@@ -27,6 +27,8 @@ pub const SOFT_HYPHEN: char = '\u{00AD}';
 pub const NB_HYPHEN: char = '\u{2011}';
 /// Nonbreaking space (Ctrl+Shift+Space).
 pub const NBSP: char = '\u{00A0}';
+/// Zero-width non-joiner / Persian half-space (Ctrl+Shift+2).
+pub const ZWNJ: char = '\u{200C}';
 
 static REV: AtomicU64 = AtomicU64::new(1);
 

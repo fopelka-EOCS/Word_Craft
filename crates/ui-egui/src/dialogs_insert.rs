@@ -647,6 +647,7 @@ pub const SPECIAL: &[(&str, char, Option<&str>)] = &[
     ("En Space", '\u{2002}', None),
     ("1/4 Em Space", '\u{2005}', None),
     ("Nonbreaking Space", '\u{00A0}', Some("text.nbsp")),
+    ("Zero-Width Non-Joiner", '\u{200C}', Some("text.zwnj")),
     ("Copyright", '\u{00A9}', None),
     ("Registered", '\u{00AE}', None),
     ("Trademark", '\u{2122}', None),
@@ -986,7 +987,8 @@ fn special_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SymbolForm, insert: &mut O
             ui.label(egui::RichText::new(tl!("Shortcut key:")).font(semibold(12.0)));
             ui.end_row();
             for (i, (name, c, cmd)) in SPECIAL.iter().enumerate() {
-                let shown = if c.is_whitespace() || matches!(*c, '\u{00AD}' | '\u{200B}' | '\u{2060}') { String::new() } else { c.to_string() };
+                let shown =
+                    if c.is_whitespace() || matches!(*c, '\u{00AD}' | '\u{200B}' | '\u{200C}' | '\u{2060}') { String::new() } else { c.to_string() };
                 ui.label(egui::RichText::new(shown).font(regular(15.0)).color(t.text));
                 let resp = ui.selectable_label(f.special == i, tl!(name));
                 if resp.clicked() {

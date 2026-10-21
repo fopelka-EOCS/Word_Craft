@@ -759,6 +759,7 @@
 	No-Width Optional Break	Podmíněné zalomení nulové šířky
 	Nonbreaking Hyphen	Nezlomitelný spojovník
 	Nonbreaking Space	Nezlomitelná mezera
+	Zero-Width Non-Joiner	Nulová mezera bez spojení
 	None	Žádné
 	Normal	Normální
 	Normal  {size} all	Normální  {size} všude

@@ -544,6 +544,7 @@
 	No Paragraph Space	Kein Absatzabstand
 	Nonbreaking Hyphen	Geschützter Bindestrich
 	Nonbreaking Space	Geschütztes Leerzeichen
+	Zero-Width Non-Joiner	Breitenloser Nicht-Verbinder
 	None	Keine
 	Normal  {size} all	Normal  {size} rundum
 	Normal Style	Formatvorlage „Standard“

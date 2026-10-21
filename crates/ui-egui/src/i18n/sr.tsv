@@ -653,6 +653,7 @@
 	No Paragraph Space	Без размака пасуса
 	Nonbreaking Hyphen	Недељива цртица
 	Nonbreaking Space	Недељиви размак
+	Zero-Width Non-Joiner	Неспајајући знак нулте ширине
 	None	Ниједно
 	Normal  {size} all	Нормалне  {size} свуда
 	Normal Style	Нормалан стил

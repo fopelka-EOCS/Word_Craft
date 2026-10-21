@@ -613,6 +613,7 @@
 	No Paragraph Space	无段落间距
 	Nonbreaking Hyphen	不间断连字符
 	Nonbreaking Space	不间断空格
+	Zero-Width Non-Joiner	零宽度非连接符
 	None	无
 	Normal  {size} all	常规  四周 {size}
 	Normal Style	正文样式

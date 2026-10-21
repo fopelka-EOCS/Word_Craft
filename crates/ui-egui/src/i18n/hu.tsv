@@ -474,6 +474,7 @@
 	No Spacing	Nincs térköz
 	Nonbreaking Hyphen	Nem törő kötőjel
 	Nonbreaking Space	Nem törő szóköz
+	Zero-Width Non-Joiner	Nulla szélességű törésgátló
 	None	Nincs
 	Normal	Normál
 	Normal  {size} all	Normál  {size} mindenhol

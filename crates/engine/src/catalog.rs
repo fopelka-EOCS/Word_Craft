@@ -193,6 +193,7 @@ Insert|Symbols|Symbol|insert.symbol
 Insert|Symbols|Nonbreaking Space|text.nbsp
 Insert|Symbols|Nonbreaking Hyphen|text.nbHyphen
 Insert|Symbols|Optional Hyphen|text.optionalHyphen
+Insert|Symbols|Zero-Width Non-Joiner|text.zwnj
 Draw|Tools|Select|draw.select
 Draw|Tools|Lasso Select|draw.lasso
 Draw|Tools|Eraser|draw.eraser

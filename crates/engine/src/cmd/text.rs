@@ -1,7 +1,7 @@
 //! Typing and deleting.
 
 use serde_json::Value;
-use wordcraft_doc::para::{COLUMN_BREAK, NB_HYPHEN, NBSP, OBJ, PAGE_BREAK, SOFT_HYPHEN};
+use wordcraft_doc::para::{COLUMN_BREAK, NB_HYPHEN, NBSP, OBJ, PAGE_BREAK, SOFT_HYPHEN, ZWNJ};
 use wordcraft_doc::props::{Border, BorderStyle, NumRef};
 use wordcraft_doc::{Block, ListKind, Path, Pos, StoryRef, Table};
 
@@ -24,6 +24,7 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("text.nbsp", "Nonbreaking Space", "Insert › Symbols", |s, _| ins_char(s, NBSP)).key("Mod+Shift+Space"),
         CommandSpec::new("text.nbHyphen", "Nonbreaking Hyphen", "Insert › Symbols", |s, _| ins_char(s, NB_HYPHEN)).key("Mod+Shift+-"),
         CommandSpec::new("text.optionalHyphen", "Optional Hyphen", "Insert › Symbols", |s, _| ins_char(s, SOFT_HYPHEN)).key("Mod+-"),
+        CommandSpec::new("text.zwnj", "Zero-Width Non-Joiner", "Insert › Symbols", |s, _| ins_char(s, ZWNJ)).key("Mod+Shift+2"),
         // Alt+X on Windows and Linux; macOS has no default (Option+X types a character there).
         CommandSpec::new("text.toggleUnicode", "Toggle Unicode Character", "Editing", toggle_unicode).key(if cfg!(target_os = "macos") {
             ""
