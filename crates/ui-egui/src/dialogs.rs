@@ -3783,7 +3783,8 @@ fn swallow_shortcut_text(swallow: &mut bool, e: &egui::Event) -> bool {
 }
 
 /// Search's filter: every word of the query is in the command's label, location or id, in English
-/// or in the interface language, so "insert table" finds Insert › Tables › Table (#819).
+/// or in the interface language, so "insert table" finds Insert › Tables › Table (#819). The
+/// translations are matched in reading order, as the query is typed.
 fn command_matches(c: &wordcraft_engine::CommandSpec, query: &str) -> bool {
     if query.trim().is_empty() {
         return false;
@@ -3793,8 +3794,8 @@ fn command_matches(c: &wordcraft_engine::CommandSpec, query: &str) -> bool {
         c.label.to_lowercase(),
         c.location.to_lowercase(),
         c.id.to_lowercase(),
-        crate::i18n::lowercase(tl!(c.label)),
-        crate::i18n::lowercase(&crate::i18n::location(c.location))
+        crate::i18n::lowercase(crate::i18n::t_logical(c.label)),
+        crate::i18n::lowercase(&crate::i18n::location_logical(c.location))
     );
     query.split_whitespace().all(|w| hay.contains(&w.to_lowercase()) || hay.contains(&crate::i18n::lowercase(w)))
 }

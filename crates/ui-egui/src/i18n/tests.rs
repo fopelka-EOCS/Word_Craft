@@ -534,6 +534,19 @@ fn arabic_is_drawn_in_display_order_but_kept_in_reading_order() {
 }
 
 #[test]
+fn arabic_formatting_annotation_is_ordered_once() {
+    // #2677: the tracked-formatting balloon joins property descriptions into one line and puts
+    // that line in display order once; the descriptions themselves stay in reading order.
+    set_current(lang("ar"));
+    let props = [serde_json::json!({"prop": "bold", "value": true}), serde_json::json!({"prop": "keepNext", "value": false})];
+    let what = crate::panes::describe_props(&props);
+    assert_eq!(what, ["غامق", "ليس الربط مع التالي"]);
+    let shown = line(format!("{}: {}", t_logical("Formatted"), what.join(", ")));
+    assert_eq!(shown, "التالي مع الربط ليس ,غامق :منسَّق");
+    set_current(Lang::EN);
+}
+
+#[test]
 fn arabic_covers_every_key_of_the_other_catalogs() {
     // ar.tsv was built from the union of every catalog's keys; keep it that way as keys land.
     let ar = lang("ar");

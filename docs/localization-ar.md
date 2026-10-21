@@ -5,8 +5,11 @@
 Choose **File › Options › Interface language › العربية**, or follow an Arabic system display
 language (`ar`, `ar-SA`, `ar-EG`, `ar_SA.UTF-8` and the other regions). The catalog code is `ar`;
 `ui.language` with `{"value":"ar"}` selects it explicitly, and `WORDCRAFT_LANGUAGE=ar-SA` does the
-same for a headless screenshot or a launch while the preference is `auto`. Document text, command
-ids, CLI/MCP/control responses and file paths do not change.
+same for a headless screenshot or a launch while the preference is `auto`. Command ids, the text
+already in a document, and paths a script or the user supplies do not change. Interface text that
+reaches automation or files is localized but kept in reading order (see Word order): error
+messages from commands, the control channel's `title`, and the default name of an untitled
+document (`مستند1`).
 
 `crates/ui-egui/src/i18n/ar.tsv` has 2,674 entries: the union of every key in every other catalog
 (built-in style names, equation gallery labels, paper sizes, watermarks and citation styles
@@ -68,9 +71,12 @@ never stored, compared, typed over, handed to the operating system or reported t
   (`AutoSaveBlock::reason_logical`; `reason` is its drawn form), the Save Changes prompt's failed
   or cancelled save (the prompt and status bar draw it), `ui.crop`.
 - Assembled lines go through `i18n::line` (status, labels with a value after a colon, tab stop
-  tooltips, the command search results). Arrows, menu marks (`▾`, `◀`) and sample glyphs stay on
+  tooltips, the command search results). Pieces that feed them stay in reading order to the end:
+  the tracked-formatting balloon's property descriptions (`panes::describe_props`) are built with
+  `t_logical`/`fmt_logical`, joined, and drawn through one `line`. Arrows, menu marks (`▾`, `◀`) and sample glyphs stay on
   their physical side, since the interface isn't mirrored.
-- Command search matches word by word, so it still finds Arabic labels in display order.
+- Command search matches the typed words against labels and locations in reading order
+  (`t_logical`, `location_logical`).
 - Tests: `arabic_is_drawn_in_display_order_but_kept_in_reading_order`,
   `arabic_untitled_name_is_saved_renamed_and_reported_in_reading_order` (suggested `.docx` and
   `.pdf` names, the Rename field, `file.autosave`'s error, the drawn title), and the `bidi` unit
@@ -158,3 +164,4 @@ reordered strings.
 |---|---|---|
 | 2026-10-17 | minor | Arabic catalog (2,616 entries), registry row, Arabic interface font fallback, labels in display order (`i18n::bidi`) |
 | 2026-10-20 | minor | Review of #2677 (FredApps, CodeRabbit): `t_logical`/`tr_logical`/`fmt_logical` for stored, compared, OS-facing and automation text (untitled `مستند1`); `fmt` takes logical values and isolates them; assembled lines through `i18n::line`; 58 keys added upstream since |
+| 2026-10-21 | trivial | Review of #2677 (FredApps, CodeRabbit): formatting-balloon descriptions in reading order until drawn; command search in reading order; what stays unchanged for automation stated precisely |
