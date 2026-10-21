@@ -750,7 +750,7 @@ mod tests {
     /// stronger on the × itself, absent when neither is.
     #[test]
     fn recent_remove_cross_shows_when_the_row_is_hovered() {
-        use super::{remove_cue, RemoveCue};
+        use super::{RemoveCue, remove_cue};
         assert_eq!(remove_cue(false, false), RemoveCue::Hidden);
         assert_eq!(remove_cue(true, false), RemoveCue::Dim, "row hovered shows the glyph");
         assert_eq!(remove_cue(false, true), RemoveCue::Strong);
