@@ -180,6 +180,7 @@
 	Change Case	Смяна на регистъра
 	Change List Level	Промяна на нивото на списъка
 	Change Picture	Смяна на изображението
+	Save as Picture	Запази като изображение
 	Change Shape	Смяна на фигурата
 	Changes	Промени
 	Character Position	Позиция на знаците
@@ -338,6 +339,7 @@
 	Export Page as PNG	Експортиране на страницата като PNG
 	Export a copy to share (PDF, Word document)	Експортиране на копие за споделяне (PDF, документ на Word)
 	Exported {path}	Експортирано: {path}
+	Saved {path}	Запазено: {path}
 	Extend Selection	Разширяване на селекцията
 	Field	Поле
 	File	Файл
@@ -1334,6 +1336,7 @@
 	Gallery	Галерия
 	Sketchbook	Скицник
 	Change Picture…	Смяна на изображението…
+	Save as Picture…	Запази като изображение…
 	Font…	Шрифт…
 	Paragraph…	Абзац…
 	Link…	Връзка…

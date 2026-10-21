@@ -174,6 +174,7 @@
 	Change Case	Đổi chữ hoa/thường
 	Change List Level	Đổi cấp danh sách
 	Change Picture	Đổi ảnh
+	Save as Picture	Lưu dưới dạng ảnh
 	Change Shape	Đổi hình
 	Changes	Các thay đổi
 	Character Position	Vị trí ký tự
@@ -332,6 +333,7 @@
 	Export Page as PNG	Xuất trang dưới dạng PNG
 	Export a copy to share (PDF, Word document)	Xuất bản sao để chia sẻ (PDF, tài liệu Word)
 	Exported {path}	Đã xuất {path}
+	Saved {path}	Đã lưu {path}
 	Extend Selection	Mở rộng vùng chọn
 	Field	Trường
 	File	Tệp
@@ -1326,6 +1328,7 @@
 	Gallery	Gallery
 	Sketchbook	Sketchbook
 	Change Picture…	Đổi ảnh…
+	Save as Picture…	Lưu dưới dạng ảnh…
 	Font…	Phông chữ…
 	Paragraph…	Đoạn…
 	Link…	Liên kết…

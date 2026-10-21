@@ -63,6 +63,8 @@ pub(crate) enum AfterPick {
     SaveAs { after: AfterSave, document: u64 },
     /// Save a copy there in this format (`pdf`, `docx`, `png`…).
     Export { ext: String },
+    /// Write the selected picture's original bytes there (Save as Picture…).
+    SavePicture,
     /// Write the PDF of these print settings there (File › Print › Save these pages as PDF).
     PrintPdf { settings: Value },
     /// Load the picked CSV/TSV/text file or spreadsheet as the mail-merge recipients (#240, #334).
@@ -303,6 +305,16 @@ impl WordApp {
                 }
                 r
             }
+            AfterPick::SavePicture => {
+                let Some(path) = picked else { return Ok(json!({"cancelled": true})) };
+                let r = self.run("picture.saveAs", json!({"path": path}));
+                if let Ok(v) = &r
+                    && let Some(saved) = v.get("path").and_then(Value::as_str)
+                {
+                    self.status(crate::i18n::fmt(tl!("Saved {path}"), &[("path", saved)]));
+                }
+                r
+            }
             AfterPick::PrintPdf { settings } => {
                 let Some(path) = picked else { return Ok(json!({"cancelled": true})) };
                 let mut params = settings;
@@ -362,6 +374,18 @@ impl WordApp {
         let file_ext = if ext == crate::print_page::EXPORT_WORD_2003 { "xml" } else { ext };
         let name = format!("{}.{file_ext}", self.title_stem());
         let _ = self.ask_file(FileDialogRequest::Save { name }, AfterPick::Export { ext: ext.to_string() });
+    }
+
+    /// Save as Picture…: ask where to save the selected picture, suggesting the document's name
+    /// with the picture's own extension, then write the original bytes there.
+    pub(crate) fn save_picture_dialog(&mut self) {
+        let Some(media) = wordcraft_engine::cmd::objects::save_picture_media(&self.session) else {
+            self.status(tl!("Select one picture first."));
+            return;
+        };
+        let ext = media.rsplit_once('.').map(|(_, e)| e).filter(|e| !e.is_empty()).unwrap_or("png");
+        let name = format!("{}.{ext}", self.title_stem());
+        let _ = self.ask_file(FileDialogRequest::Save { name }, AfterPick::SavePicture);
     }
 
     /// File › Print › Save these pages as PDF: ask where, then write the pages the print
@@ -767,6 +791,33 @@ mod tests {
         assert_eq!(r["path"], json!(picked.to_string_lossy().to_string()));
         let bytes = std::fs::read(&picked).unwrap();
         assert!(bytes.starts_with(b"%PDF"), "a PDF is written to the picked path");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #3376: Save as Picture suggests the picture's own extension, writes its original bytes
+    /// (not a re-encode), and cancelling writes nothing.
+    #[test]
+    fn save_picture_asks_where_and_writes_the_original_bytes() {
+        let dir = scratch("save-picture");
+        let (mut a, shown) = async_app();
+        let img = image::RgbaImage::from_pixel(3, 2, image::Rgba([200, 30, 30, 255]));
+        let mut png = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+        a.run("insert.picture", json!({"data": wordcraft_engine::cmd::insert::base64_encode(&png)})).unwrap();
+        // Cancelling writes nothing and says so, as the other Save dialogs do.
+        let r = a.run("picture.saveAs", json!({})).unwrap();
+        assert_eq!(r, json!({"saved": false}));
+        assert_eq!(shown.borrow()[0].0, FileDialogRequest::Save { name: "Document1.png".into() });
+        answer(&shown, None);
+        assert_eq!(a.poll_file_dialog().unwrap().unwrap(), json!({"cancelled": true}));
+        // Saving writes exactly the picture's original bytes.
+        let picked = dir.join("photo.png");
+        a.run("picture.saveAs", json!({})).unwrap();
+        assert_eq!(shown.borrow()[0].0, FileDialogRequest::Save { name: "Document1.png".into() });
+        answer(&shown, Some(&picked.to_string_lossy()));
+        let r = a.poll_file_dialog().unwrap().unwrap();
+        assert_eq!(r["path"], json!(picked.to_string_lossy().to_string()));
+        assert_eq!(std::fs::read(&picked).unwrap(), png);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

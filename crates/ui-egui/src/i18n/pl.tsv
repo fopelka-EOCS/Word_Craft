@@ -110,6 +110,7 @@
 	Change Case	Zmień wielkość liter
 	Change List Level	Zmień poziom listy
 	Change Picture	Zmień obraz
+	Save as Picture	Zapisz jako obraz
 	Change Shape	Zmień kształt
 	Changes	Zmiany
 	Character Position	Położenie znaku
@@ -254,6 +255,7 @@
 	Export Page as PNG	Eksportuj stronę jako PNG
 	Export a copy to share (PDF, Word document)	Wyeksportuj kopię do udostępnienia (PDF, dokument Word)
 	Exported {path}	Wyeksportowano: {path}
+	Saved {path}	Zapisano: {path}
 	Extend Selection	Rozszerz zaznaczenie
 	Field	Pole
 	File	Plik
@@ -1072,6 +1074,7 @@
 	Paragraph…	Akapit…
 	Link…	Link…
 	Change Picture…	Zmień obraz…
+	Save as Picture…	Zapisz jako obraz…
 	Size and Crop…	Rozmiar i przycinanie…
 	Insert Rows Above	Wstaw wiersze powyżej
 	Insert Rows Below	Wstaw wiersze poniżej

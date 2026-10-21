@@ -115,6 +115,7 @@
 	Change Case	Kis- és nagybetűk
 	Change List Level	Listaszint módosítása
 	Change Picture	Kép cseréje
+	Save as Picture	Mentés képként
 	Change Shape	Alakzat cseréje
 	Changes	Módosítások
 	Character Position	Karakter helyzete
@@ -258,6 +259,7 @@
 	Export Page as PNG	Oldal exportálása PNG-ként
 	Export PDF	PDF exportálása
 	Exported {path}	Exportálva: {path}
+	Saved {path}	Mentve: {path}
 	Extend Selection	Kijelölés bővítése
 	Extend Selection by Units	Kijelölés bővítése egységenként
 	Field	Mező
@@ -1544,6 +1546,7 @@
 	First	Első
 	Last	Utolsó
 	Change Picture…	Kép cseréje…
+	Save as Picture…	Mentés képként…
 	Size and Crop…	Méret és körülvágás…
 	Insert Columns to the Left	Oszlopok beszúrása balra
 	Insert Columns to the Right	Oszlopok beszúrása jobbra

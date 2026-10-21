@@ -306,6 +306,7 @@
 	Change Case	Промени величину слова
 	Change List Level	Промени ниво листе
 	Change Picture	Промени слику
+	Save as Picture	Сачувај као слику
 	Change Shape	Промени облик
 	Changes	Измене
 	Character Position	Положај знака
@@ -449,6 +450,7 @@
 	Export Page as PNG	Извези страну као PNG
 	Export PDF	Извези PDF
 	Exported {path}	Извезено: {path}
+	Saved {path}	Сачувано: {path}
 	Extend Selection	Прошири избор
 	Extend Selection by Units	Прошири избор по јединицама
 	Field	Поље
@@ -1331,6 +1333,7 @@
 	Gallery	Галерија
 	Sketchbook	Блок за скице
 	Change Picture…	Промени слику…
+	Save as Picture…	Сачувај као слику…
 	Font…	Фонт…
 	Paragraph…	Пасус…
 	Link…	Веза…

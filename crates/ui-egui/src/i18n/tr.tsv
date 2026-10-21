@@ -112,6 +112,7 @@
 	Change Case	Harf Büyüklüğünü Değiştir
 	Change List Level	Liste Düzeyini Değiştir
 	Change Picture	Resmi Değiştir
+	Save as Picture	Resim Olarak Kaydet
 	Change Shape	Şekli Değiştir
 	Changes	Değişiklikler
 	Character Position	Karakter Konumu
@@ -256,6 +257,7 @@
 	Export Page as PNG	Sayfayı PNG Olarak Dışa Aktar
 	Export PDF	PDF Olarak Dışa Aktar
 	Exported {path}	Dışa aktarıldı: {path}
+	Saved {path}	Kaydedildi: {path}
 	Extend Selection	Seçimi Genişlet
 	Extend Selection by Units	Seçimi Birimlere Göre Genişlet
 	Field	Alan
@@ -1548,6 +1550,7 @@ preview	Title	Örnek
 	First	İlk
 	Last	Son
 	Change Picture…	Resmi Değiştir…
+	Save as Picture…	Resim Olarak Kaydet…
 	Size and Crop…	Boyut ve Kırpma…
 	Insert Columns to the Left	Sola Sütun Ekle
 	Insert Columns to the Right	Sağa Sütun Ekle

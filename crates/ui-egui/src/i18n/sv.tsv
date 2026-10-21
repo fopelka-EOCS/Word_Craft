@@ -225,6 +225,7 @@
 	Change Case	Ändra skiftläge
 	Change List Level	Ändra listnivå
 	Change Picture	Byt bild
+	Save as Picture	Spara som bild
 	Change Shape	Byt figur
 	Changes	Ändringar
 	Character Position	Teckenposition
@@ -388,6 +389,7 @@
 	Export Page as PNG	Exportera sidan som PNG
 	Export a copy to share (PDF, Word document)	Exportera en kopia att dela (PDF, Word-dokument)
 	Exported {path}	Exporterade {path}
+	Saved {path}	Sparade {path}
 	Extend Selection	Utöka markeringen
 	Extend Selection by Units	Utöka markeringen med enheter
 	Field	Fält
@@ -1424,6 +1426,7 @@
 	Gallery	Galleri
 	Sketchbook	Skissbok
 	Change Picture…	Byt bild…
+	Save as Picture…	Spara som bild…
 	Font…	Typsnitt…
 	Paragraph…	Stycke…
 	Link…	Länk…

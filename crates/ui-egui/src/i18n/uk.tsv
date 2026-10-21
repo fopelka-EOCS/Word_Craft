@@ -228,6 +228,7 @@
 	Change Case	Змінити регістр
 	Change List Level	Змінити рівень списку
 	Change Picture	Змінити зображення
+	Save as Picture	Зберегти як зображення
 	Change Shape	Змінити фігуру
 	Changes	Зміни
 	Character Position	Положення символів
@@ -407,6 +408,7 @@
 	Export Page as PNG	Експортувати сторінку у PNG
 	Export PDF	Експортувати PDF
 	Exported {path}	Експортовано {path}
+	Saved {path}	Збережено {path}
 	Extend Selection	Розширити виділення
 	Extend Selection by Units	Розширити виділення за одиницями
 	Field	Поле
@@ -1406,6 +1408,7 @@
 	Gallery	Галерея
 	Sketchbook	Альбом для ескізів
 	Change Picture…	Змінити зображення…
+	Save as Picture…	Зберегти як зображення…
 	Font…	Шрифт…
 	Paragraph…	Абзац…
 	Link…	Посилання…

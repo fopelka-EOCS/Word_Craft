@@ -246,6 +246,7 @@
 	Change Case	變更大小寫
 	Change List Level	變更清單階層
 	Change Picture	變更圖片
+	Save as Picture	圖片另存為
 	Change Shape	變更圖案
 	Changes	變更
 	Character Position	字元位置
@@ -398,6 +399,7 @@
 	Export Page as PNG	將頁面匯出為 PNG
 	Export PDF	匯出 PDF
 	Exported {path}	已匯出 {path}
+	Saved {path}	已儲存 {path}
 	Extend Selection	擴大選取範圍
 	Extend Selection by Units	按單位擴大選取範圍
 	Field	功能變數
@@ -1395,6 +1397,7 @@
 	Gallery	畫廊
 	Sketchbook	素描本
 	Change Picture…	變更圖片…
+	Save as Picture…	圖片另存為…
 	Font…	字型…
 	Paragraph…	段落…
 	Link…	連結…

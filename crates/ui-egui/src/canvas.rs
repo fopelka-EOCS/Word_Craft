@@ -3179,6 +3179,7 @@ fn context_menu(app: &mut WordApp, ui: &mut Ui) {
         item(ui, app, "Change Picture…", "ui.changePicture", json!({}));
         item(ui, app, "Reset Picture", "picture.reset", json!({}));
         item(ui, app, "Size and Crop…", "ui.tab", json!({"tab": "Picture Format"}));
+        item(ui, app, "Save as Picture…", "picture.saveAs", json!({}));
     }
     if picture || object {
         // A numbered caption under (or over) the picture, shape, text box or chart (#1230).
@@ -4635,6 +4636,7 @@ mod tests {
         h.step();
         let picked = wordcraft_engine::cmd::objects::object_selection(&h.state().session).map(|(p, _)| p);
         assert_eq!(picked, Some(pos.clone()), "the right-click selected the picture");
+        assert!(h.query_by_label_contains("Save as Picture…").is_some(), "Save as Picture is offered");
         h.get_by_label_contains("Wrap Text").hover();
         for _ in 0..3 {
             h.step();

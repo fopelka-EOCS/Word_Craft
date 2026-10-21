@@ -245,6 +245,7 @@
 	Change Case	大文字/小文字の変換
 	Change List Level	リスト レベルの変更
 	Change Picture	図の変更
+	Save as Picture	図として保存
 	Change Shape	図形の変更
 	Changes	変更箇所
 	Character Position	文字位置
@@ -397,6 +398,7 @@
 	Export Page as PNG	ページを PNG としてエクスポート
 	Export PDF	PDF にエクスポート
 	Exported {path}	{path} にエクスポートしました
+	Saved {path}	{path} に保存しました
 	Extend Selection	選択範囲の拡張
 	Extend Selection by Units	単位ごとに選択範囲を拡張
 	Field	フィールド
@@ -1394,6 +1396,7 @@
 	Gallery	ギャラリー
 	Sketchbook	スケッチブック
 	Change Picture…	図の変更…
+	Save as Picture…	図として保存…
 	Font…	フォント…
 	Paragraph…	段落…
 	Link…	リンク…

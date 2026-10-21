@@ -182,6 +182,7 @@
 	Change List Level	Změnit úroveň seznamu
 	Change Password…	Změnit heslo…
 	Change Picture	Změnit obrázek
+	Save as Picture	Uložit jako obrázek
 	Change Shape	Změnit tvar
 	Change Structure	Změnit strukturu
 	Change to Display	Změnit na samostatnou rovnici
@@ -419,6 +420,7 @@
 	Export Page as PNG	Exportovat stránku jako PNG
 	Export PDF	Exportovat PDF
 	Exported {path}	Exportováno: {path}
+	Saved {path}	Uloženo: {path}
 	Extend Selection	Rozšířit výběr
 	Field	Pole
 	Field code:	Kód pole:
@@ -1698,6 +1700,7 @@
 	Gallery	Galerie
 	Sketchbook	Skicák
 	Change Picture…	Změnit obrázek…
+	Save as Picture…	Uložit jako obrázek…
 	Font…	Písmo…
 	Paragraph…	Odstavec…
 	Link…	Odkaz…

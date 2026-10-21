@@ -209,6 +209,7 @@
 	Change Case	대/소문자 바꾸기
 	Change List Level	목록 수준 변경
 	Change Picture	그림 변경
+	Save as Picture	그림으로 저장
 	Change Shape	도형 변경
 	Changes	변경 내용
 	Character Position	문자 위치
@@ -388,6 +389,7 @@
 	Export Page as PNG	페이지를 PNG로 내보내기
 	Export PDF	PDF 내보내기
 	Exported {path}	{path} 내보냄
+	Saved {path}	{path} 저장됨
 	Extend Selection	선택 영역 확장
 	Extend Selection by Units	단위별로 선택 영역 확장
 	Field	필드
@@ -1384,6 +1386,7 @@
 	Gallery	Gallery
 	Sketchbook	Sketchbook
 	Change Picture…	그림 변경…
+	Save as Picture…	그림으로 저장…
 	Font…	글꼴…
 	Paragraph…	단락…
 	Link…	링크…

@@ -113,6 +113,7 @@
 	Change Case	Регистр
 	Change List Level	Изменить уровень списка
 	Change Picture	Заменить рисунок
+	Save as Picture	Сохранить как рисунок
 	Change Shape	Изменить фигуру
 	Changes	Изменения
 	Character Position	Смещение знаков
@@ -260,6 +261,7 @@
 	Export Page as PNG	Экспортировать страницу в PNG
 	Export PDF	Экспорт в PDF
 	Exported {path}	Экспортировано: {path}
+	Saved {path}	Сохранено: {path}
 	Extend Selection	Расширить выделение
 	Extend Selection by Units	Расширить выделение по единицам
 	Field	Поле
@@ -1549,6 +1551,7 @@ preview	Title	Пример
 	First	Первый
 	Last	Последний
 	Change Picture…	Заменить рисунок…
+	Save as Picture…	Сохранить как рисунок…
 	Size and Crop…	Размер и обрезка…
 	Insert Columns to the Left	Вставить столбцы слева
 	Insert Columns to the Right	Вставить столбцы справа

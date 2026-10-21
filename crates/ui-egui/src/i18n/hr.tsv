@@ -347,7 +347,9 @@
 	Change List Level	Promijeni razinu popisa
 	Change Password…	Promijeni lozinku…
 	Change Picture	Promijeni sliku
+	Save as Picture	Spremi kao sliku
 	Change Picture…	Promijeni sliku…
+	Save as Picture…	Spremi kao sliku…
 	Change Shape	Promijeni oblik
 	Change Structure	Promijeni strukturu
 	Change in y over change in x	Promjena y kroz promjenu x
@@ -821,6 +823,7 @@
 	Export Page as PNG	Izvezi stranicu kao PNG
 	Export a copy to share (PDF, Word document)	Izvezi kopiju za dijeljenje (PDF, Word dokument)
 	Exported {path}	Izvezeno: {path}
+	Saved {path}	Spremljeno: {path}
 	Expression	Izraz
 	Extend Selection	Proširi odabir
 	Extend Selection by Units	Proširi odabir po jedinicama

@@ -191,6 +191,7 @@
 	Change Case	Groß-/Kleinschreibung ändern
 	Change List Level	Listenebene ändern
 	Change Picture	Bild ändern
+	Save as Picture	Als Bild speichern
 	Change Shape	Form ändern
 	Changes	Änderungen
 	Character Position	Zeichenposition
@@ -341,6 +342,7 @@
 	Export Page as PNG	Seite als PNG exportieren
 	Export PDF	PDF exportieren
 	Exported {path}	Exportiert: {path}
+	Saved {path}	Gespeichert: {path}
 	Extend Selection	Auswahl erweitern
 	Field	Feld
 	File	Datei
@@ -1315,6 +1317,7 @@
 	Gallery	Gallery
 	Sketchbook	Sketchbook
 	Change Picture…	Bild ändern…
+	Save as Picture…	Als Bild speichern…
 	Font…	Schriftart…
 	Paragraph…	Absatz…
 	Link…	Link…

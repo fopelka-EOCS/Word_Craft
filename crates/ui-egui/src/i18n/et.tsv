@@ -109,6 +109,7 @@
 	Change Case	Muuda tähesuurust
 	Change List Level	Muuda loendi taset
 	Change Picture	Muuda pilti
+	Save as Picture	Salvesta pildina
 	Change Shape	Muuda kujundit
 	Changes	Muudatused
 	Character Position	Märgi asend
@@ -259,6 +260,7 @@
 	Export Page as PNG	Ekspordi leht PNG-na
 	Export a copy to share (PDF, Word document)	Ekspordi koopia jagamiseks (PDF, Wordi dokument)
 	Exported {path}	Eksporditud: {path}
+	Saved {path}	Salvestatud: {path}
 	Extend Selection	Laienda valikut
 	Extend Selection by Units	Laienda valikut ühikute kaupa
 	Field	Väli
@@ -1259,6 +1261,7 @@
 	Gallery	Galerii
 	Sketchbook	Visandivihik
 	Change Picture…	Muuda pilti…
+	Save as Picture…	Salvesta pildina…
 	Font…	Font…
 	Paragraph…	Lõik…
 	Link…	Link…

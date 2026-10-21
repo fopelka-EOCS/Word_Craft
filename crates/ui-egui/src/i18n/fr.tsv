@@ -178,6 +178,7 @@
 	Change Case	Modifier la casse
 	Change List Level	Modifier le niveau de liste
 	Change Picture	Modifier l’image
+	Save as Picture	Enregistrer en tant qu’image
 	Change Shape	Modifier la forme
 	Changes	Modifications
 	Character Position	Position des caractères
@@ -351,6 +352,7 @@
 	Export Page as PNG	Exporter la page en PNG
 	Export PDF	Exporter en PDF
 	Exported {path}	{path} exporté
+	Saved {path}	{path} enregistré
 	Extend Selection	Étendre la sélection
 	Field	Champ
 	File	Fichier
@@ -1329,6 +1331,7 @@
 	Gallery	Galerie
 	Sketchbook	Carnet de croquis
 	Change Picture…	Modifier l’image…
+	Save as Picture…	Enregistrer en tant qu’image…
 	Font…	Police…
 	Paragraph…	Paragraphe…
 	Link…	Lien…

@@ -19,6 +19,25 @@ fn has_picture(s: &Session) -> Option<&'static str> {
         _ => Some("select a picture first"),
     }
 }
+
+/// The media key of the one picture Save as Picture acts on: the picture in the selection, or
+/// just before a collapsed caret. A selection holding more than one picture (or a shape beside
+/// it) is refused, so a drag across the page can't silently save the first of several.
+fn save_picture_target(s: &Session) -> Option<(Pos, String)> {
+    match selected_all(s, 2).as_slice() {
+        [(pos, InlineObject::Image { media, .. })] => Some((pos.clone(), media.clone())),
+        _ => None,
+    }
+}
+
+fn has_save_picture(s: &Session) -> Option<&'static str> {
+    if save_picture_target(s).is_some() { None } else { Some("select one picture first") }
+}
+
+/// The media key of the picture Save as Picture would write, for the suggested file name.
+pub fn save_picture_media(s: &Session) -> Option<String> {
+    save_picture_target(s).map(|(_, media)| media)
+}
 fn has_object(s: &Session) -> Option<&'static str> {
     if selected(s).is_some() { None } else { Some("select a picture or shape first") }
 }
@@ -203,6 +222,10 @@ pub fn specs() -> Vec<CommandSpec> {
         .params(r#"{"maxPixels"?: n}"#)
         .when(has_picture),
         CommandSpec::new("picture.reset", "Reset Picture", "Picture Format › Adjust", reset).when(has_picture),
+        CommandSpec::new("picture.saveAs", "Save as Picture", "Picture Format › Adjust", save_picture)
+            .params(r#"{"path"?: string} (writes the selected picture's original bytes; the extension follows the picture's format. Without a path the app asks where to save it)"#)
+            .pure()
+            .when(has_save_picture),
         CommandSpec::new("picture.change", "Change Picture", "Picture Format › Adjust", |s, v| {
             let bytes = if let Some(d) = p::str(v, "data") {
                 super::insert::base64_decode(d).ok_or_else(|| CmdError::Params("bad base64".into()))?
@@ -1245,6 +1268,52 @@ fn artistic_effect(img: image::DynamicImage, effect: &str) -> image::DynamicImag
     }
 }
 
+/// Save as Picture…: write the selected picture's original encoded bytes where the user chose.
+/// Called without a path (the context menu, the command search), it asks the app for one, as
+/// `file.exportPdf` does. The picture is not re-encoded: a JPEG stays a JPEG at its original
+/// resolution, even after cropping or adjusting it (Word's "as shown" is a later step).
+fn save_picture(s: &mut Session, v: &Value) -> CmdResult {
+    let Some(path) = p::str(v, "path") else {
+        s.ui_requests.push(json!({"open": "savePicture"}));
+        return Ok(json!({"saved": false}));
+    };
+    let Some((_, media)) = save_picture_target(s) else {
+        return Err(CmdError::Disabled("select one picture first".into()));
+    };
+    let bytes = s.doc.media.get(&media).ok_or_else(|| CmdError::Failed(format!("the picture's data is missing ({media})")))?;
+    let path = picture_path(path, &media);
+    crate::io::write_file(&path, bytes).map_err(CmdError::Failed)?;
+    Ok(json!({"path": path, "bytes": bytes.len()}))
+}
+
+/// The picture's original extension, from its media key (`image3.jpeg` → `jpeg`).
+fn media_ext(key: &str) -> &str {
+    key.rsplit_once('.').map(|(_, e)| e).filter(|e| !e.is_empty()).unwrap_or("png")
+}
+
+/// Whether two picture extensions name the same format (`jpg` and `jpeg`, `tif` and `tiff`).
+fn same_picture_ext(a: &str, b: &str) -> bool {
+    let canon = |e: &str| match e.to_ascii_lowercase().as_str() {
+        "jpg" => "jpeg".to_string(),
+        "tif" => "tiff".to_string(),
+        other => other.to_string(),
+    };
+    canon(a) == canon(b)
+}
+
+/// The chosen path with the picture's own extension, so the bytes and the file name agree. The
+/// save dialog suggests that extension already; this protects a hand-edited name (or a script)
+/// from writing JPEG bytes into a `.png`.
+fn picture_path(path: &str, media: &str) -> String {
+    let ext = media_ext(media).to_ascii_lowercase();
+    let p = std::path::Path::new(path);
+    match p.extension().map(|e| e.to_string_lossy()) {
+        Some(chosen) if same_picture_ext(&chosen, &ext) => path.to_string(),
+        Some(_) => p.with_extension(&ext).to_string_lossy().into_owned(),
+        None => format!("{path}.{ext}"),
+    }
+}
+
 fn reset(s: &mut Session, _: &Value) -> CmdResult {
     let (_, o) = selected(s).ok_or_else(|| CmdError::Disabled("no picture".into()))?;
     let InlineObject::Image { media, .. } = o else { return Err(CmdError::Disabled("not a picture".into())) };
@@ -1698,6 +1767,49 @@ mod tests {
         assert_eq!(s.doc.plain_text(StoryRef::Body).replace(wordcraft_doc::para::OBJ, ""), "Some text  more text");
         s.run("edit.undo", &json!({})).unwrap();
         assert_eq!((object_area(&mut s).rect.x, object_area(&mut s).rect.y), (250.0, 300.0), "{insert}");
+    }
+
+    /// #3376: Save as Picture writes the selected picture's original encoded bytes under its own
+    /// extension, asks the app for a path when it gets none, and leaves the picture untouched.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn save_picture_writes_the_original_bytes() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        let png = png(20, 10);
+        s.run("insert.picture", &json!({"data": super::super::insert::base64_encode(&png), "width": 100})).unwrap();
+        // No path: the app is asked for one, as file.exportPdf does.
+        assert_eq!(s.run("picture.saveAs", &json!({})).unwrap(), json!({"saved": false}));
+        assert_eq!(s.ui_requests, vec![json!({"open": "savePicture"})]);
+        s.ui_requests.clear();
+        let dir = std::env::temp_dir().join(format!("wordcraft-save-picture-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let depth = s.undo_depth();
+        // The picture's bytes, not a re-encode, at the path picked.
+        let path = dir.join("picture.png");
+        let r = s.run("picture.saveAs", &json!({"path": path.to_string_lossy()})).unwrap();
+        assert_eq!(r["bytes"], png.len());
+        assert_eq!(std::fs::read(&path).unwrap(), png);
+        // A hand-edited name follows the picture's format, so JPEG bytes never land in a .png.
+        let wrong = dir.join("picture.jpg");
+        let r = s.run("picture.saveAs", &json!({"path": wrong.to_string_lossy()})).unwrap();
+        assert_eq!(r["path"], json!(path.to_string_lossy().to_string()));
+        assert!(!wrong.exists());
+        // Saving is not an edit: no undo step, and the picture stays selected.
+        assert_eq!(s.undo_depth(), depth, "saving is not an undoable edit");
+        assert!(selected(&s).is_some(), "the picture is still selected");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #3376: Save as Picture needs exactly one picture, not a shape or a whole paragraph.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn save_picture_needs_one_picture() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.shape", &json!({"kind": "rectangle"})).unwrap();
+        let err = s.run("picture.saveAs", &json!({"path": "/tmp/picture.png"})).unwrap_err();
+        assert!(err.to_string().contains("select one picture first"), "{err}");
+        assert!(s.run("picture.saveAs", &json!({})).is_err(), "no dialog for a shape either");
     }
 
     /// Ctrl+drag: a copy lands where dropped and is selected; the original stays, the clipboard

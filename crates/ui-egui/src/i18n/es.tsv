@@ -232,6 +232,7 @@
 	Change Case	Cambiar mayúsculas y minúsculas
 	Change List Level	Cambiar nivel de lista
 	Change Picture	Cambiar imagen
+	Save as Picture	Guardar como imagen
 	Change Shape	Cambiar forma
 	Changes	Cambios
 	Character Position	Posición del carácter
@@ -395,6 +396,7 @@
 	Export Page as PNG	Exportar página como PNG
 	Export a copy to share (PDF, Word document)	Exporta una copia para compartir (PDF, documento de Word)
 	Exported {path}	Exportado: {path}
+	Saved {path}	Guardado: {path}
 	Extend Selection	Ampliar selección
 	Extend Selection by Units	Ampliar selección por unidades
 	Field	Campo
@@ -1434,6 +1436,7 @@
 	Gallery	Galería
 	Sketchbook	Cuaderno de bocetos
 	Change Picture…	Cambiar imagen…
+	Save as Picture…	Guardar como imagen…
 	Font…	Fuente…
 	Paragraph…	Párrafo…
 	Link…	Vínculo…

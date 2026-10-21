@@ -177,6 +177,7 @@
 	Change Case	Maiuscole/minuscole
 	Change List Level	Cambia livello elenco
 	Change Picture	Cambia immagine
+	Save as Picture	Salva come immagine
 	Change Shape	Cambia forma
 	Changes	Modifiche
 	Character Position	Posizione carattere
@@ -333,6 +334,7 @@
 	Export Page as PNG	Esporta pagina come PNG
 	Export a copy to share (PDF, Word document)	Esporta una copia da condividere (PDF, documento Word)
 	Exported {path}	Esportato {path}
+	Saved {path}	Salvato {path}
 	Extend Selection	Estendi selezione
 	Field	Campo
 	File	File
@@ -1321,6 +1323,7 @@
 	Gallery	Galleria
 	Sketchbook	Album da disegno
 	Change Picture…	Cambia immagine…
+	Save as Picture…	Salva come immagine…
 	Font…	Carattere…
 	Paragraph…	Paragrafo…
 	Link…	Collegamento…
