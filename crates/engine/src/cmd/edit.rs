@@ -437,12 +437,18 @@ pub(crate) fn search_reach(s: &Session, v: &Value) -> Result<Vec<(Pos, Pos)>, Cm
     search_stories(s, &reach_stories(s, v))
 }
 
-/// The stories a find-style command with its params searches (#3270): the caret's story, and
-/// the main text too when the caret is elsewhere and no `story` selector narrows it.
+/// The stories a find-style command with its params searches (#3270): the caret's story; from
+/// a footnote or an endnote the main text too, the way Word's Find reaches it. A `story`
+/// parameter searches only that story, and a header, footer, comment or text box is searched
+/// alone: their reach is the explicit `story` value.
 pub(crate) fn reach_stories(s: &Session, v: &Value) -> Vec<StoryRef> {
     let story = super::story_param(s, v);
     let mut stories = vec![story];
-    if v.get("story").is_none() && story != StoryRef::Body {
+    if v.get("story").is_none()
+        && story != StoryRef::Body
+        && let StoryRef::Part(id) = story
+        && s.doc.parts.get(&id).is_some_and(|p| matches!(p.kind, wordcraft_doc::PartKind::Footnote | wordcraft_doc::PartKind::Endnote))
+    {
         stories.push(StoryRef::Body);
     }
     stories

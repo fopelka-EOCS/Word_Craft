@@ -779,6 +779,19 @@ fn find_next_keeps_the_scope_of_the_last_search() {
         assert_eq!(s.sel.focus.story, StoryRef::Part(1), "Replace steps within its own story: {r}");
     }
     assert_eq!(s.doc.plain_text(StoryRef::Body), "Main needle.", "the body is untouched by Replace");
+
+    // From a header nothing reaches the body: a header, footer, comment or text box is
+    // searched alone, only the explicit `story` value widens to it.
+    let hdr = s.doc.add_part(
+        wordcraft_doc::PartKind::Header,
+        vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("Header needle.", Default::default()))],
+    );
+    run(&mut s, "caret.set", json!({"pos": {"story": {"part": hdr}, "path": [0], "off": 0}}));
+    let r = run(&mut s, "edit.find", json!({"text": "Main needle"}));
+    assert_eq!(r["count"], 0, "no body reach from a header: {r}");
+    run(&mut s, "caret.set", json!({"pos": {"story": {"part": 1}, "path": [0], "off": 5}}));
+    let r = run(&mut s, "edit.find", json!({"text": "Main needle"}));
+    assert_eq!(r["count"], 1, "from the footnote the body is still reached: {r}");
 }
 
 #[test]
