@@ -831,6 +831,14 @@ pub fn format_date_parts(fmt: &str, y: i64, m: usize, d: u32, (hh, mm, ss): (u32
     let mut i = 0;
     while i < chars.len() {
         let c = chars.get(i).copied().unwrap_or(' ');
+        // Text in single quotes is literal, and may itself contain `am/pm`.
+        if c == '\''
+            && let Some(end) = chars.get(i + 1..).and_then(|rest| rest.iter().position(|x| *x == '\'')).map(|n| i + 1 + n)
+        {
+            out.extend(chars.get(i + 1..end).unwrap_or(&[]));
+            i = end + 1;
+            continue;
+        }
         // `am/pm` (any case) is one token: AM or PM.
         if chars.get(i..i + 5).is_some_and(|w| w.iter().collect::<String>().eq_ignore_ascii_case("am/pm")) {
             out.push_str(if hh < 12 { "AM" } else { "PM" });
@@ -859,7 +867,6 @@ pub fn format_date_parts(fmt: &str, y: i64, m: usize, d: u32, (hh, mm, ss): (u32
             ('m', _) => out.push_str(&mm.to_string()),
             ('s', 2..) => out.push_str(&format!("{ss:02}")),
             ('s', _) => out.push_str(&ss.to_string()),
-            ('a' | 'A', _) => out.push_str(if hh < 12 { "AM" } else { "PM" }),
             _ => {
                 for _ in 0..n {
                     out.push(c);
@@ -1210,6 +1217,10 @@ mod tests {
 
     #[test]
     fn date_pictures() {
+        // Quoted text is literal; a bare a is a character, not the AM/PM token.
+        assert_eq!(format_date_parts("yyyy 'Q'", 2026, 10, 21, (17, 27, 3), 0), "2026 Q");
+        assert_eq!(format_date_parts("yyyy a", 2026, 10, 21, (17, 27, 3), 0), "2026 a");
+        assert_eq!(format_date_parts("yyyy 'am/pm'", 2026, 10, 21, (17, 27, 3), 0), "2026 am/pm");
         let d = format_date("yyyy-MM-dd");
         assert_eq!(d.len(), 10);
         assert!(format_date("MMMM d, yyyy").contains(", "));
