@@ -1672,20 +1672,39 @@ mod tests {
     fn legacy_font_effects_are_drawn() {
         use wordcraft_doc::CharProps;
         // Dark and grey pixel counts, and the grey pixels' mean offset from the dark ones.
-        let shot = |c: CharProps| {
+        let shot = |c: CharProps, sign: f64| {
             let mut d = Document::from_text("x");
             let cp = CharProps { size: Some(40.0), bold: Some(true), ..c };
             d.body = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("HHHH", cp))];
             let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
             let img = render_page(&d, &l.pages[0], 2.0, &RenderOptions::default());
             let (mut dark, mut grey) = ((0.0, 0.0, 0.0f64), (0.0, 0.0, 0.0f64));
+            // The glyph's own antialiasing has pixels in the copy's grey range, on the vertical
+            // stem edges as well as around the copy. Their centroid is the glyph centre, and on
+            // some platforms they are numerous enough to hide the copy's offset in x. The copy
+            // is only visible outside the dark glyph's bounding box, so count grey there.
+            let mut box_ = (i64::MAX, i64::MAX, i64::MIN, i64::MIN); // min x, min y, max x, max y
+            for (x, y) in (100..800).flat_map(|x| (100..300).map(move |y| (x, y))) {
+                if (0..60).contains(&img.pixel(x, y)[0]) {
+                    box_ = (box_.0.min(i64::from(x)), box_.1.min(i64::from(y)), box_.2.max(i64::from(x)), box_.3.max(i64::from(y)));
+                }
+            }
+            let (bx0, by0, bx1, by1) = (box_.0, box_.1, box_.2, box_.3);
             for (x, y) in (100..800).flat_map(|x| (100..300).map(move |y| (x, y))) {
                 let v = img.pixel(x, y)[0];
+                // The copy sits down-right (or up-left) of the glyph, fully past its bounding box.
+                // Counting grey past the box keeps the glyph's own antialiasing, whose centroid
+                // hides the copy's offset on some platforms, out of the mean.
+                let in_copy = match sign {
+                    1.0 => i64::from(x) > bx1 && i64::from(y) > by1,
+                    -1.0 => i64::from(x) < bx0 && i64::from(y) < by0,
+                    _ => true,
+                };
                 // The copy is solid RGB 128; a wider range would count the glyph's own
                 // antialiasing, whose centroid hides the copy's offset on some fonts.
                 let acc = match v {
                     0..60 => &mut dark,
-                    120..=136 => &mut grey,
+                    120..=136 if in_copy => &mut grey,
                     _ => continue,
                 };
                 *acc = (acc.0 + 1.0, acc.1 + f64::from(x), acc.2 + f64::from(y));
@@ -1694,16 +1713,16 @@ mod tests {
             let ((dx, dy), (gx, gy)) = (mean(dark), mean(grey));
             (dark.0, grey.0, (gx - dx, gy - dy))
         };
-        let (plain_dark, plain_grey, _) = shot(CharProps::default());
+        let (plain_dark, plain_grey, _) = shot(CharProps::default(), 1.0);
         assert!(plain_dark > 2000.0, "plain {plain_dark}");
-        let (dark, _, _) = shot(CharProps { outline: Some(true), ..Default::default() });
+        let (dark, _, _) = shot(CharProps { outline: Some(true), ..Default::default() }, 1.0);
         assert!(dark < plain_dark / 3.0, "outline is hollow: {dark} vs {plain_dark}");
         for (c, sign) in [
             (CharProps { shadow: Some(true), ..Default::default() }, 1.0),
             (CharProps { emboss: Some(true), ..Default::default() }, 1.0),
             (CharProps { engrave: Some(true), ..Default::default() }, -1.0),
         ] {
-            let (_, grey, (ox, oy)) = shot(c);
+            let (_, grey, (ox, oy)) = shot(c, sign);
             assert!(grey > plain_grey * 2.0, "a grey copy: {grey} vs {plain_grey}");
             assert!(ox * sign > 1.0 && oy * sign > 1.0, "grey copy offset {ox} {oy}");
         }
