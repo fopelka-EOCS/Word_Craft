@@ -70,6 +70,14 @@ pub fn korean_fonts() -> impl Iterator<Item = &'static CraftFont> {
     CRAFT_FONTS.iter().filter(|f| f.scripts.contains(&"Kore"))
 }
 
+/// The craft-fonts faces for Arabic script (`"Arab"`), Regular first. Empty without craft-fonts.
+/// The interface draws Arabic, Persian and Urdu labels with them (pdfcraft#692 does the same).
+pub fn ui_arabic_fonts() -> Vec<&'static CraftFont> {
+    let mut v: Vec<_> = CRAFT_FONTS.iter().filter(|f| f.scripts.contains(&"Arab")).collect();
+    v.sort_by_key(|f| f.style != "Regular");
+    v
+}
+
 /// The CJK interface faces, Regular styles only (the UI fakes no bold), with the Japanese UI,
 /// Chinese, and Korean faces ordered for the selected interface language. Mixing the faces within
 /// a line would mix glyph styles, so the first face should cover the interface language. Empty

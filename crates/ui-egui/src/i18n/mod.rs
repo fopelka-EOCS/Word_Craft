@@ -52,7 +52,7 @@ pub struct LangInfo {
 }
 
 /// The registry. English first: it is the fallback and the source language.
-pub static LANGUAGES: [LangInfo; 23] = [
+pub static LANGUAGES: [LangInfo; 24] = [
     LangInfo { code: "en", name: "English", source: "", prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
     // Simplified Chinese; `zh`, `zh-CN`, `zh-SG` and `zh-Hans-*` resolve here (see `candidates`).
     LangInfo {
@@ -165,14 +165,26 @@ pub static LANGUAGES: [LangInfo; 23] = [
     LangInfo { code: "sv", name: "Svenska", source: include_str!("sv.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
     // Croatian; `hr`, `hr-HR` and `hr_HR.UTF-8` resolve here.
     LangInfo { code: "hr", name: "Hrvatski", source: include_str!("hr.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    // Arabic (Modern Standard); `ar`, `ar-SA`, `ar-EG`, `ar_YE.UTF-8` and other regions resolve here.
+    LangInfo { code: "ar", name: "العربية", source: include_str!("ar.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
 ];
 
 impl LangInfo {
+    /// The language is written right to left (Arabic).
+    pub fn rtl(&self) -> bool {
+        self.code == "ar"
+    }
+
     fn catalog(&self) -> &Catalog {
         self.catalog.get_or_init(|| {
-            let (catalog, errors) = Catalog::parse(self.source);
+            let (mut catalog, errors) = Catalog::parse(self.source);
             for error in errors {
                 log::warn!("{} interface catalog: {error}; that entry shows in English", self.code);
+            }
+            // egui lays text out left to right: a right-to-left language's labels are put into
+            // display order once, as the catalog loads (crate::bidi::display_rtl).
+            if self.rtl() {
+                catalog.map_translations(crate::bidi::display_rtl);
             }
             catalog
         })
