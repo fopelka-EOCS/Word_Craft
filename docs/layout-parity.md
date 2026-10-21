@@ -195,7 +195,9 @@ A word with no break opportunity in it takes a line per few characters, and meas
 beside a floating object walked the whole paragraph for every one of those lines, so the layout
 was quadratic in the word's length (#3412). The measurement now stops once the word is clearly
 wider than the room there is: the advances are widths, so the rest of it could only make it
-wider. The answer and the layout are the same. Eight times the word costs about eighteen times
+wider — unless a font pulls a glyph back with a negative advance, and then the measurement
+carries on only as far as the rest of the word could take the width back. The answer and the
+layout are the same. Eight times the word costs about eighteen times
 the time, not the sixty-four a quadratic would; the same test with the fix reverted measured 59.6.
 
 TOC refresh includes heading and outline paragraphs inside tables, including nested cells. Links and page numbers retain their full paragraph paths when entries move body blocks. The existing link picker still accepts top-level heading block indices.

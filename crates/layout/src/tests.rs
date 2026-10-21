@@ -585,6 +585,33 @@ fn a_megabyte_long_word_lays_out_quickly() {
     assert!(t.elapsed().as_secs() < 15, "a megabyte-long word took {:?}", t.elapsed());
 }
 
+/// A word that a negative advance makes narrower still fits beside a float: the measurement
+/// stops early only when the word is over the room even with everything the rest of it can take
+/// back.
+#[test]
+fn a_word_a_negative_advance_narrows_still_fits() {
+    let cluster = |adv: f32, break_after: bool| para::Cluster {
+        start: 0,
+        end: 1,
+        adv,
+        kind: para::ClKind::Text,
+        style: 0,
+        g0: 0,
+        g1: 1,
+        break_after,
+        obj_h: 0.0,
+        obj_d: 0.0,
+        dot: false,
+    };
+    // A hundred points, then a font that pulls the last glyph back by sixty: the word is forty
+    // wide, and fits in sixty.
+    let clusters = vec![cluster(100.0, false), cluster(-60.0, true)];
+    let neg = para::negative_advances(&clusters);
+    assert!(para::word_fits(&clusters, &[], 0, clusters.len(), 60.0, neg.as_deref()), "a word of forty points fits in sixty");
+    // The same word in seventy points does not.
+    assert!(!para::word_fits(&clusters, &[], 0, clusters.len(), 30.0, neg.as_deref()), "a word of forty points does not fit in thirty");
+}
+
 #[test]
 fn hidden_separators_with_automatic_hyphenation_lay_out_in_linear_time() {
     // "hyphenation " n times with every space hidden: one joined word of 11n letters reaches the
