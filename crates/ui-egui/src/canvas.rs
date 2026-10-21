@@ -223,6 +223,7 @@ impl CanvasState {
 }
 
 impl Default for CanvasState {
+    /// A canvas with nothing drawn yet: no pages cached, the caret to be found.
     fn default() -> Self {
         CanvasState {
             textures: HashMap::new(),
@@ -909,6 +910,8 @@ fn drawing_grid_step(spacing: f32, scale: f32) -> f32 {
     step
 }
 
+/// Draw the document: the pages on the canvas, the rulers around them and the pointer's own
+/// behaviour on them (selection, dragging, the middle-click gestures).
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     let full = ui.available_rect_before_wrap();

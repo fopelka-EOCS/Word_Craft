@@ -18,6 +18,8 @@ pub const MAX_WORD_CHARS: usize = 64;
 /// Most words one call may add or remove.
 const MAX_WORDS_PER_CALL: usize = 1000;
 
+/// The Options commands: `file.options` reads and writes the settings, and the rest are the
+/// individual switches behind them.
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("file.options", "Options", "File", options)

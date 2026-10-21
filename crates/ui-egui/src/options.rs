@@ -453,6 +453,8 @@ fn accessibility(app: &mut WordApp, ui: &mut Ui) {
     }
 }
 
+/// File › Options › Advanced: the editing, measurement and display settings that need no pane of
+/// their own.
 fn advanced(app: &mut WordApp, ui: &mut Ui) {
     section(ui, "Editing");
     let pr = app.session.prefs.clone();

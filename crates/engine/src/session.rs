@@ -560,6 +560,7 @@ pub struct Prefs {
 }
 
 impl Default for Prefs {
+    /// The settings a fresh WordCraft starts with: Word's own where Word has one.
     fn default() -> Self {
         Prefs {
             count_notes: true,

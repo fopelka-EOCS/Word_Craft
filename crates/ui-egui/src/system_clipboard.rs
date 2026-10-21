@@ -263,6 +263,8 @@ mod tests {
         assert!(e.contains("couldn't be read") && e.contains("isn't supported"), "{e}");
     }
 
+    /// #1934: a copy also reaches the primary selection, so a middle click pastes what was
+    /// copied here — as it does from a browser — rather than only what another program left there.
     #[test]
     fn copying_also_puts_the_text_on_the_primary_selection() {
         // #1934: a middle click pastes the primary selection, so a copy here has to land on it
@@ -324,6 +326,9 @@ mod tests {
         assert_eq!(primary.borrow().len(), 2, "with the option off the copy left the primary selection alone");
     }
 
+    /// #816: a copy of an equation gives the host HTML with the equation as MathML beside the
+    /// text, and a copy of anything else gives it HTML too, so other programs keep the
+    /// formatting (#1523).
     #[test]
     fn copying_an_equation_puts_its_html_on_the_system_clipboard() {
         // #816: the host gets HTML with the equation as MathML beside the text.
