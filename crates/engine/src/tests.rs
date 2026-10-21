@@ -748,6 +748,40 @@ fn find_and_select_reach_the_body_from_a_note() {
 }
 
 #[test]
+fn find_next_keeps_the_scope_of_the_last_search() {
+    // #3270: Find Next/Previous keep the scope of the last `edit.find` - an explicit `story`
+    // stays in that story, a reach search from the note also covers the body - while Replace
+    // keeps stepping inside its own story however wide Find's scope was (#3300).
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Main needle."}));
+    run(&mut s, "references.footnote", json!({"text": "Note needle."}));
+
+    // An explicit `story` search keeps Find Next in that story, wherever the caret moved.
+    run(&mut s, "edit.find", json!({"text": "needle", "story": {"part": 1}}));
+    run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [0], "off": 0}}));
+    run(&mut s, "edit.findNext", json!({}));
+    assert_eq!(s.sel.focus.story, StoryRef::Part(1), "Find Next stays in the story of the last search");
+
+    // A reach search from the note counts the body and the note together, in document order.
+    run(&mut s, "caret.set", json!({"pos": {"story": {"part": 1}, "path": [0], "off": 5}}));
+    let r = run(&mut s, "edit.find", json!({"text": "needle"}));
+    assert_eq!(r["count"], 2, "from the note the body is searched too: {r}");
+    run(&mut s, "caret.set", json!({"pos": {"story": "body", "path": [0], "off": 12}}));
+    let r = run(&mut s, "edit.findNext", json!({}));
+    assert_eq!(r["count"], 2, "the stored scope covers the note too: {r}");
+    assert_eq!(s.sel.focus.story, StoryRef::Part(1), "the next scope match wraps into the note");
+
+    // Replace replaces in its own story and only steps there, so pressing it past the note's
+    // last match cannot drift into the body just because Find last searched a wider scope.
+    run(&mut s, "select.text", json!({"text": "needle", "story": {"part": 1}}));
+    for _ in 0..4 {
+        let r = run(&mut s, "edit.replace", json!({"text": "needle", "with": "FOUND"}));
+        assert_eq!(s.sel.focus.story, StoryRef::Part(1), "Replace steps within its own story: {r}");
+    }
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Main needle.", "the body is untouched by Replace");
+}
+
+#[test]
 fn find_replace_special_codes() {
     // ^p finds paragraph marks across paragraphs; Replace All with ^p splits paragraphs and is one undo step.
     let mut s = s();

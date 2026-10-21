@@ -1,7 +1,7 @@
 //! Caret movement and selection.
 
 use serde_json::Value;
-use wordcraft_doc::{Pos, StoryRef};
+use wordcraft_doc::Pos;
 
 use super::{parse_pos, sel_result};
 use crate::{CmdError, CmdResult, CommandSpec, Selection, Session, p};
@@ -430,10 +430,7 @@ fn select_text(s: &mut Session, v: &Value) -> CmdResult {
         return Err(CmdError::Params("`text` is empty".into()));
     }
     let mut count = 0;
-    let mut stories = vec![super::story_param(s, v)];
-    if v.get("story").is_none() && stories[0] != StoryRef::Body {
-        stories.push(StoryRef::Body);
-    }
+    let stories = crate::cmd::edit::reach_stories(s, v);
     for story in stories {
         for path in s.doc.para_paths(story) {
             let Some(p) = s.doc.para(story, &path) else { continue };
