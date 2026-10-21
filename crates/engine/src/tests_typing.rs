@@ -1213,6 +1213,39 @@ fn para_formats(s: &Session) -> Vec<(String, wordcraft_doc::props::ParaProps)> {
     s.doc.body.iter().filter_map(|b| b.as_para()).map(|p| (p.text.clone(), p.props.clone())).collect()
 }
 
+#[test]
+fn pasted_html_keeps_first_paragraph_character_formatting() {
+    let html = "<h2>First</h2><h2>Second</h2>";
+    let source = wordcraft_formats::html::import(html);
+    let source_p = source.body.first().and_then(|b| b.as_para()).unwrap();
+    let expected = source.styles.resolve_char(source_p.props.style.as_deref(), source_p.props_of_char(0));
+    for (command, params) in [("edit.paste", json!({"html": html})), ("edit.pasteSpecial", json!({"as": "html", "html": html}))] {
+        for prefix in ["", "Before "] {
+            let mut s = s();
+            run(&mut s, "para.style", json!({"style": "Normal"}));
+            if !prefix.is_empty() {
+                run(&mut s, "text.insert", json!({"text": prefix, "raw": true}));
+            }
+            let before = s.doc.clone();
+            run(&mut s, command, params.clone());
+            let check = |s: &Session| {
+                assert_eq!(s.doc.plain_text(StoryRef::Body), format!("{prefix}First\nSecond"));
+                for (i, b) in s.doc.body.iter().enumerate() {
+                    let p = b.as_para().unwrap();
+                    let c = s.doc.styles.resolve_char(p.props.style.as_deref(), p.props_of_char(0));
+                    assert_eq!(c.size, expected.size, "{command}, paragraph {i}");
+                    assert_eq!(c.bold, expected.bold, "{command}, paragraph {i}");
+                }
+            };
+            check(&s);
+            run(&mut s, "edit.undo", json!({}));
+            assert_eq!(s.doc, before);
+            run(&mut s, "edit.redo", json!({}));
+            check(&s);
+        }
+    }
+}
+
 /// Plain text from another program pastes as Keep Text Only does, as in Word: every pasted line
 /// becomes a paragraph formatted like the paragraph it lands in. Paste gave the lines after the
 /// first default formatting, and the text after the caret went with the last line, so a
