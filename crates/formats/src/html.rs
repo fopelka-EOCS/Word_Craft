@@ -54,6 +54,9 @@ pub fn decode_entity(name: &str) -> Option<String> {
         "mdash" => '—',
         "ndash" => '–',
         "minus" => '−',
+        "lsaquo" => '‹',
+        "rsaquo" => '›',
+        "macr" => '¯',
         "lsquo" => '‘',
         "rsquo" => '’',
         "sbquo" => '‚',
@@ -456,7 +459,7 @@ impl Lexer<'_> {
                     }
                     _ => {
                         let v0 = i;
-                        while b.get(i).is_some_and(|c| !c.is_ascii_whitespace() && *c != b'>') {
+                        while b.get(i).is_some_and(|c| !c.is_ascii_whitespace() && *c != b'>' && !(*c == b'/' && b.get(i + 1) == Some(&b'>'))) {
                             i += 1;
                         }
                         val = unescape(rest.get(v0..i).unwrap_or(""));
@@ -637,6 +640,10 @@ pub fn css_len_pt(v: &str) -> Option<f32> {
         num(x)
     } else if let Some(x) = v.strip_suffix("px") {
         num(x).map(|p| p * 0.75)
+    } else if let Some(x) = v.strip_suffix("pc") {
+        num(x).map(|p| p * 12.0)
+    } else if let Some(x) = v.strip_suffix('q') {
+        num(x).map(|p| p * 72.0 / 101.6)
     } else if let Some(x) = v.strip_suffix("rem").or_else(|| v.strip_suffix("em")) {
         num(x).map(|p| p * 12.0)
     } else if let Some(x) = v.strip_suffix("in") {
@@ -2045,5 +2052,38 @@ mod tests {
         assert!(!html.contains("<p> lead"), "{html}");
         let back = import(&html);
         assert_eq!(back.plain_text(Default::default()).replace('\u{a0}', " "), " lead");
+    }
+
+    #[test]
+    fn unquoted_attribute_before_self_close() {
+        let mut lx = Lexer { s: "<img src=pic.png/>", pos: 0 };
+        match lx.next().unwrap() {
+            Tok::Start { name, attrs, self_close } => {
+                assert_eq!(name, "img");
+                assert_eq!(attrs, vec![("src".to_string(), "pic.png".to_string())]);
+                assert!(self_close);
+            }
+            other => panic!("expected Start token, got {:?}", other),
+        }
+
+        let mut lx2 = Lexer { s: "<br class=clear/>", pos: 0 };
+        match lx2.next().unwrap() {
+            Tok::Start { name, attrs, self_close } => {
+                assert_eq!(name, "br");
+                assert_eq!(attrs, vec![("class".to_string(), "clear".to_string())]);
+                assert!(self_close);
+            }
+            other => panic!("expected Start token, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn extended_entities_and_css_units() {
+        assert_eq!(
+            unescape("5 &minus; 2 &approx; 3 &permil; &micro; &sdot; &COPY; &REG; &TRADE; &NBSP;&lsaquo;&rsaquo;"),
+            "5 − 2 ≈ 3 ‰ µ ⋅ © ® ™ \u{00A0}‹›"
+        );
+        assert_eq!(css_len_pt("1pc"), Some(12.0));
+        assert!((css_len_pt("10q").unwrap() - (10.0 * 72.0 / 101.6)).abs() < 1e-4);
     }
 }
