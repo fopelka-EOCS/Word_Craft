@@ -178,6 +178,42 @@ fn load_prefs(app: &mut WordApp) {
     {
         app.apply_prefs(ui);
     }
+    // What this window started from, so saving writes back only what it changed (`merge_prefs`).
+    if let Ok(v) = serde_json::to_value(app.prefs()) {
+        let _ = LOADED_PREFS.set(v);
+    }
+}
+
+/// The preferences as this process loaded them ([`load_prefs`]).
+static LOADED_PREFS: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+
+/// Each window is its own process with its own copy of `ui.json`, so a window saving on close
+/// must not undo what another window saved meanwhile. Starting from what is on `disk` now, this
+/// window writes the fields it changed since it loaded `base` (and its window geometry: the last
+/// window closed places the next one); the Recent list is merged, newest first.
+fn merge_prefs(base: Option<&serde_json::Value>, mine: serde_json::Value, disk: Option<serde_json::Value>) -> serde_json::Value {
+    use serde_json::Value;
+    let (Value::Object(mine), Some(Value::Object(mut out))) = (mine.clone(), disk) else { return mine };
+    for (key, value) in mine {
+        let changed = base.and_then(|b| b.get(&key)) != Some(&value);
+        if key == "recent" {
+            let theirs = out.get(&key).and_then(Value::as_array).cloned().unwrap_or_default();
+            let ours = value.as_array().cloned().unwrap_or_default();
+            let loaded = base.and_then(|b| b.get(&key)).and_then(Value::as_array).cloned().unwrap_or_default();
+            // Files this window opened since loading come first, then the disk's list.
+            let mut list: Vec<Value> = ours.iter().filter(|v| !loaded.contains(v)).cloned().collect();
+            for v in theirs.into_iter().chain(ours) {
+                if !list.contains(&v) {
+                    list.push(v);
+                }
+            }
+            list.truncate(wordcraft_ui_egui::MAX_RECENT);
+            out.insert(key, Value::Array(list));
+        } else if changed || key == "window" || !out.contains_key(&key) {
+            out.insert(key, value);
+        }
+    }
+    Value::Object(out)
 }
 
 /// Fonts the user added (#582) live in `fonts` in the settings folder: load them, and store fonts
@@ -213,7 +249,15 @@ fn save_prefs(app: &WordApp) {
             log::warn!("preferences: cannot create {}: {e}", dir.display());
             return;
         }
-        match serde_json::to_vec_pretty(&app.prefs()) {
+        let mine = match serde_json::to_value(app.prefs()) {
+            Ok(v) => v,
+            Err(e) => {
+                log::warn!("preferences: cannot serialize: {e}");
+                return;
+            }
+        };
+        let disk = std::fs::read(&p).ok().and_then(|b| serde_json::from_slice(&b).ok());
+        match serde_json::to_vec_pretty(&merge_prefs(LOADED_PREFS.get(), mine, disk)) {
             Ok(bytes) => {
                 if let Err(e) = write_prefs(&p, &bytes) {
                     log::warn!("preferences: cannot save {}: {e}", p.display());
@@ -317,6 +361,8 @@ fn open_failure_message(path: &str, error: &str) -> String {
 /// status bar, since otherwise the window is just blank.
 fn report_open_failure(app: &mut WordApp, what: &str, error: &str) {
     log::warn!("{what}: {error}");
+    // Before the first frame sets it: the message is in the interface's language.
+    wordcraft_ui_egui::i18n::set_current(wordcraft_ui_egui::i18n::Lang::from_pref(&app.ui.language));
     app.status(open_failure_message(what, error));
 }
 
@@ -601,8 +647,14 @@ mod open_failure_tests {
     #[test]
     fn a_startup_open_failure_is_shown_in_the_status_bar() {
         let mut app = WordApp::new(Session::new(wordcraft_doc::Document::new()), Services::default());
+        app.ui.language = "en".into();
         report_open_failure(&mut app, "a.docx", "no such file");
-        assert_eq!(app.status_msg.map(|(s, _)| s).as_deref(), Some("Couldn't open a.docx: no such file"));
+        assert_eq!(app.status_msg.take().map(|(s, _)| s).as_deref(), Some("Couldn't open a.docx: no such file"));
+        // Before the first frame: still in the interface's language.
+        app.ui.language = "tr".into();
+        report_open_failure(&mut app, "a.docx", "no such file");
+        assert_eq!(app.status_msg.map(|(s, _)| s).as_deref(), Some("a.docx açılamadı: no such file"));
+        wordcraft_ui_egui::i18n::set_current(wordcraft_ui_egui::i18n::Lang::from_pref("en"));
     }
 
     #[test]
@@ -613,7 +665,27 @@ mod open_failure_tests {
 
 #[cfg(test)]
 mod prefs_tests {
-    use super::write_prefs;
+    use super::{merge_prefs, write_prefs};
+    use serde_json::json;
+
+    #[test]
+    fn two_windows_saving_keep_each_others_changes() {
+        let loaded = json!({"recent": ["/old.docx"], "x": 1, "y": 1, "window": {"w": 1}});
+        // B opened a file and changed X, and saved first.
+        let b = json!({"recent": ["/b.docx", "/old.docx"], "x": 2, "y": 1, "window": {"w": 2}});
+        let disk = merge_prefs(Some(&loaded), b, Some(loaded.clone()));
+        // A (loaded the same file) changed Y and closes later.
+        let a = json!({"recent": ["/a.docx", "/old.docx"], "x": 1, "y": 3, "window": {"w": 3}});
+        let saved = merge_prefs(Some(&loaded), a, Some(disk));
+        assert_eq!(saved, json!({"recent": ["/a.docx", "/b.docx", "/old.docx"], "x": 2, "y": 3, "window": {"w": 3}}));
+    }
+
+    #[test]
+    fn without_a_readable_file_the_window_writes_its_own() {
+        let mine = json!({"x": 1});
+        assert_eq!(merge_prefs(None, mine.clone(), None), mine);
+        assert_eq!(merge_prefs(None, mine.clone(), Some(json!("junk"))), mine);
+    }
 
     #[test]
     fn failed_preferences_write_keeps_the_old_file_and_reports_the_error() {
