@@ -556,12 +556,22 @@ fn layout_time_ratio(doc: impl Fn(usize) -> Document, n: usize, opts: &LayoutOpt
     )
 }
 
+/// A document that is one word with no break opportunity in it, laid out beside a floating
+/// object: the word is wider than the span the object leaves, so the measurement that asks
+/// whether it would fit the full line runs for every line the word takes.
+fn long_word_beside_a_float(n: usize) -> Document {
+    use wordcraft_doc::para::{Anchor, Float, Wrap};
+    let mut d = Document::from_text(&"a".repeat(n));
+    let f = Float { wrap: Wrap::Square, h_rel: Anchor::Column, v_rel: Anchor::Paragraph, dist: 9.0, ..Default::default() };
+    d.insert_object(&Pos::body(0, 0), rect_shape(144.0, 100.0, f), &Default::default()).unwrap();
+    d
+}
+
 /// A word with no break opportunity in it: measuring the word for every line it takes scanned
 /// the whole paragraph each time, so the layout was quadratic in the word's length.
 #[test]
 fn a_long_unbreakable_word_lays_out_in_linear_time() {
-    let doc = |n: usize| Document::from_text(&"a".repeat(n));
-    let (t1, tk, ratio) = layout_time_ratio(doc, 50_000, &LayoutOptions::default());
+    let (t1, tk, ratio) = layout_time_ratio(long_word_beside_a_float, 50_000, &LayoutOptions::default());
     eprintln!("t(n) {t1:.4} s, t(8n) {tk:.4} s, ratio {ratio:.1}");
     assert!(ratio < 24.0, "8x the word took {ratio:.1}x the time ({t1:.4} s → {tk:.4} s): not linear");
 }
@@ -569,7 +579,7 @@ fn a_long_unbreakable_word_lays_out_in_linear_time() {
 /// A word a megabyte long lays out in a fraction of a second: it used to take half a minute.
 #[test]
 fn a_megabyte_long_word_lays_out_quickly() {
-    let d = Document::from_text(&"a".repeat(1_000_000));
+    let d = long_word_beside_a_float(1_000_000);
     let t = std::time::Instant::now();
     lay(&d);
     assert!(t.elapsed().as_secs() < 15, "a megabyte-long word took {:?}", t.elapsed());

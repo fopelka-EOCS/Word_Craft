@@ -69,9 +69,10 @@ const MAX_IDS: usize = 64;
 /// quoted value, the way an attribute names one (`r:id="rId5"`).
 ///
 /// One pass over the part, not one search per id: the ids are looked up as they go, so the cost
-/// is the size of the part rather than its size times the number of relationships (#12). A
-/// quoted run that isn't an id is skipped, and the run ends at the next quote — the same set of
-/// places a search for `"id"` would have found.
+/// is the size of the part rather than its size times the number of relationships (#12). A quoted
+/// run that isn't an id is skipped, and the run ends at the next quote; that closing quote is
+/// looked at again as an opening one, so an id that sits between two quoted runs — `"a"rId5"b"`,
+/// which a search for `"id"` would find — is found here too.
 fn referenced_ids<'a>(main: &[u8], document: &'a Rels) -> HashSet<&'a [u8]> {
     let ids: HashSet<&[u8]> = document.list.iter().map(|r| r.id.as_bytes()).collect();
     let mut found = HashSet::new();
@@ -90,7 +91,8 @@ fn referenced_ids<'a>(main: &[u8], document: &'a Rels) -> HashSet<&'a [u8]> {
         if let Some(id) = ids.get(&main[start..end]) {
             found.insert(*id);
         }
-        i = end + 1;
+        // The closing quote may be the opening quote of the next run: `"a"rId5"b"` names rId5.
+        i = end;
     }
     found
 }
@@ -354,5 +356,11 @@ mod tests {
         let unnamed = package("no mention here", &[("rIdDoc1", "keep.bin")], &[("word/keep.bin", b"kept")]);
         let roots = unmodelled_roots(&crate::read(&unnamed).unwrap());
         assert!(roots.contains("keep.bin"), "the part is dropped: {roots}");
+
+        // Between two quoted runs the id's quotes are the first run's close and the second's
+        // open; a search for `"id"` finds it, so the scan must too.
+        let between = package(r#""a"rIdDoc1"b""#, &[("rIdDoc1", "keep.bin")], &[("word/keep.bin", b"kept")]);
+        let roots = unmodelled_roots(&crate::read(&between).unwrap());
+        assert!(!roots.contains("keep.bin"), "the part is carried twice: {roots}");
     }
 }
