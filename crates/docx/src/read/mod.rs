@@ -853,9 +853,9 @@ impl Reader<'_> {
                 let old = ch
                     .child("w:style")
                     .map(|o| {
-                        let oid = o.attr("w:styleId").map(|i| self.pc.style_id(i)).unwrap_or_else(|| id.clone());
+                        // The id is the enclosing style's, whatever the record says.
                         let mut old = Style {
-                            id: oid,
+                            id: id.clone(),
                             name: o.child_val("w:name").map(ui_style_name).unwrap_or_else(|| id.clone()),
                             kind,
                             based_on: o.child_val("w:basedOn").filter(|v| !v.is_empty()).map(|v| self.pc.style_id(v)),

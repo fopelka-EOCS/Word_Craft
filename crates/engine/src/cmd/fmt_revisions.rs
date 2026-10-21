@@ -358,7 +358,16 @@ pub fn resolve_cell(c: &mut Cell, accept: bool) {
 /// Accept or reject a style definition change.
 pub fn resolve_style(st: &mut Style, accept: bool) {
     if let Some(ch) = st.fmt_change.take().filter(|_| !accept) {
-        *st = ch.old;
+        // Restore only what the record holds: the run and paragraph properties (and the table
+        // formatting when the record has any). The current id and metadata (builtin, quick,
+        // priority, hidden, locked, default, name, links) stay: a reopened file's record carries
+        // none of them, so replacing the whole style would turn Heading 1 into a custom style.
+        let old = ch.old;
+        st.para = old.para;
+        st.chr = old.chr;
+        if old.table.is_some() {
+            st.table = old.table;
+        }
     }
 }
 

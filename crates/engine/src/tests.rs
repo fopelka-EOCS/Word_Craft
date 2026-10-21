@@ -2261,8 +2261,50 @@ fn tracked_style_change_round_trips_through_docx() {
     assert_eq!((rev.kind, rev.author.as_str()), (RevisionKind::Format, "WordCraft User"));
 
     // And the change is resolved on the reopened document.
-    run(&mut s, "review.rejectAll", json!({}));
-    assert_eq!(s.doc.styles.get("Heading1").unwrap().chr.bold, None);
+    let mut r = Session::new(d);
+    run(&mut r, "review.rejectAll", json!({}));
+    assert_eq!(r.doc.styles.get("Heading1").unwrap().chr.bold, None);
+}
+
+/// #2697 review: rejecting a style change in a reopened .docx restores the run and paragraph
+/// properties only; the style keeps its id and metadata (builtin, quick, priority) and a table
+/// style keeps its table formatting.
+#[test]
+fn rejecting_a_reopened_style_change_keeps_style_metadata() {
+    use wordcraft_doc::styles::{Style, StyleKind, TableStyleParts};
+    let mut s = s();
+    s.doc.styles.upsert(Style {
+        id: "GridX".into(),
+        name: "Grid X".into(),
+        kind: StyleKind::Table,
+        builtin: true,
+        quick: true,
+        priority: Some(7),
+        table: Some(TableStyleParts { header_chr: wordcraft_doc::props::CharProps { bold: Some(true), ..Default::default() }, ..Default::default() }),
+        ..Default::default()
+    });
+    run(&mut s, "text.insert", json!({"text": "Heading text"}));
+    run(&mut s, "review.trackChanges", json!({"value": true}));
+    run(&mut s, "styles.modify", json!({"style": "Heading1", "chr": {"bold": true}}));
+    run(&mut s, "styles.modify", json!({"style": "GridX", "chr": {"italic": true}}));
+
+    let bytes = crate::io::save_bytes("x.docx", &s.doc).unwrap();
+    let d = crate::io::open_bytes("x.docx", &bytes).unwrap();
+    let before: Vec<_> = ["Heading1", "GridX"].iter().map(|i| d.styles.get(i).unwrap().clone()).collect();
+    assert!(before.iter().all(|st| st.fmt_change.is_some()), "both changes survive the round trip");
+    assert!(before[1].table.is_some(), "the table formatting is read back");
+
+    let mut r = Session::new(d);
+    run(&mut r, "review.rejectAll", json!({}));
+    let h = r.doc.styles.get("Heading1").unwrap();
+    assert_eq!(h.chr.bold, None, "the bold is cleared");
+    let g = r.doc.styles.get("GridX").unwrap();
+    assert_eq!(g.chr.italic, None, "the italic is cleared");
+    for (st, was) in [h, g].into_iter().zip(&before) {
+        assert!(st.fmt_change.is_none());
+        assert_eq!((&st.id, &st.name, st.builtin, st.quick, st.priority), (&was.id, &was.name, was.builtin, was.quick, was.priority));
+        assert_eq!(st.table, was.table, "{}", st.id);
+    }
 }
 
 #[test]
