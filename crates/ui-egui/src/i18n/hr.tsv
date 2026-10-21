@@ -2699,3 +2699,5 @@ preview	Title	Naslov
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Upišite veličinu u bilo kojoj jedinici, npr. 5 cm ili 300 px. Druga se strana prilagođava pa slika zadržava svoje proporcije.
 
 	Import…	Uvezi…
+	Hunspell .aff and .dic files here (pl_PL, el_GR, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Datoteke Hunspell .aff i .dic iz ove mape (pl_PL, el_GR, pt_BR, it_IT, hr_HR, tr_TR) koriste se prije onih iz sustava.
+	Spelling follows the language of the document text. Install a Hunspell dictionary for Greek and other supported languages.	Provjera pravopisa prati jezik teksta dokumenta. Instalirajte Hunspell rječnik za grčki i druge podržane jezike.

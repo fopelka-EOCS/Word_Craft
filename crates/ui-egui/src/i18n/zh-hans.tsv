@@ -2300,3 +2300,5 @@
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	可用任意单位输入大小，例如 5 cm 或 300 px。另一边随之调整，图片保持原有比例。
 
 	Import…	导入…
+	Hunspell .aff and .dic files here (pl_PL, el_GR, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	此文件夹中的 Hunspell .aff 和 .dic 文件 (pl_PL, el_GR, pt_BR, it_IT, hr_HR, tr_TR) 优先于系统中的文件。
+	Spelling follows the language of the document text. Install a Hunspell dictionary for Greek and other supported languages.	拼写检查遵循文档文本所用的语言。请为希腊语及其他受支持的语言安装 Hunspell 词典。

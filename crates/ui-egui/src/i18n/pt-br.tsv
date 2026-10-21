@@ -2300,3 +2300,5 @@
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Digite um tamanho em qualquer unidade, como 5 cm ou 300 px. O outro lado acompanha, e a imagem mantém as proporções.
 
 	Import…	Importar…
+	Hunspell .aff and .dic files here (pl_PL, el_GR, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	Os arquivos .aff e .dic do Hunspell nesta pasta (pl_PL, el_GR, pt_BR, it_IT, hr_HR, tr_TR) são usados antes dos do sistema.
+	Spelling follows the language of the document text. Install a Hunspell dictionary for Greek and other supported languages.	A verificação ortográfica segue o idioma do texto do documento. Instale um dicionário Hunspell para grego e outros idiomas compatíveis.

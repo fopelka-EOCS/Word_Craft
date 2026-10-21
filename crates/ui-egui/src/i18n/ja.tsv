@@ -2288,3 +2288,5 @@
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	5 cm や 300 px など、任意の単位でサイズを入力します。もう一方の辺も合わせて変わるため、図の縦横比は保たれます。
 
 	Import…	インポート…
+	Hunspell .aff and .dic files here (pl_PL, el_GR, pt_BR, it_IT, hr_HR, tr_TR) are used before the system's.	このフォルダーの Hunspell .aff と .dic ファイル (pl_PL, el_GR, pt_BR, it_IT, hr_HR, tr_TR) は、システムのものより優先して使われます。
+	Spelling follows the language of the document text. Install a Hunspell dictionary for Greek and other supported languages.	スペルチェックは文書内のテキストの言語に従います。ギリシャ語やその他の対応言語には Hunspell 辞書をインストールしてください。
