@@ -1,7 +1,7 @@
 //! Caret movement and selection.
 
 use serde_json::Value;
-use wordcraft_doc::Pos;
+use wordcraft_doc::{Pos, StoryRef};
 
 use super::{parse_pos, sel_result};
 use crate::{CmdError, CmdResult, CommandSpec, Selection, Session, p};
@@ -420,7 +420,7 @@ fn drag_unit(s: &mut Session, v: &Value) -> CmdResult {
 }
 
 /// Select the n-th occurrence of `text` (agents: "select the word X") in the searched stories'
-/// document order — the order `edit.find` reports with no `story` selector (#3270), so an
+/// document order - the order `edit.find` reports with no `story` selector (#3270), so an
 /// occurrence number is the same on either side. A `story` parameter searches only that story.
 fn select_text(s: &mut Session, v: &Value) -> CmdResult {
     let needle = p::req_str(v, "text")?;
@@ -428,19 +428,37 @@ fn select_text(s: &mut Session, v: &Value) -> CmdResult {
     if needle.is_empty() {
         return Err(CmdError::Params("`text` is empty".into()));
     }
-    let mut matches = Vec::new();
-    for story in crate::cmd::edit::reach_stories(s, v) {
-        for path in s.doc.para_paths(story) {
-            let Some(p) = s.doc.para(story, &path) else { continue };
-            for (i, _) in p.text.match_indices(needle) {
-                matches.push((Pos { story, path: path.clone(), off: i }, Pos { story, path: path.clone(), off: i + needle.len() }));
+    // The document order of a two-story reach is the body's run first ([`Pos`] orders Body
+    // before any part), so each story's own match count splits the rank. No per-match data is
+    // collected here: every match is two positions and two path clones, and a frequent needle
+    // (a space, a single letter) is only cheap when barely scanned.
+    let mut rank = n;
+    for story in crate::cmd::edit::reach_stories(s, v).into_iter().rev() {
+        let (sel, count) = select_nth_in_story(s, needle, rank, story)?;
+        if let Some(sel) = sel {
+            s.sel = sel;
+            return sel_result(s);
+        }
+        rank -= count;
+    }
+    Err(CmdError::Failed(format!("`{needle}` not found")))
+}
+
+/// The n-th match of `needle` in one story, selected when it exists. With fewer than `n`
+/// matches here, `Ok((None, count))` carries that count over: the caller reduces the rank
+/// across stories in document order.
+fn select_nth_in_story(s: &Session, needle: &str, n: usize, story: StoryRef) -> Result<(Option<Selection>, usize), CmdError> {
+    let mut count = 0;
+    for path in s.doc.para_paths(story) {
+        let Some(p) = s.doc.para(story, &path) else { continue };
+        for (i, _) in p.text.match_indices(needle) {
+            count += 1;
+            if count == n {
+                let anchor = Pos { story, path: path.clone(), off: i };
+                let focus = Pos { story, path, off: i + needle.len() };
+                return Ok((Some(Selection { anchor, focus }), count));
             }
         }
     }
-    matches.sort();
-    let Some((anchor, focus)) = matches.into_iter().nth(n - 1) else {
-        return Err(CmdError::Failed(format!("`{needle}` not found")));
-    };
-    s.sel = Selection { anchor, focus };
-    sel_result(s)
+    Ok((None, count))
 }
