@@ -723,6 +723,8 @@ fn apply_style(
             "direction" => {
                 if lv.starts_with("rtl") {
                     *rtl = true;
+                } else if lv.starts_with("ltr") {
+                    *rtl = false;
                 }
             }
             "text-align" => {
@@ -783,6 +785,7 @@ impl<'r> Builder<'r> {
             let mut list_level: Option<(bool, usize)> = None;
             let mut li_at: Option<usize> = None;
             let mut lists = 0usize;
+            let mut rtl_seen = false;
             for (i, e) in self.stack.iter().enumerate().rev() {
                 match e.kind {
                     ElKind::Cell => {
@@ -816,8 +819,11 @@ impl<'r> Builder<'r> {
                 if p.align.is_none() && e.align.is_some() && e.kind != ElKind::Inline {
                     p.align = e.align;
                 }
-                if !p.rtl && e.rtl && e.kind != ElKind::Inline {
-                    p.rtl = true;
+                // The innermost block's direction already includes what it inherits, so an
+                // explicit `dir="ltr"` inside an RTL block stays LTR.
+                if !rtl_seen && e.kind != ElKind::Inline {
+                    rtl_seen = true;
+                    p.rtl = e.rtl;
                 }
             }
             if let (Some((o, _)), Some(li)) = (list_level, li_at) {
@@ -1186,8 +1192,13 @@ impl<'r> Builder<'r> {
         let mut fmt = self.fmt();
         let mut align = None;
         // `dir="rtl"` or CSS `direction:rtl` on this element (inherited by block children).
-        let mut rtl =
-            attr(attrs, "dir").is_some_and(|d| d.trim().eq_ignore_ascii_case("rtl")) || self.stack.iter().any(|e| e.rtl && e.kind != ElKind::Inline);
+        // An explicit `dir="ltr"` (or `direction:ltr`) wins over an RTL ancestor.
+        let inherited = self.stack.iter().any(|e| e.rtl && e.kind != ElKind::Inline);
+        let mut rtl = match attr(attrs, "dir").map(|d| d.trim().to_ascii_lowercase()).as_deref() {
+            Some("rtl") => true,
+            Some("ltr") => false,
+            _ => inherited,
+        };
         let mut preserve = self.preserve();
         let mut page_break = false;
         let mut page_break_after = false;
@@ -1981,6 +1992,12 @@ mod tests {
         let ltr = parse(r#"<p dir="ltr">مرها</p>"#);
         let Some(FBlock::Para(p)) = ltr.blocks.first() else { panic!("no paragraph") };
         assert!(!p.rtl, "ltr is not RTL");
+        // An explicit ltr wins over an RTL ancestor.
+        for src in [r#"<div dir="rtl"><p dir="ltr">abc</p></div>"#, r#"<div dir="rtl"><p style="direction:ltr">abc</p></div>"#] {
+            let parsed = parse(src);
+            let Some(FBlock::Para(p)) = parsed.blocks.first() else { panic!("no paragraph") };
+            assert!(!p.rtl, "{src}");
+        }
         // The document keeps it as `w:bidi`, and the export writes dir="rtl" back.
         let doc = model::to_doc(&parse(r#"<p dir="rtl">مرها</p>"#));
         assert!(doc.body.iter().any(|b| if let wordcraft_doc::Block::Para(p) = &**b { p.props.bidi.unwrap_or(false) } else { false }));
