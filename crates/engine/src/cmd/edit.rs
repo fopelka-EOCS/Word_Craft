@@ -681,6 +681,9 @@ fn advanced_find(s: &mut Session, v: &Value) -> CmdResult {
     let n = found.len();
     let matches: Vec<Value> = found.iter().take(200).map(|(a, b)| json!({"start": pos_json(a), "end": pos_json(b)})).collect();
     s.find.current = 0;
+    // Advanced Find owns the scope it just searched (#3270): Find Next keeps following it after
+    // its query changes, instead of a `edit.find` scope that may be stale by now.
+    s.find.scope = Some(vec![story]);
     s.find.results = found;
     Ok(json!({"count": n, "matches": matches, "highlight": s.find.highlight}))
 }

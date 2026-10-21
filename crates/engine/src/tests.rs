@@ -792,6 +792,16 @@ fn find_next_keeps_the_scope_of_the_last_search() {
     run(&mut s, "caret.set", json!({"pos": {"story": {"part": 1}, "path": [0], "off": 5}}));
     let r = run(&mut s, "edit.find", json!({"text": "Main needle"}));
     assert_eq!(r["count"], 1, "from the footnote the body is still reached: {r}");
+
+    // Advanced Find owns the scope of its own query: after it rewrites the results with a
+    // selection-scoped search, Find Next follows it, not the stale body-only one.
+    run(&mut s, "edit.find", json!({"text": "Main", "story": "body"}));
+    run(&mut s, "select.text", json!({"text": "FOUND", "story": {"part": 1}}));
+    let r = run(&mut s, "edit.advancedFind", json!({"text": "FOUND", "in": "selection"}));
+    assert_eq!(r["count"], 1, "advanced find: {r}");
+    let r = run(&mut s, "edit.findNext", json!({}));
+    assert_eq!(r["count"], 1, "Find Next follows Advanced Find's scope: {r}");
+    assert_eq!(s.sel.focus.story, StoryRef::Part(1));
 }
 
 #[test]
