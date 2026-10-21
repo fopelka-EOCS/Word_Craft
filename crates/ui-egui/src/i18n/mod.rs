@@ -216,6 +216,10 @@ impl Lang {
         self.0.code == "ko"
     }
 
+    pub fn prefers_hant(self) -> bool {
+        self.0.code == "zh-hant"
+    }
+
     /// The language new blank documents are written in with this interface ([`LangInfo::editing_lang`]).
     pub fn editing_lang(self) -> Option<&'static str> {
         self.0.editing_lang
@@ -238,6 +242,12 @@ impl Lang {
     pub fn cjk_font_text_for(hans: bool, korean: bool) -> (Vec<&'static str>, String) {
         let catalogs = Lang::all().filter(|l| l.uses_cjk() && l.prefers_hans() == hans && l.prefers_korean() == korean).map(|l| l.0.source).collect();
         (catalogs, Lang::all().map(Lang::name).collect::<Vec<_>>().join(" "))
+    }
+
+    pub fn hant_font_chars() -> Vec<char> {
+        let chars: std::collections::BTreeSet<char> =
+            Lang::all().filter(|l| l.prefers_hant()).flat_map(|l| l.0.source.chars()).filter(|c| wordcraft_fonts::is_cjk(*c)).collect();
+        chars.into_iter().collect()
     }
 
     /// A language by its exact code (any case).
