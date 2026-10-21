@@ -715,6 +715,10 @@ fn lines(
         let top = y + (line.top - first.top);
         let base = top + (line.baseline - line.top);
         let bottom = top + line.height;
+        let (asc, desc) = pl.caret_metrics(li);
+        let text_top = (base - asc).max(top);
+        let text_bottom = (base + desc).min(bottom);
+        let text_height = (text_bottom - text_top).max(0.0);
         // Commented text gets a soft shade (comment anchors are object markers).
         if opts.markup
             && opts.revisions.comments
@@ -741,7 +745,7 @@ fn lines(
                 for (x0, x1) in pl.x_spans(li, a.max(line.start), b.min(line.stop)) {
                     if x1 > x0 {
                         out.push(Draw::Fill {
-                            rect: Rect::new(x + x0, top, x1 - x0, line.height),
+                            rect: Rect::new(x + x0, text_top, x1 - x0, text_height),
                             color: Rgb(0xEF, 0xE3, 0xF7),
                             alpha,
                             text_bg: false,
@@ -759,7 +763,7 @@ fn lines(
                 continue;
             }
             if let Some(h) = st.rc.highlight.or(st.rc.shading) {
-                out.push(Draw::Fill { rect: Rect::new(x + cx, top, (nx - cx).max(0.0), line.height), color: h, alpha, text_bg: true });
+                out.push(Draw::Fill { rect: Rect::new(x + cx, text_top, (nx - cx).max(0.0), text_height), color: h, alpha, text_bg: true });
             }
             let b = st.rc.border;
             if let Some((ob, x0, x1)) = open.as_mut()
