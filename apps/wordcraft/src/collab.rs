@@ -35,7 +35,7 @@ const AT: &str = "$collabAt";
 /// A client never holds the signing secret. The relay verifies an HMAC that the service produced,
 /// so all a client can do is present a token it was handed. Anything able to mint tokens could
 /// forge any file id and any permission bits, and that is why the key stays server-side.
-pub trait TokenSource {
+pub trait TokenSource: Send {
     /// Where the relay is, and a signed token for one document.
     ///
     /// One call, because one call mints one token. Asking separately would reach the service twice
@@ -148,12 +148,13 @@ fn base64url(s: &str) -> Option<Vec<u8>> {
 
 /// A live shared-editing link.
 pub struct Link {
-    // The socket runs on a task inside this runtime, so the runtime has to outlive the hub.
-    // Dropping it first closes the connection underneath us.
-    _rt: tokio::runtime::Runtime,
+    // Declared before the runtime so the hub is dropped first. The socket runs on a task inside
+    // the runtime; dropping the runtime first would close the connection underneath the hub.
     hub: NativeHub,
+    _rt: tokio::runtime::Runtime,
     wire: Wire,
     local: Receiver<Edit>,
+    outbound: Sender<Edit>,
     /// Lines for the user, drained by the app each frame.
     pub notices: Vec<String>,
     /// Who else is in the document. The identifier comes with the name because a badge's colour is
@@ -165,12 +166,25 @@ pub struct Link {
 }
 
 impl Link {
-    /// Connects and attaches to the engine.
+    /// Reaches the relay on a worker. The first paint does not wait.
     ///
-    /// Returns `None` when no credential is configured or the relay cannot be reached, and the app
-    /// then behaves exactly as it did before. Shared editing is an addition, never a precondition
-    /// for opening a file.
-    pub fn attach(engine: &mut Engine, src: &dyn TokenSource) -> Option<Link> {
+    /// The receiver yields one [`Link`] when the handshake succeeds. It disconnects with nothing
+    /// sent when no credential is configured or the relay cannot be reached, and the app then
+    /// behaves exactly as it did before. Shared editing is an addition, never a precondition for
+    /// opening a file.
+    pub fn spawn(src: impl TokenSource + 'static) -> Receiver<Link> {
+        let (tx, rx) = channel();
+        let _ = std::thread::Builder::new().name("collab-connect".into()).spawn(move || {
+            if let Some(link) = Link::connect(&src) {
+                let _ = tx.send(link);
+            }
+        });
+        rx
+    }
+
+    /// Connects to the relay. Does not touch the engine; call [`Link::bind`] on the UI thread once
+    /// the window exists.
+    pub fn connect(src: &dyn TokenSource) -> Option<Link> {
         let (relay, token) = src.join()?;
         let Some(doc) = doc_from_token(&token) else {
             log::warn!("collab: the token carries no file id, so there is no room to join");
@@ -202,10 +216,17 @@ impl Link {
         // lost, and cost a duplicate session every time. The relay speaks first.
         let wire = Wire::new(doc.clone());
 
-        let (tx, local) = channel();
-        engine.collab = Some(Arc::new(Outbound(tx)));
+        let (outbound, local) = channel();
         log::info!("collab: joining {doc} on {relay}");
-        Some(Link { _rt: rt, hub, wire, local, notices: Vec::new(), roster: Vec::new(), was_connected: true })
+        Some(Link { hub, _rt: rt, wire, local, outbound, notices: Vec::new(), roster: Vec::new(), was_connected: true })
+    }
+
+    /// Hands the engine the outbound sink.
+    ///
+    /// Call once, on the UI thread, after the window exists. Edits made before this returns stay
+    /// local.
+    pub fn bind(&self, engine: &mut Engine) {
+        engine.collab = Some(Arc::new(Outbound(self.outbound.clone())));
     }
 
     /// One frame's work: send what the user did, apply what arrived.

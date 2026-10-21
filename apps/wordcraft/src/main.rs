@@ -45,6 +45,9 @@ struct App {
     /// Shared editing, when a credential was configured. `None` leaves the app behaving exactly
     /// as it did before.
     collab: Option<collab::Link>,
+    /// The worker that reaches the relay. Taken once it answers, or dropped when it gives up, so
+    /// the first paint never waits on a socket.
+    collab_rx: Option<std::sync::mpsc::Receiver<collab::Link>>,
     /// macOS: the documents opened from Finder.
     #[cfg(target_os = "macos")]
     events: fmv_macos_events::Inbox,
@@ -54,6 +57,20 @@ impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         #[cfg(target_os = "macos")]
         apple_events::poll(&self.events, &mut self.doc, ctx);
+        if self.collab.is_none() {
+            match self.collab_rx.as_ref().map(std::sync::mpsc::Receiver::try_recv) {
+                Some(Ok(link)) => {
+                    link.bind(&mut self.doc.session);
+                    self.collab = Some(link);
+                    self.collab_rx = None;
+                }
+                Some(Err(std::sync::mpsc::TryRecvError::Disconnected)) => self.collab_rx = None,
+                Some(Err(std::sync::mpsc::TryRecvError::Empty)) => {
+                    ctx.request_repaint_after(std::time::Duration::from_millis(120));
+                }
+                None => {}
+            }
+        }
         if let Some(link) = &mut self.collab {
             link.pump(&mut self.doc.session);
             // Who else is here, straight from the relay's roster. The whole set is handed over
@@ -500,24 +517,26 @@ fn main() -> eframe::Result {
             for f in other_files {
                 open_non_unicode(&mut app, &f);
             }
-            // Attached after the document exists, so the first remote edit has somewhere to
-            // land. A missing credential or an unreachable relay logs and yields None, and the app
-            // runs as an ordinary single-writer word processor.
+            // The relay is reached on a worker. Binding happens on the first frame that finds
+            // the link ready, so the window is already up. A missing credential or an unreachable
+            // relay logs and yields nothing, and the app runs as an ordinary single-writer word
+            // processor.
             //
             // A document named by the launcher, reached through CollabCraft, which signs in
             // through the browser. Otherwise the plain token in the environment, which is what a
             // test harness supplies.
-            let link = match cloud::CloudToken::from_env() {
-                Some(source) => collab::Link::attach(&mut app.session, &source),
-                None => collab::Link::attach(&mut app.session, &collab::EnvToken),
-            };
+            let collab_rx = Some(match cloud::CloudToken::from_env() {
+                Some(source) => collab::Link::spawn(source),
+                None => collab::Link::spawn(collab::EnvToken),
+            });
             Ok(Box::new(App {
                 doc: app,
                 // With nothing restored, the window the system placed is checked all the same.
                 restored: Some(restored.unwrap_or_default()),
                 key_file,
                 dialogs,
-                collab: link,
+                collab: None,
+                collab_rx,
                 #[cfg(target_os = "macos")]
                 events: apple_events.connect(&cc.egui_ctx),
             }))

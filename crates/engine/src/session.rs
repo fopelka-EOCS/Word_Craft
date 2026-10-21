@@ -937,6 +937,9 @@ impl Session {
 
     /// Snapshot for undo before a change.
     pub fn checkpoint(&mut self, label: &str) {
+        if self.applying_remote {
+            return;
+        }
         if label == "Typing" && self.typing_open {
             return;
         }
@@ -957,6 +960,9 @@ impl Session {
     /// Record `doc`/`sel` as their own undo step after the fact and close the typing group, so
     /// Undo right after an automatic change (AutoFormat, AutoCorrect) reverts only that change.
     pub fn push_undo(&mut self, label: &str, doc: Document, sel: Selection) {
+        if self.applying_remote {
+            return;
+        }
         self.history.push(Arc::new(Undo { label: label.to_string(), doc, sel, pending: self.pending.clone(), column: None }));
         if self.history.len() > MAX_UNDO {
             self.history.remove(0);
@@ -1351,7 +1357,9 @@ impl Session {
         }
         if spec.mutates {
             let label = if typing { "Typing" } else { spec.label };
-            if !join || self.history.is_empty() {
+            // A remote edit is not this peer's to undo. Snapshotting it would put their step on
+            // a stack they do not share, and restoring a snapshot taken before it would wipe it.
+            if !self.applying_remote && (!join || self.history.is_empty()) {
                 self.checkpoint(label);
             }
         } else if !spec.id.starts_with("caret.") && !spec.id.starts_with("view.") {
@@ -1455,21 +1463,25 @@ impl Session {
 
     /// Runs a command that arrived from another peer.
     ///
-    /// Two things differ from [`Session::run`]. It is not reported to the
+    /// Three things differ from [`Session::run`]. It is not reported to the
     /// [`CollabSink`](crate::CollabSink), which is what stops an edit bouncing between two peers
-    /// forever. And it runs against `at`, the selection the sender had, because a WordCraft
-    /// command says only "here": applying somebody else's Backspace at the reader's own caret
-    /// would delete the reader's own text.
+    /// forever. It only accepts a [`crate::collab::shareable`] command, so a peer cannot open,
+    /// save or undo on this machine. And it runs against `at`, the selection the sender had,
+    /// because a WordCraft command says only "here": applying somebody else's Backspace at the
+    /// reader's own caret would delete the reader's own text.
     ///
     /// The reader's selection is put back afterwards, moved by whatever the edit did to the text
     /// before it in the same paragraph (see [`crate::collab::follow`]). An edit that split or
     /// joined paragraphs cannot be followed that way, and the caret is clamped rather than
     /// guessed at.
     ///
-    /// It journals and records undo history like any other command, so a remote edit can be
-    /// undone locally. Both peers applied the same ordered sequence, so both hold the same undo
-    /// stack, and an Undo one of them shares undoes the same step on each.
+    /// Undo stays local. The remote edit is not recorded on this peer's stack, and local history
+    /// is cleared because a snapshot taken before it would wipe it if restored.
     pub fn apply_remote(&mut self, id: &str, params: &Value, at: Option<Selection>) -> Result<Value, CmdError> {
+        let mutates = self.registry.get(id).map(|s| s.mutates).unwrap_or(false);
+        if !crate::collab::shareable(id, mutates) {
+            return Err(CmdError::Failed(format!("{id} is not a shared edit")));
+        }
         let was = std::mem::replace(&mut self.applying_remote, true);
         // The reader's own state: a remote edit is not theirs to repeat, record or go back to,
         // and never joins their typing.
@@ -1501,6 +1513,10 @@ impl Session {
         self.sel = crate::collab::follow(mine, &edit, grew);
         self.clamp_selection();
         self.applying_remote = was;
+        if out.is_ok() {
+            self.history.clear();
+            self.redo.clear();
+        }
         out
     }
 
