@@ -116,10 +116,14 @@ fn ui_shortcut(key: Key, m: Modifiers) -> Option<(&'static str, Value)> {
         // Ctrl+F1 collapses or expands the ribbon, as in Word for Windows (#1678). Not on macOS,
         // where Ctrl+F1 is the system's keyboard-access switch.
         Key::F1 if m.ctrl && !m.alt && !m.shift && !m.mac_cmd && !cfg!(target_os = "macos") => Some(("ui.collapseRibbon", json!({}))),
-        // On macOS Mod is Cmd, so Ctrl+W (Windows/Linux habit) would do nothing: it closes too.
-        Key::W if mac_ctrl_only(m) => Some(("file.close", json!({}))),
         _ => None,
     }
+}
+
+/// Shortcuts that apply only when the keymap binds nothing to the key, so a customized key wins.
+/// On macOS Mod is Command, so Control+W (the Windows/Linux habit) would do nothing: it closes too.
+fn fallback_shortcut(key: Key, m: Modifiers) -> Option<(&'static str, Value)> {
+    (key == Key::W && mac_ctrl_only(m)).then(|| ("file.close", json!({})))
 }
 
 /// Control alone on macOS, where Mod is Command (Control+W closes as Command+W does).
@@ -154,6 +158,10 @@ fn dispatch(app: &mut WordApp, key: Key, m: Modifiers) -> bool {
         && let Some(params) = shift_variant_params(spec.id)
     {
         let _ = app.run(spec.id, params);
+        return true;
+    }
+    if let Some((id, params)) = fallback_shortcut(key, m) {
+        let _ = app.run(id, params);
         return true;
     }
     false
@@ -802,14 +810,30 @@ mod tests {
         assert_eq!(ui_shortcut(Key::R, m(true, true, true)), None, "Mod+Alt+Shift+R");
     }
 
+    /// Control+W closes on macOS only, and reaches Close with the canvas unfocused too.
     #[test]
     fn ctrl_w_closes_on_macos() {
         let ctrl = egui::Modifiers { ctrl: true, ..Default::default() };
         let both = egui::Modifiers { ctrl: true, shift: true, ..Default::default() };
-        assert_eq!(ui_shortcut(Key::W, ctrl).is_some(), cfg!(target_os = "macos"));
-        assert_eq!(ui_shortcut(Key::W, both), None);
+        let close = cfg!(target_os = "macos").then(|| ("file.close", json!({})));
+        assert_eq!(fallback_shortcut(Key::W, ctrl), close);
+        assert_eq!(fallback_shortcut(Key::W, both), None);
+        assert_eq!(ui_shortcut(Key::W, ctrl), None, "not ahead of the keymap");
         // It reaches Close with the canvas unfocused too (after a ribbon click).
         assert_eq!(is_global_shortcut(Key::W, ctrl), cfg!(target_os = "macos"));
+    }
+
+    /// A command the user assigned to Control+W on macOS runs instead of Close.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_customized_ctrl_w_wins_over_close() {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("one")), crate::Services::default());
+        let reg = app.session.registry.clone();
+        app.session.keymap.assign(&reg, "select.all", "Ctrl+W").unwrap();
+        assert!(app.session.sel.is_collapsed());
+        let ctrl = egui::Modifiers { ctrl: true, ..Default::default() };
+        assert!(dispatch(&mut app, Key::W, ctrl));
+        assert!(!app.session.sel.is_collapsed(), "the assigned Select All ran, not Close");
     }
 
     #[test]
