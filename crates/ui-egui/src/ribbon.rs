@@ -41,7 +41,7 @@ fn reading_toolbar(app: &mut WordApp, ui: &mut Ui, t: Tokens) {
                     Some(v) if v <= 350.0 => "Wide",
                     _ => "Page",
                 };
-                ui.menu_button(format!("{}: {}", tl!("Column width"), tl!(active)), |ui| {
+                ui.menu_button(crate::i18n::line(format!("{}: {}", crate::i18n::t_logical("Column width"), crate::i18n::t_logical(active))), |ui| {
                     for (name, value) in [("Auto", "auto"), ("Narrow", "narrow"), ("Medium", "medium"), ("Wide", "wide"), ("Page", "page")] {
                         if ui.selectable_label(active == name, tl!(name)).clicked() {
                             let _ = app.run("view.readColumnWidth", json!({"value": value}));
@@ -51,7 +51,7 @@ fn reading_toolbar(app: &mut WordApp, ui: &mut Ui, t: Tokens) {
                 });
                 ui.separator();
                 let pct = (app.session.view.read_zoom * 100.0).round() as u32;
-                ui.menu_button(format!("{}: {pct}%", tl!("Text size")), |ui| {
+                ui.menu_button(crate::i18n::line(format!("{}: {pct}%", crate::i18n::t_logical("Text size"))), |ui| {
                     for percent in [75, 90, 100, 110, 125, 150] {
                         if ui.selectable_label(pct == percent, format!("{percent}%")).clicked() {
                             let _ = app.run("view.readTextSize", json!({"value": percent}));
@@ -61,8 +61,8 @@ fn reading_toolbar(app: &mut WordApp, ui: &mut Ui, t: Tokens) {
                 });
                 ui.separator();
                 let spacing = app.session.view.read_line_spacing;
-                let label = spacing.map_or_else(|| tl!("Document").to_owned(), |v| format!("{v}×"));
-                ui.menu_button(format!("{}: {}", tl!("Line spacing"), label), |ui| {
+                let label = spacing.map_or_else(|| crate::i18n::t_logical("Document").to_owned(), |v| format!("{v}×"));
+                ui.menu_button(crate::i18n::line(format!("{}: {}", crate::i18n::t_logical("Line spacing"), label)), |ui| {
                     if ui.selectable_label(spacing.is_none(), tl!("Document")).clicked() {
                         let _ = app.run("view.readLineSpacing", json!({"value": "document"}));
                         ui.close();
@@ -637,7 +637,7 @@ pub(crate) fn size_menu(ui: &mut Ui, app: &mut WordApp) {
         // Paper names are the industry's (Letter, A4, B5 (JIS)) and stay as they are; the
         // envelopes say what they are. Sizes in the measurement unit, written the region's
         // way (`21 cm × 29,7 cm`, #838).
-        let name = if n.starts_with("Envelope ") { tl!(n) } else { n };
+        let name = if n.starts_with("Envelope ") { crate::i18n::t_logical(n) } else { n };
         let (width, height) = (crate::options::length(*w), crate::options::length(*h));
         let label = crate::i18n::fmt(tl!("{paper}   {width} × {height}"), &[("paper", name), ("width", &width), ("height", &height)]);
         mi_check(ui, app, &label, current == Some(*n), "layout.size", json!({"name": n}));
@@ -1123,7 +1123,13 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                         let text = numbers
                             .iter()
                             .zip(["Heading 1", "Heading 2", "Heading 3"])
-                            .map(|(n, h)| if n.is_empty() { tl!(h).to_string() } else { format!("{} {}", tl!(n), tl!(h)) })
+                            .map(|(n, h)| {
+                                if n.is_empty() {
+                                    tl!(h).to_string()
+                                } else {
+                                    crate::i18n::line(format!("{} {}", crate::i18n::t_logical(n), crate::i18n::t_logical(h)))
+                                }
+                            })
                             .collect::<Vec<_>>()
                             .join(" / ");
                         mi_text(ui, app, &text, "list.multilevelPreset", json!({"preset": k}));
@@ -1541,7 +1547,13 @@ fn design(app: &mut WordApp, ui: &mut Ui) {
             });
             menu_button(ui, app, "fonts", Some("Fonts"), "Theme Fonts", false, "design.themeFonts", |ui, app| {
                 for (name, h, b, _) in wordcraft_engine::cmd::design::THEMES {
-                    mi_text(ui, app, &format!("{}: {h} / {b}", tl!(name)), "design.themeFonts", json!({"heading": h, "body": b}));
+                    mi_text(
+                        ui,
+                        app,
+                        &crate::i18n::line(format!("{}: {h} / {b}", crate::i18n::t_logical(name))),
+                        "design.themeFonts",
+                        json!({"heading": h, "body": b}),
+                    );
                 }
             });
         });

@@ -481,7 +481,11 @@ fn advanced(app: &mut WordApp, ui: &mut Ui) {
         let units = app.session.units();
         let auto = app.session.prefs.units.is_none();
         let name = UNITS.iter().find(|(u, _)| *u == units).map_or("Inches", |(_, n)| n);
-        let shown = if auto { format!("{} ({})", tl!("Automatic"), tl!(name)) } else { tl!(name).to_string() };
+        let shown = if auto {
+            crate::i18n::line(format!("{} ({})", crate::i18n::t_logical("Automatic"), crate::i18n::t_logical(name)))
+        } else {
+            tl!(name).to_string()
+        };
         egui::ComboBox::from_id_salt("options_units").selected_text(shown).width(200.0).show_ui(ui, |ui| {
             if ui.selectable_label(auto, tl!("Automatic")).clicked() {
                 set(app, json!({"units": "auto"}));

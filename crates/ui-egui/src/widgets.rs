@@ -307,6 +307,7 @@ pub fn split(
     swatch: Option<Color32>,
     menu: impl FnOnce(&mut Ui, &mut WordApp),
 ) {
+    let tip_logical = crate::i18n::t_logical(tip);
     let tip = tl!(tip);
     let t = Tokens::get(ui.ctx());
     let (r, resp) = ui.allocate_exact_size(vec2(24.0, 22.0), Sense::click());
@@ -328,7 +329,7 @@ pub fn split(
     if resp.clicked() && on {
         run_from_ribbon(app, id, params);
     }
-    let (arrow_title, _) = tooltip_lines(&crate::i18n::fmt(tl!("{name} options"), &[("name", tip)]), "", "", None);
+    let (arrow_title, _) = tooltip_lines(&crate::i18n::fmt(tl!("{name} options"), &[("name", tip_logical)]), "", "", None);
     show_hint(&aresp, &arrow_title, &[]);
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, tip));
     if !on {

@@ -369,7 +369,7 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                     }
                     let tip = match crate::widgets::shortcut_text(app, "tools.search") {
                         k if k.is_empty() => tl!("Search").to_string(),
-                        k => format!("{} ({k})", tl!("Search")),
+                        k => crate::i18n::line(format!("{} ({k})", crate::i18n::t_logical("Search"))),
                     };
                     if resp.on_hover_text(tip).clicked() {
                         let _ = app.run("tools.search", json!({}));
@@ -378,6 +378,8 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                 });
             });
             // Centred title.
+            // Built and shortened in reading order, so a long name keeps its start and the "…"
+            // goes at its end; put in display order only to paint it.
             let title = if !app.has_document() {
                 // No document open (#1129): the app's name alone.
                 "WordCraft".to_string()
@@ -385,26 +387,28 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                 format!(
                     "{} — {}",
                     app.title_stem(),
-                    if app.session.dirty {
-                        tl!("Edited")
+                    crate::i18n::t_logical(if app.session.dirty {
+                        "Edited"
                     } else if app.session.path.is_some() {
-                        tl!("Saved")
+                        "Saved"
                     } else {
-                        tl!("Not saved")
-                    }
+                        "Not saved"
+                    })
                 )
             };
             let font = TypeRung::Chrome.semibold();
             let track = TypeRung::Chrome.tracking();
             let cx = full.center().x;
             let available = 2.0 * (cx - qat_end - 10.0).min(right_start - 10.0 - cx);
-            let mut shown: String = title.chars().take(240).collect();
-            if text_width(ui.painter(), &shown, &font, track, t.text) > available {
-                while !shown.is_empty() && text_width(ui.painter(), &format!("{shown}…"), &font, track, t.text) > available {
-                    shown.pop();
+            let width = |s: &str| text_width(ui.painter(), &crate::i18n::line(s.to_string()), &font, track, t.text);
+            let mut logical: String = title.chars().take(240).collect();
+            if width(&logical) > available {
+                while !logical.is_empty() && width(&format!("{logical}…")) > available {
+                    logical.pop();
                 }
-                shown.push('…');
+                logical.push('…');
             }
+            let shown = crate::i18n::line(logical);
             let w = text_width(ui.painter(), &shown, &font, track, t.text);
             if available > 24.0 {
                 let rect = Rect::from_center_size(pos2(cx, full.center().y), vec2(w + 8.0, control_h));

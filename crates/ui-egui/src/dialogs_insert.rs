@@ -1304,7 +1304,11 @@ fn field_ui(app: &mut WordApp, ui: &mut Ui, f: &mut FieldForm) -> bool {
         ui.vertical(|ui| {
             ui.label(egui::RichText::new(tl!("Field properties")).font(semibold(12.5)));
             if let Some((_, _, desc)) = FIELDS.iter().find(|(n, _, _)| *n == f.name) {
-                ui.label(egui::RichText::new(format!("{} {}", tl!("Description:"), tl!(desc))).small().color(t.text_dim));
+                ui.label(
+                    egui::RichText::new(crate::i18n::line(format!("{} {}", crate::i18n::t_logical("Description:"), crate::i18n::t_logical(desc))))
+                        .small()
+                        .color(t.text_dim),
+                );
             }
             ui.add_space(4.0);
             if f.codes {

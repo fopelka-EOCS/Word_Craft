@@ -38,6 +38,9 @@ fn system_locales_map_to_languages() {
     assert_eq!(lang_from_tag("de_AT.UTF-8"), Some(lang("de")));
     assert_eq!(lang_from_tag("de-CH"), Some(lang("de")));
     assert_eq!(lang_from_tag("DE_de.UTF-8@euro"), Some(lang("de")));
+    assert_eq!(lang_from_tag("ar"), Some(lang("ar")));
+    assert_eq!(lang_from_tag("ar-SA"), Some(lang("ar")));
+    assert_eq!(lang_from_tag("ar_EG.UTF-8"), Some(lang("ar")));
 }
 
 /// A language tag no catalog will ever have: `qaa`–`qtz` are reserved for local use (ISO 639-2),
@@ -488,6 +491,75 @@ fn korean_interface_fonts_load_and_cover_hangul() {
     if embedded || wordcraft_fonts::system_cjk_ui_font_for(false, true, &['한']).is_some() {
         assert!(covered, "a Korean face is available but the interface lacks Hangul glyphs");
     }
+}
+
+#[test]
+fn arabic_interface_fonts_load_and_cover_the_arabic_catalog() {
+    // The Latin interface faces have no Arabic letters: without the craft-fonts Arabic face or an
+    // installed Arabic font the Arabic catalog and «العربية» in the language list drew as boxes.
+    let ctx = egui::Context::default();
+    ctx.set_fonts(crate::theme::font_definitions_language(false, false, true));
+    ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+    if wordcraft_fonts::ui_arabic_fonts().is_empty() && wordcraft_fonts::system_arabic_ui_font(&[]).is_none() {
+        eprintln!("skipped: no Arabic face embedded or installed");
+        return;
+    }
+    let letters: String = lang("ar").0.source.chars().filter(|c| wordcraft_fonts::is_arabic(*c)).collect();
+    let covered = ctx.fonts_mut(|f| f.has_glyphs(&egui::FontId::proportional(14.0), &letters));
+    assert!(covered, "an Arabic face is available but the interface lacks some of the Arabic catalog's letters");
+}
+
+#[test]
+fn arabic_is_drawn_in_display_order_but_kept_in_reading_order() {
+    // egui places words left to right: the drawn form puts the first word at the right.
+    let ar = lang("ar");
+    assert!(ar.is_rtl() && !lang("de").is_rtl());
+    assert_eq!(tr_logical(ar, "AutoSave"), "الحفظ التلقائي");
+    assert_eq!(tr(ar, "AutoSave"), "التلقائي الحفظ");
+    assert_eq!(tr(ar, "Options…"), "…خيارات");
+    assert_eq!(tr(ar, "Insert\nAbove"), "إدراج\nأعلى");
+    // Templates keep their placeholders until filled; values move as one piece.
+    assert_eq!(tr(ar, "{n} lines"), "{n} سطر");
+    assert_eq!(fmt(tr(ar, "{n} lines"), &[("n", "12")]), "سطر 12");
+    assert_eq!(fmt(tr(ar, "Page {page} of {pages}"), &[("page", "2"), ("pages", "10")]), "10 من 2 الصفحة");
+    // Values are logical: a translated label goes in through `tr_logical`, a user's multi-word
+    // Arabic name as typed, and the whole line comes out in display order.
+    assert_eq!(fmt(tr(ar, "Now used by {command}"), &[("command", tr_logical(ar, "Insert Table"))]), "جدول إدراج الآن يستخدمه");
+    assert_eq!(fmt(tr(ar, "{name} wasn't found."), &[("name", "سجل الحضور")]), ".الحضور سجل على يُعثر لم");
+    assert_eq!(fmt(tr(ar, "Exported {path}"), &[("path", "/home/saleh/a.docx")]), "/home/saleh/a.docx إلى التصدير تم");
+    // Left-to-right templates are filled exactly as before.
+    assert_eq!(fmt("Page {page} of {pages}", &[("page", "2"), ("pages", "10")]), "Page 2 of 10");
+    assert_eq!(fmt("{a} and {missing}", &[("a", "x")]), "x and {missing}");
+    assert_eq!(fmt("open {brace", &[]), "open {brace");
+}
+
+#[test]
+fn arabic_formatting_annotation_is_ordered_once() {
+    // #2677: the tracked-formatting balloon joins property descriptions into one line and puts
+    // that line in display order once; the descriptions themselves stay in reading order.
+    set_current(lang("ar"));
+    let props = [serde_json::json!({"prop": "bold", "value": true}), serde_json::json!({"prop": "keepNext", "value": false})];
+    let what = crate::panes::describe_props(&props);
+    assert_eq!(what, ["غامق", "ليس الربط مع التالي"]);
+    let shown = line(format!("{}: {}", t_logical("Formatted"), what.join(", ")));
+    assert_eq!(shown, "التالي مع الربط ليس ,غامق :منسَّق");
+    set_current(Lang::EN);
+}
+
+#[test]
+fn arabic_covers_every_key_of_the_other_catalogs() {
+    // ar.tsv was built from the union of every catalog's keys; keep it that way as keys land.
+    let ar = lang("ar");
+    let mut missing: Vec<String> = LANGUAGES
+        .iter()
+        .filter(|l| l.code != "ar")
+        .flat_map(|l| parse_entries(l.source).0)
+        .filter(|e| !has(ar, &e.source))
+        .map(|e| e.source)
+        .collect();
+    missing.sort();
+    missing.dedup();
+    assert!(missing.is_empty(), "{} keys untranslated in Arabic: {missing:#?}", missing.len());
 }
 
 #[test]
@@ -992,7 +1064,7 @@ fn polish_covers_every_key_of_every_other_catalog() {
     // pieces of gallery labels. Polish matches every other catalog, including the built-in style
     // names, citation styles and equation gallery. French carries newer strings (paper sizes,
     // bookmarks, printing) the Polish catalog hasn't caught up with yet.
-    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "pl" | "it" | "hu" | "bg" | "vi" | "sv" | "hr" | "fr")) {
+    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "pl" | "it" | "hu" | "bg" | "vi" | "sv" | "hr" | "fr" | "ar")) {
         let mut missing: Vec<String> = keys(other.0.source).difference(&polish).cloned().collect();
         missing.sort();
         assert!(missing.is_empty(), "pl lacks {}'s {missing:?}", other.code());

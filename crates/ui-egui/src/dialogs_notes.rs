@@ -97,7 +97,7 @@ pub fn note_options(app: &mut WordApp, ui: &mut Ui, f: &mut NoteForm) -> bool {
         });
         ui.end_row();
         ui.label("");
-        ui.menu_button(format!("{}…", tl!("Convert")), |ui| {
+        ui.menu_button(crate::i18n::line(format!("{}…", crate::i18n::t_logical("Convert"))), |ui| {
             for (to, l) in [("endnote", "Footnotes to endnotes"), ("footnote", "Endnotes to footnotes"), ("swap", "Swap footnotes and endnotes")] {
                 if ui.button(tl!(l)).clicked() {
                     convert = Some(to);

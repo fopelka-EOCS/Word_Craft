@@ -623,9 +623,9 @@ impl LabelsForm {
 fn product_label(i: usize) -> String {
     let Some(p) = LABEL_PRODUCTS.get(i) else { return String::new() };
     let kind = match p.kind {
-        "shipping" => tl!("Shipping labels"),
-        "return" => tl!("Return address labels"),
-        _ => tl!("Address labels"),
+        "shipping" => crate::i18n::t_logical("Shipping labels"),
+        "return" => crate::i18n::t_logical("Return address labels"),
+        _ => crate::i18n::t_logical("Address labels"),
     };
     // Inches on Letter, millimetres on A4, as the sheets are sold.
     let size = if p.paper == "A4" {
@@ -638,7 +638,7 @@ fn product_label(i: usize) -> String {
     let (columns, rows) = (p.cols.to_string(), p.rows.to_string());
     crate::i18n::fmt(
         tl!("{kind}, {columns} × {rows}, {size} ({paper})"),
-        &[("kind", kind), ("columns", &columns), ("rows", &rows), ("size", &size), ("paper", tl!(p.paper))],
+        &[("kind", kind), ("columns", &columns), ("rows", &rows), ("size", &size), ("paper", crate::i18n::t_logical(p.paper))],
     )
 }
 
@@ -992,7 +992,7 @@ impl TextToTableForm {
             columns: 1,
             rows: 0,
             autofit: "initial".into(),
-            width: tl!("Auto").into(),
+            width: crate::i18n::t_logical("Auto").into(),
             separator: separator.into(),
             other_char: "-".into(),
             error: None,
@@ -1026,7 +1026,7 @@ impl TextToTableForm {
     /// 0 to 22 in.
     fn width_pt(&self) -> Option<f32> {
         let text = self.width.trim();
-        if text.is_empty() || text.eq_ignore_ascii_case("auto") || text == tl!("Auto") {
+        if text.is_empty() || text.eq_ignore_ascii_case("auto") || text == crate::i18n::t_logical("Auto") {
             return Some(0.0);
         }
         wordcraft_geom::parse_measure(text, unit()).filter(|pt| (0.0..=22.0 * 72.0).contains(pt))
@@ -1295,9 +1295,9 @@ fn size_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SizeForm) -> bool {
     if let Some((w, h)) = f.uncropped {
         heading(ui, "Original size");
         ui.horizontal(|ui| {
-            ui.label(format!("{} {}", tl!("Height:"), crate::options::length(h)));
+            ui.label(crate::i18n::line(format!("{} {}", crate::i18n::t_logical("Height:"), crate::options::length(h))));
             ui.add_space(12.0);
-            ui.label(format!("{} {}", tl!("Width:"), crate::options::length(w)));
+            ui.label(crate::i18n::line(format!("{} {}", crate::i18n::t_logical("Width:"), crate::options::length(w))));
             if let Some((pw, ph)) = f.pixels {
                 ui.add_space(12.0);
                 let (pw, ph) = (pw.to_string(), ph.to_string());

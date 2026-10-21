@@ -705,11 +705,13 @@ fn direct_list(v: &Value) -> Vec<String> {
 }
 
 /// Each `{"prop", "value"}` of a list (the Style Inspector's, or a formatting change's) as text.
+/// The changed properties, each described in reading order (see `describe`).
 pub(crate) fn describe_props(list: &[Value]) -> Vec<String> {
     list.iter().take(64).map(|d| describe(d["prop"].as_str().unwrap_or(""), &d["value"])).collect()
 }
 
-/// "Bold", "Not Italic", "Font: Arial", "Size: 14 pt"…
+/// "Bold", "Not Italic", "Font: Arial", "Size: 14 pt"…, in reading order: the caller assembles a
+/// longer line from these and passes the whole of it through `i18n::line` to draw it (#2677).
 fn describe(prop: &str, v: &Value) -> String {
     let label = match prop {
         "font" => "Font",
@@ -762,8 +764,8 @@ fn describe(prop: &str, v: &Value) -> String {
         "lang" => "Language",
         other => other,
     };
-    let label = tl!(label);
-    let pt = |x: f64| crate::i18n::fmt(tl!("{n} pt"), &[("n", &trim_num(x))]);
+    let label = crate::i18n::t_logical(label);
+    let pt = |x: f64| crate::i18n::fmt_logical(crate::i18n::t_logical("{n} pt"), &[("n", &trim_num(x))]);
     let hex = |c: &Value| -> Option<String> {
         let a = c.as_array()?;
         let ch = |i: usize| a.get(i).and_then(Value::as_u64).unwrap_or(0).min(255);
@@ -771,16 +773,16 @@ fn describe(prop: &str, v: &Value) -> String {
     };
     let value = match (prop, v) {
         (_, Value::Bool(true)) => return label.to_string(),
-        (_, Value::Bool(false)) => return crate::i18n::fmt(tl!("Not {name}"), &[("name", label)]),
+        (_, Value::Bool(false)) => return crate::i18n::fmt_logical(crate::i18n::t_logical("Not {name}"), &[("name", label)]),
         ("scale", Value::Number(n)) => format!("{}%", trim_num(n.as_f64().unwrap_or(100.0))),
         ("outlineLevel", Value::Number(n)) => match n.as_u64().unwrap_or(9) {
-            l @ 0..=8 => crate::i18n::fmt(tl!("Level {n}"), &[("n", &(l + 1).to_string())]),
-            _ => tl!("Body Text").to_string(),
+            l @ 0..=8 => crate::i18n::fmt_logical(crate::i18n::t_logical("Level {n}"), &[("n", &(l + 1).to_string())]),
+            _ => crate::i18n::t_logical("Body Text").to_string(),
         },
         ("dropCapFont", Value::String(s)) => s.clone(),
-        ("dropCap", Value::Number(n)) => crate::i18n::fmt(tl!("{n} lines"), &[("n", &n.to_string())]),
+        ("dropCap", Value::Number(n)) => crate::i18n::fmt_logical(crate::i18n::t_logical("{n} lines"), &[("n", &n.to_string())]),
         (_, Value::Number(n)) => pt(n.as_f64().unwrap_or(0.0)),
-        ("align", Value::String(s)) => tl!(match s.as_str() {
+        ("align", Value::String(s)) => crate::i18n::t_logical(match s.as_str() {
             "center" => "Centered",
             "right" => "Right",
             "justify" => "Justified",
@@ -788,18 +790,18 @@ fn describe(prop: &str, v: &Value) -> String {
             _ => "Left",
         })
         .to_string(),
-        ("color", Value::String(_)) => tl!("Automatic").to_string(),
+        ("color", Value::String(_)) => crate::i18n::t_logical("Automatic").to_string(),
         ("color", Value::Object(o)) => o.get("Rgb").and_then(hex).unwrap_or_default(),
         (_, Value::Array(_)) if prop != "tabs" => hex(v).unwrap_or_default(),
         ("lineSpacing", Value::Object(o)) => {
             let x = o.get("value").and_then(Value::as_f64).unwrap_or(1.0);
             match o.get("rule").and_then(Value::as_str) {
-                Some("atLeast") => crate::i18n::fmt(tl!("At least {n}"), &[("n", &pt(x))]),
-                Some("exactly") => crate::i18n::fmt(tl!("Exactly {n}"), &[("n", &pt(x))]),
-                _ => crate::i18n::fmt(tl!("{n} lines"), &[("n", &trim_num(x))]),
+                Some("atLeast") => crate::i18n::fmt_logical(crate::i18n::t_logical("At least {n}"), &[("n", &pt(x))]),
+                Some("exactly") => crate::i18n::fmt_logical(crate::i18n::t_logical("Exactly {n}"), &[("n", &pt(x))]),
+                _ => crate::i18n::fmt_logical(crate::i18n::t_logical("{n} lines"), &[("n", &trim_num(x))]),
             }
         }
-        (_, Value::String(s)) => tl!(&camel_words(s)).to_string(),
+        (_, Value::String(s)) => crate::i18n::t_logical(&camel_words(s)).to_string(),
         _ => return label.to_string(),
     };
     format!("{label}: {value}")

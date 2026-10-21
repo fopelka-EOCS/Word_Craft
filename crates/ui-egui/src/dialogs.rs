@@ -131,7 +131,7 @@ fn special_menu(ui: &mut Ui, extra: &FindExtra) -> Option<&'static str> {
             (true, true) => [wild_replace, SPECIAL_REPLACE],
         };
         for (name, code) in lists.into_iter().flatten() {
-            if ui.button(format!("{}   {code}", tl!(name))).clicked() {
+            if ui.button(crate::i18n::line(format!("{}   {code}", crate::i18n::t_logical(name)))).clicked() {
                 picked = Some(*code);
                 ui.close();
             }
@@ -2340,8 +2340,8 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 egui::Frame::group(ui.style()).show(ui, |ui| {
                     egui::ScrollArea::vertical().max_height(220.0).min_scrolled_height(160.0).auto_shrink([false, true]).show(ui, |ui| {
                         let is = |pick: &Option<(Value, String)>, key: &str, val: &Value| pick.as_ref().is_some_and(|(v, _)| v.get(key) == Some(val));
-                        let top = tl!("Top of the Document").to_string();
-                        if ui.selectable_label(is(pick, "top", &json!(true)), &top).clicked() {
+                        let top = crate::i18n::t_logical("Top of the Document").to_string();
+                        if ui.selectable_label(is(pick, "top", &json!(true)), tl!("Top of the Document")).clicked() {
                             chosen = Some((json!({"top": true}), top));
                         }
                         let headings = targets.as_ref().and_then(|t| t.get("headings")).and_then(Value::as_array).cloned().unwrap_or_default();
@@ -2611,7 +2611,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             let mut run: Option<&str> = enter.then(|| hits.first().map(|c| c.id)).flatten();
             for c in &hits {
                 let sc = crate::widgets::shortcut_text(app, c.id);
-                let label = format!("{}   —   {}", tl!(c.label), crate::i18n::location(c.location));
+                let label = crate::i18n::line(format!("{}   —   {}", crate::i18n::t_logical(c.label), crate::i18n::location_logical(c.location)));
                 if ui.add(egui::Button::new(label).shortcut_text(sc).min_size(vec2(380.0, 0.0))).clicked() {
                     run = Some(c.id);
                 }
@@ -2684,7 +2684,8 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 2 => crate::credits::models_ui(ui),
                 _ => {
                     ui.label(egui::RichText::new(tl!("WordCraft")).font(semibold(22.0)));
-                    let build = option_env!("WORDCRAFT_BUILD_SHA").map(|s| s.get(..8).unwrap_or(s)).unwrap_or(tl!("development build"));
+                    let build =
+                        option_env!("WORDCRAFT_BUILD_SHA").map(|s| s.get(..8).unwrap_or(s)).unwrap_or(crate::i18n::t_logical("development build"));
                     ui.label(crate::i18n::fmt(tl!("Version {version} ({build})"), &[("version", env!("CARGO_PKG_VERSION")), ("build", build)]));
                     ui.label(tl!(
                         "A free, open-source word processor written from scratch in Rust.\nPart of the Crafting Apps from the ArtCraft team."
@@ -3782,7 +3783,8 @@ fn swallow_shortcut_text(swallow: &mut bool, e: &egui::Event) -> bool {
 }
 
 /// Search's filter: every word of the query is in the command's label, location or id, in English
-/// or in the interface language, so "insert table" finds Insert › Tables › Table (#819).
+/// or in the interface language, so "insert table" finds Insert › Tables › Table (#819). The
+/// translations are matched in reading order, as the query is typed.
 fn command_matches(c: &wordcraft_engine::CommandSpec, query: &str) -> bool {
     if query.trim().is_empty() {
         return false;
@@ -3792,8 +3794,8 @@ fn command_matches(c: &wordcraft_engine::CommandSpec, query: &str) -> bool {
         c.label.to_lowercase(),
         c.location.to_lowercase(),
         c.id.to_lowercase(),
-        crate::i18n::lowercase(tl!(c.label)),
-        crate::i18n::lowercase(&crate::i18n::location(c.location))
+        crate::i18n::lowercase(crate::i18n::t_logical(c.label)),
+        crate::i18n::lowercase(&crate::i18n::location_logical(c.location))
     );
     query.split_whitespace().all(|w| hay.contains(&w.to_lowercase()) || hay.contains(&crate::i18n::lowercase(w)))
 }

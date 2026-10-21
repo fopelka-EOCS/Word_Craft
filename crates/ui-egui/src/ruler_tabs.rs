@@ -135,7 +135,7 @@ pub(crate) fn selector(app: &mut WordApp, ui: &Ui, corner: Rect) {
         _ => 0.0,
     };
     draw_tab_glyph(&p, b.center().x + nudge, b.max.y - 4.0, kind, false, Stroke::new(1.5, t.text));
-    r.on_hover_text(format!("{}: {}", tl!("Tabs"), tl!(kind_label(kind))));
+    r.on_hover_text(crate::i18n::line(format!("{}: {}", crate::i18n::t_logical("Tabs"), crate::i18n::t_logical(kind_label(kind)))));
 }
 
 /// Where the stops' glyphs sit on the ruler `bar`, for its numbers to keep clear of (#1878):
@@ -217,7 +217,7 @@ pub(crate) fn stops(app: &mut WordApp, ui: &Ui, hp: &Painter, g: &Ruler<'_>, tab
         }
         open_dialog |= r.double_clicked();
         if !starts && app.canvas.tab_drag.is_none() {
-            r.on_hover_text(format!("{} {}", tl!(kind_label(tab.align)), units.format_with(tab.pos, decimal)));
+            r.on_hover_text(crate::i18n::line(format!("{} {}", crate::i18n::t_logical(kind_label(tab.align)), units.format_with(tab.pos, decimal))));
         }
     }
 
@@ -244,7 +244,7 @@ pub(crate) fn stops(app: &mut WordApp, ui: &Ui, hp: &Painter, g: &Ruler<'_>, tab
                         ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, ui.id().with("ruler_tab_guide"))).with_clip_rect(area);
                     guide.extend(Shape::dashed_line(&[pos2(x, area.min.y), pos2(x, area.max.y)], Stroke::new(1.0, t.text_dim), 3.0, 3.0));
                 }
-                format!("{} {}", tl!(kind_label(d.align)), units.format_with(d.at, decimal))
+                crate::i18n::line(format!("{} {}", crate::i18n::t_logical(kind_label(d.align)), units.format_with(d.at, decimal)))
             };
             egui::Tooltip::always_open(ui.ctx().clone(), ui.layer_id(), ui.id().with("ruler_tab_tip"), egui::PopupAnchor::Pointer).show(|ui| {
                 ui.label(label);

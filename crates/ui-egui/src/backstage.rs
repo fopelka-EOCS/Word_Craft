@@ -485,9 +485,9 @@ fn info_page(app: &mut WordApp, ui: &mut Ui) {
         let ui = &mut cols[1];
         ui.label(egui::RichText::new(tl!("Statistics")).font(semibold(15.0)));
         for (l, k) in [("Pages", "pages"), ("Words", "words"), ("Paragraphs", "paragraphs"), ("Sections", "sections"), ("Comments", "comments")] {
-            ui.label(format!("{}: {}", tl!(l), info.get(k).map(|v| v.to_string()).unwrap_or_default()));
+            ui.label(crate::i18n::line(format!("{}: {}", crate::i18n::t_logical(l), info.get(k).map(|v| v.to_string()).unwrap_or_default())));
         }
-        let path = info.get("path").and_then(|v| v.as_str()).unwrap_or(tl!("Not saved yet"));
+        let path = info.get("path").and_then(|v| v.as_str()).unwrap_or(crate::i18n::t_logical("Not saved yet"));
         ui.label(crate::i18n::fmt(tl!("Location: {path}"), &[("path", path)]));
     });
 }
