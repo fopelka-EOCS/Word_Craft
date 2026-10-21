@@ -876,6 +876,7 @@
 	Previous sentence	Poprzednie zdanie
 	Play/Pause	Odtwórz/wstrzymaj
 	Read Aloud Status	Stan czytania na głos
+	Read Aloud Settings	Ustawienia czytania na głos
 	Reading Speed	Szybkość czytania
 	Skip Citations and Bibliography	Pomijaj cytaty i bibliografię
 	Skip citations & bibliography	Pomijaj cytaty i bibliografię
@@ -2704,3 +2705,25 @@ preview	Title	Tytuł
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Wpisz rozmiar w dowolnej jednostce, np. 5 cm lub 300 px. Druga strona dopasuje się, więc obraz zachowa proporcje.
 
 	Import…	Importuj…
+	Read at a time:	Czytaj naraz:
+	One paragraph	Jeden akapit
+	One page	Jedna strona
+	The whole document	Cały dokument
+	Read Aloud settings…	Ustawienia czytania na głos…
+	Read Aloud prepares and reads this much text, then goes on to the next part.	Czytanie na głos przygotowuje i czyta tyle tekstu, a potem przechodzi do następnej części.
+	Read Aloud: text	Czytanie na głos: tekst
+	Web addresses:	Adresy internetowe:
+	Read the site name only	Czytaj tylko nazwę witryny
+	Skip emoji	Pomijaj emoji
+	Skip markup characters (* # _ ~ | ^ ` < > = \\)	Pomijaj znaki formatowania (* # _ ~ | ^ ` < > = \\)
+	Skip repeated punctuation (*****, -----)	Pomijaj powtarzaną interpunkcję (*****, -----)
+	Skip symbols (arrows, boxes, bullets, icon characters)	Pomijaj symbole (strzałki, ramki, punktory, znaki ikon)
+	Skip text in (parentheses)	Pomijaj tekst w (nawiasach okrągłych)
+	Skip text in [square brackets]	Pomijaj tekst w [nawiasach kwadratowych]
+	Skip text that matches (regular expressions, one per line):	Pomijaj pasujący tekst (wyrażenia regularne, jedno w wierszu):
+	Characters to skip:	Znaki do pominięcia:
+	Say instead (one per line, text = spoken as):	Mów zamiast tego (jedno w wierszu, tekst = wymowa):
+	The text on the page doesn't change. Only the spoken text does.	Tekst na stronie się nie zmienia. Zmienia się tylko wypowiadany tekst.
+	Write each replacement on its own line as: text = spoken as	Każdą zamianę wpisz w osobnym wierszu: tekst = wymowa
+	Read all of the address	Czytaj cały adres
+	Skip	Pomijaj

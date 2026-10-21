@@ -910,6 +910,7 @@
 	Raised/lowered	Zvýšené/snížené
 	Read Aloud	Číst nahlas
 	Read Aloud Status	Stav čtení nahlas
+	Read Aloud Settings	Nastavení čtení nahlas
 	Read Mode	Režim čtení
 	Read\nAloud	Číst\nnahlas
 	Read\nMode	Režim\nčtení
@@ -2691,3 +2692,25 @@ preview	Title	Ukázka
 	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Zadejte velikost v libovolné jednotce, například 5 cm nebo 300 px. Druhá strana se přizpůsobí, takže obrázek zachová své proporce.
 
 	Import…	Importovat…
+	Read at a time:	Číst najednou:
+	One paragraph	Jeden odstavec
+	One page	Jedna stránka
+	The whole document	Celý dokument
+	Read Aloud settings…	Nastavení čtení nahlas…
+	Read Aloud prepares and reads this much text, then goes on to the next part.	Čtení nahlas připraví a přečte tolik textu a pak přejde na další část.
+	Read Aloud: text	Čtení nahlas: text
+	Web addresses:	Webové adresy:
+	Read the site name only	Číst jen název webu
+	Skip emoji	Přeskakovat emoji
+	Skip markup characters (* # _ ~ | ^ ` < > = \\)	Přeskakovat znaky formátování (* # _ ~ | ^ ` < > = \\)
+	Skip repeated punctuation (*****, -----)	Přeskakovat opakovanou interpunkci (*****, -----)
+	Skip symbols (arrows, boxes, bullets, icon characters)	Přeskakovat symboly (šipky, rámečky, odrážky, znaky ikon)
+	Skip text in (parentheses)	Přeskakovat text v (kulatých závorkách)
+	Skip text in [square brackets]	Přeskakovat text v [hranatých závorkách]
+	Skip text that matches (regular expressions, one per line):	Přeskakovat odpovídající text (regulární výrazy, jeden na řádek):
+	Characters to skip:	Znaky k přeskočení:
+	Say instead (one per line, text = spoken as):	Vyslovit místo toho (jedno na řádek, text = výslovnost):
+	The text on the page doesn't change. Only the spoken text does.	Text na stránce se nemění. Mění se jen vyslovený text.
+	Write each replacement on its own line as: text = spoken as	Každou náhradu napište na samostatný řádek: text = výslovnost
+	Read all of the address	Číst celou adresu
+	Skip	Přeskočit

@@ -16,12 +16,22 @@
 //! / `spd-say` (Linux, BSD) or the Windows speech synthesizer (PowerShell) for the current
 //! sentence, and moves on when it finishes. Commands only change the shared state and wake the
 //! worker, which stops the running sentence when the state changed under it.
+//!
+//! The document is read one chunk at a time ([`Chunk`]: a paragraph, a page or all of it): the
+//! queue holds the sentences of the current chunk only, and the next chunk is loaded when the
+//! player gets to the end of it.
+//! The text rules ([`clean`]) take odd characters out of the spoken text.
 
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 
 use serde_json::{Value, json};
 use wordcraft_doc::para::{COLUMN_BREAK, LINE_BREAK, OBJ, PAGE_BREAK};
-use wordcraft_doc::{Document, InlineObject, Pos};
+use wordcraft_doc::{Document, InlineObject, Path, Pos, StoryRef};
+
+pub mod clean;
+pub mod settings;
+
+pub use settings::{Chunk, SpeechSettings, TextRules, UrlMode};
 
 /// Longest sentence handed to the speech program (longer ones are split at a space).
 const MAX_SENTENCE: usize = 600;
@@ -71,17 +81,33 @@ impl Utterance {
     }
 }
 
+/// How the text of a sentence is prepared.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ReadOptions<'a> {
+    /// Leave citation and bibliography fields out.
+    pub skip_citations: bool,
+    /// The text rules; `None` keeps the text as written (only spaces and citation leftovers tidied).
+    pub rules: Option<&'a TextRules>,
+}
+
+/// The citation and bibliography fields of `story` as (start, end) spans, both markers included.
+fn citation_spans(doc: &Document, story: StoryRef, skip: bool) -> Vec<(Pos, Pos)> {
+    if !skip {
+        return Vec::new();
+    }
+    doc.field_ranges(story).into_iter().filter(|r| is_citation_code(&r.instr)).map(|r| (r.start, r.end)).collect()
+}
+
 /// The sentences from `from` (to `to`, if given) in `from`'s story, in reading order.
 /// With `skip_citations`, citation and bibliography fields are left out.
 pub fn sentences(doc: &Document, from: &Pos, to: Option<&Pos>, skip_citations: bool) -> Vec<Utterance> {
+    sentences_with(doc, from, to, &ReadOptions { skip_citations, ..Default::default() })
+}
+
+/// [`sentences`] with the text rules of `opts`.
+pub fn sentences_with(doc: &Document, from: &Pos, to: Option<&Pos>, opts: &ReadOptions) -> Vec<Utterance> {
     let story = from.story;
-    // Spans to leave out: whole range fields, both markers included.
-    let skipped: Vec<(Pos, Pos)> = if skip_citations {
-        doc.field_ranges(story).into_iter().filter(|r| is_citation_code(&r.instr)).map(|r| (r.start, r.end)).collect()
-    } else {
-        Vec::new()
-    };
-    let in_skipped = |p: &Pos| skipped.iter().any(|(a, b)| a <= p && p <= b);
+    let skipped = citation_spans(doc, story, opts.skip_citations);
     let mut out = Vec::new();
     for path in doc.para_paths(story) {
         if path < from.path {
@@ -92,60 +118,147 @@ pub fn sentences(doc: &Document, from: &Pos, to: Option<&Pos>, skip_citations: b
         {
             break;
         }
-        let Some(para) = doc.para(story, &path) else { continue };
-        // The spoken text, and for each char the paragraph offset it came from.
-        let mut text = String::new();
-        let mut map: Vec<(usize, usize)> = Vec::new(); // (start, end) offsets in the paragraph
-        let mut k = 0;
-        for (off, c) in para.text.char_indices() {
-            let end = off + c.len_utf8();
-            let obj = if c == OBJ {
-                k += 1;
-                para.objects.get(k - 1)
-            } else {
-                None
-            };
-            if (path == from.path && off < from.off) || to.is_some_and(|t| path == t.path && off >= t.off) {
-                continue;
-            }
-            let pos = Pos::new(story, path.clone(), off);
-            if in_skipped(&pos) {
-                continue;
-            }
-            match obj {
-                Some(InlineObject::Field { instr, .. }) if skip_citations && is_citation_code(instr) => {}
-                Some(o) => {
-                    for ch in o.plain_text().chars() {
-                        text.push(ch);
-                        map.push((off, end));
-                    }
-                }
-                None if c == OBJ => {}
-                None => {
-                    let ch = if matches!(c, LINE_BREAK | PAGE_BREAK | COLUMN_BREAK | '\t') { ' ' } else { c };
-                    text.push(ch);
-                    map.push((off, end));
-                }
-            }
-        }
-        for (a, b) in split_sentences(&text) {
-            if out.len() >= MAX_SENTENCES {
-                return out;
-            }
-            let chars: Vec<char> = text.chars().skip(a).take(b - a).collect();
-            let spoken = tidy(&chars.iter().collect::<String>());
-            if !spoken.chars().any(char::is_alphanumeric) {
-                continue;
-            }
-            let (Some(first), Some(last)) = (map.get(a), map.get(b.saturating_sub(1))) else { continue };
-            // The language of the sentence's first character, through styles and the defaults.
-            let run = para.props_of_char(first.0);
-            let explicit = doc.styles.resolve_char(para.props.style.as_deref(), run).lang;
-            let lang = speech_language(&spoken, explicit.as_deref(), run.lang_bidi.as_deref());
-            out.push(Utterance { text: spoken, start: Pos::new(story, path.clone(), first.0), end: Pos::new(story, path.clone(), last.1), lang });
+        let from_off = (path == from.path).then_some(from.off);
+        let to_off = to.filter(|t| t.path == path).map(|t| t.off);
+        para_sentences(doc, story, &path, (from_off, to_off), &skipped, opts, &mut out);
+        if out.len() >= MAX_SENTENCES {
+            out.truncate(MAX_SENTENCES);
+            break;
         }
     }
     out
+}
+
+/// Add the sentences of the paragraph at `path` to `out`, from offset `range.0` up to `range.1`
+/// (the whole paragraph for `None`).
+fn para_sentences(
+    doc: &Document,
+    story: StoryRef,
+    path: &Path,
+    range: (Option<usize>, Option<usize>),
+    skipped: &[(Pos, Pos)],
+    opts: &ReadOptions,
+    out: &mut Vec<Utterance>,
+) {
+    let Some(para) = doc.para(story, path) else { return };
+    let in_skipped = |p: &Pos| skipped.iter().any(|(a, b)| a <= p && p <= b);
+    // The spoken text, and for each char the paragraph offset it came from.
+    let mut text = String::new();
+    let mut map: Vec<(usize, usize)> = Vec::new(); // (start, end) offsets in the paragraph
+    let mut k = 0;
+    for (off, c) in para.text.char_indices() {
+        let end = off + c.len_utf8();
+        let obj = if c == OBJ {
+            k += 1;
+            para.objects.get(k - 1)
+        } else {
+            None
+        };
+        if range.0.is_some_and(|f| off < f) || range.1.is_some_and(|t| off >= t) {
+            continue;
+        }
+        if !skipped.is_empty() && in_skipped(&Pos::new(story, path.clone(), off)) {
+            continue;
+        }
+        let mut push = |ch: char| {
+            text.push(ch);
+            map.push((off, end));
+        };
+        match obj {
+            Some(InlineObject::Field { instr, .. }) if opts.skip_citations && is_citation_code(instr) => {}
+            Some(o) => o.plain_text().chars().for_each(&mut push),
+            None if c == OBJ => {}
+            None => push(if matches!(c, LINE_BREAK | PAGE_BREAK | COLUMN_BREAK | '\t') { ' ' } else { c }),
+        }
+    }
+    for (a, b) in split_sentences(&text) {
+        if out.len() >= MAX_SENTENCES {
+            return;
+        }
+        let piece: String = text.chars().skip(a).take(b - a).collect();
+        let spoken = match opts.rules {
+            Some(rules) => clean::clean(&piece, rules),
+            None => tidy(&piece),
+        };
+        if !spoken.chars().any(char::is_alphanumeric) {
+            continue;
+        }
+        let (Some(first), Some(last)) = (map.get(a), map.get(b.saturating_sub(1))) else { continue };
+        // The language of the sentence's first character, through styles and the defaults.
+        let run = para.props_of_char(first.0);
+        let explicit = doc.styles.resolve_char(para.props.style.as_deref(), run).lang;
+        let lang = speech_language(&spoken, explicit.as_deref(), run.lang_bidi.as_deref());
+        out.push(Utterance { text: spoken, start: Pos::new(story, path.clone(), first.0), end: Pos::new(story, path.clone(), last.1), lang });
+    }
+}
+
+/// What a reading covers, split into chunks: the paragraphs from the reading's start to its end,
+/// and where each chunk (a paragraph, a page or all of them) starts.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Plan {
+    pub story: StoryRef,
+    pub paras: Vec<Path>,
+    /// Index in `paras` of each chunk's first paragraph: ascending, the first is 0.
+    pub starts: Vec<usize>,
+    pub from: Pos,
+    pub to: Option<Pos>,
+    skipped: Vec<(Pos, Pos)>,
+}
+
+impl Plan {
+    /// The plan of reading from `from` (to `to`) in chunks of `settings.chunk`. `page_of` gives
+    /// the page a position is on (from the layout), for [`Chunk::Page`].
+    pub fn new(
+        doc: &Document,
+        from: &Pos,
+        to: Option<&Pos>,
+        settings: &SpeechSettings,
+        skip_citations: bool,
+        page_of: &dyn Fn(&Pos) -> Option<usize>,
+    ) -> Plan {
+        let story = from.story;
+        let all = doc.para_paths(story);
+        let paras: Vec<Path> = all.into_iter().filter(|p| *p >= from.path && !to.is_some_and(|t| *p > t.path)).collect();
+        let starts = match settings.chunk {
+            Chunk::Document => vec![0],
+            Chunk::Paragraph => (0..paras.len()).collect(),
+            Chunk::Page => {
+                // The page of the paragraph's first character after any breaks at its start.
+                let first = |p: &Path| {
+                    doc.para(story, p)
+                        .and_then(|para| {
+                            para.text.char_indices().find(|(_, c)| !matches!(*c, PAGE_BREAK | COLUMN_BREAK | LINE_BREAK)).map(|(i, _)| i)
+                        })
+                        .unwrap_or(0)
+                };
+                let pages: Vec<Option<usize>> = paras.iter().map(|p| page_of(&Pos::new(story, p.clone(), first(p)))).collect();
+                (0..paras.len()).filter(|&i| i == 0 || pages.get(i).copied().flatten().is_none() || pages.get(i) != pages.get(i - 1)).collect()
+            }
+        };
+        Plan { story, paras, starts, from: from.clone(), to: to.cloned(), skipped: citation_spans(doc, story, skip_citations) }
+    }
+
+    /// The number of chunks.
+    pub fn chunks(&self) -> usize {
+        self.starts.len()
+    }
+
+    /// The sentences of chunk `c`.
+    pub fn sentences(&self, doc: &Document, c: usize, opts: &ReadOptions) -> Vec<Utterance> {
+        let a = self.starts.get(c).copied().unwrap_or(usize::MAX);
+        let b = self.starts.get(c + 1).copied().unwrap_or(self.paras.len());
+        let mut out = Vec::new();
+        for i in a..b.min(self.paras.len()) {
+            let Some(path) = self.paras.get(i) else { break };
+            let from_off = (*path == self.from.path).then_some(self.from.off);
+            let to_off = self.to.as_ref().filter(|t| t.path == *path).map(|t| t.off);
+            para_sentences(doc, self.story, path, (from_off, to_off), &self.skipped, opts, &mut out);
+            if out.len() >= MAX_SENTENCES {
+                break;
+            }
+        }
+        out
+    }
 }
 
 /// The language of `text` from its script, as a BCP 47 primary tag: Cyrillic is Russian (Ukrainian
@@ -492,7 +605,15 @@ pub enum Backend {
     Instant,
 }
 
+/// What a reading reads: the document as it was when reading started, and the reading's plan.
+struct Source {
+    doc: Arc<Document>,
+    plan: Plan,
+    skip_citations: bool,
+}
+
 struct Shared {
+    /// The sentences of the current chunk.
     queue: Vec<Utterance>,
     index: usize,
     state: State,
@@ -503,6 +624,45 @@ struct Shared {
     /// A worker thread is running (cleared under the lock as it exits).
     #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     running: bool,
+    settings: Arc<SpeechSettings>,
+    /// `None` for a fixed queue ([`ReadAloud::start`]): one chunk.
+    source: Option<Source>,
+    chunk: usize,
+}
+
+impl Shared {
+    fn chunks(&self) -> usize {
+        self.source.as_ref().map_or(1, |s| s.plan.chunks())
+    }
+
+    /// Load the first chunk from `c` on that has something to read, going forwards (or
+    /// backwards), at its first (or last) sentence. False when there's none; nothing changes then.
+    fn load(&mut self, c: usize, forward: bool) -> bool {
+        let found = {
+            let Some(src) = &self.source else { return false };
+            let opts = ReadOptions { skip_citations: src.skip_citations, rules: Some(&self.settings.text) };
+            let mut at = c;
+            loop {
+                if at >= src.plan.chunks() {
+                    break None;
+                }
+                let q = src.plan.sentences(&src.doc, at, &opts);
+                if !q.is_empty() {
+                    break Some((at, q));
+                }
+                match (forward, at.checked_sub(1)) {
+                    (true, _) => at += 1,
+                    (false, Some(p)) => at = p,
+                    (false, None) => break None,
+                }
+            }
+        };
+        let Some((at, q)) = found else { return false };
+        self.index = if forward { 0 } else { q.len().saturating_sub(1) };
+        self.queue = q;
+        self.chunk = at;
+        true
+    }
 }
 
 /// The Read Aloud player.
@@ -513,19 +673,33 @@ pub struct ReadAloud {
     pub skip_citations: bool,
     /// The player window is open (it stays open after the last sentence until closed).
     pub open: bool,
+    settings: SpeechSettings,
 }
 
 impl Default for ReadAloud {
     fn default() -> Self {
         let off = cfg!(test) || std::env::var("WORDCRAFT_SPEECH").is_ok_and(|v| v == "off");
+        let settings = SpeechSettings::default();
         ReadAloud {
             shared: Arc::new((
-                Mutex::new(Shared { queue: Vec::new(), index: 0, state: State::Stopped, rate: 1.0, generation: 0, error: None, running: false }),
+                Mutex::new(Shared {
+                    queue: Vec::new(),
+                    index: 0,
+                    state: State::Stopped,
+                    rate: 1.0,
+                    generation: 0,
+                    error: None,
+                    running: false,
+                    settings: Arc::new(settings.clone()),
+                    source: None,
+                    chunk: 0,
+                }),
                 Condvar::new(),
             )),
             backend: if off { Backend::Hold } else { Backend::System },
             skip_citations: true,
             open: false,
+            settings,
         }
     }
 }
@@ -555,7 +729,29 @@ impl ReadAloud {
             s.queue = queue;
             s.index = 0;
             s.error = None;
+            s.source = None;
+            s.chunk = 0;
         });
+    }
+
+    /// Start reading `doc` by `plan`, one chunk at a time, with the current settings. False
+    /// when there's nothing to read.
+    pub fn start_plan(&mut self, doc: Arc<Document>, plan: Plan) -> bool {
+        self.open = true;
+        let skip_citations = self.skip_citations;
+        let mut ok = false;
+        self.change(|s| {
+            s.source = Some(Source { doc, plan, skip_citations });
+            s.error = None;
+            ok = s.load(0, true);
+            if !ok {
+                s.queue.clear();
+                s.index = 0;
+                s.chunk = 0;
+            }
+            s.state = if ok { State::Playing } else { State::Stopped };
+        });
+        ok
     }
 
     /// Pause, or carry on (a finished reading starts again from the top).
@@ -565,7 +761,7 @@ impl ReadAloud {
                 State::Playing => State::Paused,
                 _ if s.queue.is_empty() => State::Stopped,
                 _ => {
-                    if s.index >= s.queue.len() {
+                    if s.index >= s.queue.len() && !(s.source.is_some() && s.load(0, true)) {
                         s.index = 0;
                     }
                     State::Playing
@@ -574,12 +770,22 @@ impl ReadAloud {
         });
     }
 
-    /// Move by `delta` sentences; a stopped player starts playing there.
+    /// Move by `delta` sentences, on into the next chunk or back into the previous one; a
+    /// stopped player starts playing there.
     pub fn skip(&mut self, delta: i64) {
         self.change(|s| {
-            let last = s.queue.len().saturating_sub(1) as i64;
-            let at = (s.index.min(s.queue.len()) as i64).saturating_add(delta).clamp(0, last.max(0));
-            s.index = at as usize;
+            let len = s.queue.len() as i64;
+            let at = (s.index.min(s.queue.len()) as i64).saturating_add(delta);
+            let moved = if at >= len && delta > 0 {
+                s.load(s.chunk.saturating_add(1), true)
+            } else if at < 0 && delta < 0 && s.chunk > 0 {
+                s.load(s.chunk - 1, false)
+            } else {
+                false
+            };
+            if !moved {
+                s.index = at.clamp(0, (len - 1).max(0)) as usize;
+            }
             if s.state == State::Stopped && !s.queue.is_empty() {
                 s.state = State::Playing;
             }
@@ -594,6 +800,23 @@ impl ReadAloud {
             self.change(|s| s.rate = r);
         } else {
             lock(&self.shared.0).rate = r;
+        }
+    }
+
+    /// The settings the next sentence is read with.
+    pub fn settings(&self) -> &SpeechSettings {
+        &self.settings
+    }
+
+    /// Use `settings` from the next sentence on (the current one restarts when reading).
+    pub fn set_settings(&mut self, settings: SpeechSettings) {
+        self.settings = settings.clone();
+        let reading = self.state() != State::Stopped;
+        let apply = |s: &mut Shared| s.settings = Arc::new(settings);
+        if reading {
+            self.change(apply);
+        } else {
+            apply(&mut lock(&self.shared.0));
         }
     }
 
@@ -614,10 +837,19 @@ impl ReadAloud {
         let s = lock(&self.shared.0);
         if s.state == State::Stopped { None } else { s.queue.get(s.index).cloned() }
     }
-    /// (index, number of sentences).
+    /// (index, number of sentences) in the current chunk.
     pub fn progress(&self) -> (usize, usize) {
         let s = lock(&self.shared.0);
         (s.index, s.queue.len())
+    }
+    /// Where the reading in progress ends (a selection's end), if not at the end of its story.
+    pub fn reading_end(&self) -> Option<Pos> {
+        lock(&self.shared.0).source.as_ref().and_then(|src| src.plan.to.clone())
+    }
+    /// (current chunk, number of chunks).
+    pub fn chunk_progress(&self) -> (usize, usize) {
+        let s = lock(&self.shared.0);
+        (s.chunk, s.chunks())
     }
     /// The last speech error (no speech program…), if any.
     pub fn error(&self) -> Option<String> {
@@ -632,6 +864,9 @@ impl ReadAloud {
             "open": self.open,
             "index": s.index,
             "count": s.queue.len(),
+            "chunk": s.settings.chunk.name(),
+            "chunkIndex": s.chunk,
+            "chunkCount": s.chunks(),
             "rate": s.rate,
             "skipCitations": self.skip_citations,
             "current": current.map(Utterance::to_json),
@@ -652,16 +887,18 @@ impl ReadAloud {
     #[cfg(not(target_arch = "wasm32"))]
     fn ensure_worker(&mut self) {
         let mut s = lock(&self.shared.0);
-        if s.state != State::Playing || s.running {
+        if s.state == State::Stopped {
             return;
         }
-        s.running = true;
-        let shared = Arc::clone(&self.shared);
-        let backend = self.backend;
-        if let Err(e) = std::thread::Builder::new().name("read-aloud".into()).spawn(move || worker(&shared, backend)) {
-            s.running = false;
-            s.state = State::Stopped;
-            s.error = Some(format!("couldn't start Read Aloud: {e}"));
+        if s.state == State::Playing && !s.running {
+            s.running = true;
+            let shared = Arc::clone(&self.shared);
+            let backend = self.backend;
+            if let Err(e) = std::thread::Builder::new().name("read-aloud".into()).spawn(move || worker(&shared, backend)) {
+                s.running = false;
+                s.state = State::Stopped;
+                s.error = Some(format!("couldn't start Read Aloud: {e}"));
+            }
         }
     }
 }
@@ -688,7 +925,7 @@ enum Spoken {
 fn worker(shared: &(Mutex<Shared>, Condvar), backend: Backend) {
     let (m, cv) = shared;
     loop {
-        let (text, lang, generation, rate) = {
+        let (u, generation, rate) = {
             let mut s = lock(m);
             while s.state == State::Paused {
                 s = cv.wait(s).unwrap_or_else(PoisonError::into_inner);
@@ -698,7 +935,7 @@ fn worker(shared: &(Mutex<Shared>, Condvar), backend: Backend) {
                 return;
             }
             match s.queue.get(s.index) {
-                Some(u) => (u.text.clone(), u.lang.clone(), s.generation, s.rate),
+                Some(u) => (u.clone(), s.generation, s.rate),
                 None => {
                     s.state = State::Stopped;
                     s.running = false;
@@ -708,7 +945,7 @@ fn worker(shared: &(Mutex<Shared>, Condvar), backend: Backend) {
         };
         let changed = || lock(m).generation != generation;
         let outcome = match backend {
-            Backend::System => speak(&text, lang.as_deref(), rate, &changed),
+            Backend::System => speak(&u.text, u.lang.as_deref(), rate, &changed),
             Backend::Instant => Spoken::Done,
             Backend::Hold => {
                 let mut s = lock(m);
@@ -726,9 +963,12 @@ fn worker(shared: &(Mutex<Shared>, Condvar), backend: Backend) {
             Spoken::Done => {
                 s.index += 1;
                 if s.index >= s.queue.len() {
-                    s.state = State::Stopped;
-                    s.running = false;
-                    return;
+                    let next = s.chunk.saturating_add(1);
+                    if !s.load(next, true) {
+                        s.state = State::Stopped;
+                        s.running = false;
+                        return;
+                    }
                 }
             }
             Spoken::Interrupted => {}
@@ -1004,6 +1244,43 @@ mod tests {
         r.play_pause();
         assert_eq!(r.progress().0, 0);
         assert_eq!(r.state(), State::Playing);
+    }
+
+    #[test]
+    fn a_plan_is_read_chunk_after_chunk() {
+        let doc = Document::from_text("One. Two.\n\nThree.");
+        let mut settings = SpeechSettings::default();
+        let plan = Plan::new(&doc, &Pos::body(0, 0), None, &settings, true, &|_| None);
+        assert_eq!(plan.chunks(), 3);
+        let mut r = ReadAloud::default();
+        r.backend = Backend::Instant;
+        assert!(r.start_plan(Arc::new(doc.clone()), plan));
+        for _ in 0..400 {
+            if r.state() == State::Stopped {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_eq!(r.state(), State::Stopped);
+        assert_eq!(r.chunk_progress(), (2, 3), "the last chunk with something to read");
+        // Play again starts from the first chunk.
+        r.backend = Backend::Hold;
+        r.play_pause();
+        assert_eq!((r.chunk_progress().0, r.current().map(|u| u.text)), (0, Some("One.".into())));
+        // Pages: a page per paragraph start, and a selection's end.
+        settings.chunk = Chunk::Page;
+        let plan = Plan::new(&doc, &Pos::body(0, 5), Some(&Pos::body(2, 3)), &settings, true, &|p| {
+            Some(p.path.0.first().copied().unwrap_or(0) as usize / 2)
+        });
+        assert_eq!((plan.chunks(), plan.paras.len()), (2, 3));
+        assert_eq!(texts(&plan.sentences(&doc, 0, &ReadOptions::default())), ["Two."]);
+        assert_eq!(texts(&plan.sentences(&doc, 1, &ReadOptions::default())), ["Thr"]);
+        assert!(plan.sentences(&doc, 99, &ReadOptions::default()).is_empty());
+        // Nothing to read: no reading.
+        let empty = Document::from_text("\n ?!");
+        let plan = Plan::new(&empty, &Pos::body(0, 0), None, &settings, true, &|_| None);
+        assert!(!r.start_plan(Arc::new(empty), plan));
+        assert_eq!(r.state(), State::Stopped);
     }
 
     #[test]
