@@ -282,20 +282,6 @@ pub fn thai_word_at(text: &str, off: usize) -> (usize, usize) {
     (rs + a, rs + b)
 }
 
-/// Line-break opportunities within Thai and Lao text, which have no spaces between words.
-///
-/// UAX #14 (`unicode_linebreak`) assigns class SA to these scripts and permits a break at every
-/// character boundary — which is visually wrong. This function uses the ICU4X dictionary
-/// segmenter to return proper word boundaries instead. Only breaks between two consecutive
-/// Thai/Lao characters are returned so that Latin/Thai mixed text is unaffected outside the
-/// Thai/Lao spans.
-///
-/// Returns sorted byte offsets into `text`.
-fn line_segmenter() -> &'static icu_segmenter::LineSegmenterBorrowed<'static> {
-    static S: OnceLock<icu_segmenter::LineSegmenterBorrowed<'static>> = OnceLock::new();
-    S.get_or_init(|| icu_segmenter::LineSegmenter::new_dictionary(icu_segmenter::options::LineBreakOptions::default()))
-}
-
 pub fn thai_lao_breaks(text: &str) -> Vec<usize> {
     line_segmenter()
         .segment_str(text)
