@@ -169,6 +169,19 @@ pub struct CanvasState {
     /// An automatic change (AutoCorrect, AutoFormat) altered the text around the caret: the
     /// input method is asked to start afresh (#1480).
     pub(crate) ime_reset: bool,
+    /// The run of one character the last key press typed and its repeats added: an accent the
+    /// macOS accent menu composes from a held key replaces it rather than following it (#2253).
+    pub(crate) text_run: Option<crate::keys::TextRun>,
+    /// The key of the last press, and when it went down: a long press is what opens the accent
+    /// menu, and the menu stays open after the key is released (#2253).
+    pub(crate) last_key: Option<egui::Key>,
+    pub(crate) key_pressed_at: f64,
+    /// A run whose key was held long enough for the accent menu: the accent picked afterwards
+    /// (the menu outlives the key) replaces it, and when the menu opened (#2253).
+    pub(crate) accent_ready: Option<crate::keys::AccentReady>,
+    /// How long that run was when the composition started: the characters the committed accent
+    /// replaces (#2253).
+    pub(crate) ime_accent_run: Option<usize>,
     /// Alt+numpad entry in progress: the digits typed while Alt is held (#961).
     pub(crate) alt_code: String,
     /// The character an Alt code just typed: if the platform also sends its own composed
@@ -268,6 +281,11 @@ impl Default for CanvasState {
             swallow_text: false,
             ime_join_text: None,
             ime_reset: false,
+            text_run: None,
+            last_key: None,
+            key_pressed_at: 0.0,
+            accent_ready: None,
+            ime_accent_run: None,
             alt_code: String::new(),
             alt_code_echo: None,
             wheel: Default::default(),

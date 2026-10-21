@@ -6,6 +6,51 @@ use serde_json::{Value, json};
 
 use crate::WordApp;
 
+/// The run of one character the last key press typed and its repeats added (#2253): macOS shows
+/// its accent menu while a key is held, but winit drops the replacement range it sends with the
+/// chosen accent, so the run is counted here and replaced when the accent commits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct TextRun {
+    pub ch: char,
+    pub count: usize,
+    /// The key that typed the run.
+    pub key: Option<Key>,
+}
+
+/// #2253: a workaround for the macOS accent menu, not the correct fix.
+///
+/// macOS inserts the chosen accent through `insertText:replacementRange:`, naming the letter it
+/// replaces. winit drops that range (its `Ime` event has no variant for it) and reports
+/// `selectedRange` as a caret at 0, so all the app receives is "insert ç": it can't know what
+/// the system replaced. The proper fix is for winit to report the replacement range, which needs
+/// the app's surrounding text (winit's issue #3617); until then the app reconstructs it here:
+///
+/// - a key held long enough to open the menu (at least `ACCENT_PRESS_SECS`) marks the run it
+///   typed, and the mark outlives the release (`ACCENT_MEMORY_SECS`), since the menu stays open
+///   after the key is up and the accent arrives only when the user picks a variant;
+/// - a commit of one character then replaces that run, plus the digit the menu's selector typed.
+///
+/// Known limitation, accepted for now: macOS also types the selector digit into the document, and
+/// it is erased with the letter only when the accent arrives, so it shows for about half a second.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct AccentReady {
+    pub ch: char,
+    pub count: usize,
+    /// When the key was released.
+    pub at: f64,
+}
+
+/// A key held this long opens the accent menu (macOS uses about half a second).
+const ACCENT_PRESS_SECS: f64 = 0.4;
+/// How long after the release a committed accent still replaces the run: longer than it takes to
+/// pick a variant, short enough that later text isn't touched.
+const ACCENT_MEMORY_SECS: f64 = 10.0;
+
+/// Whether `key` types a digit: the accent menu's variant selector.
+fn is_digit_key(key: Key) -> bool {
+    matches!(key, Key::Num0 | Key::Num1 | Key::Num2 | Key::Num3 | Key::Num4 | Key::Num5 | Key::Num6 | Key::Num7 | Key::Num8 | Key::Num9)
+}
+
 /// The registry's name for a key.
 pub fn key_name(k: Key) -> Option<&'static str> {
     Some(match k {
@@ -260,7 +305,43 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
     if held.command {
         app.canvas.paste_mods = Some(held);
     }
+    let mut key_repeat = false;
+    let now = ctx.input(|i| i.time);
     for e in events {
+        // The run the last key press typed: a long press opens macOS's accent menu, which stays
+        // open after the key is released, and the accent picked there replaces the run (#2253).
+        match &e {
+            egui::Event::Key { key, pressed: true, repeat: false, .. } if !is_modifier_key(*key) => {
+                app.canvas.last_key = Some(*key);
+                app.canvas.key_pressed_at = now;
+                if !is_digit_key(*key) {
+                    // The menu's variant selector is a digit: any other key means the menu is
+                    // gone (or was never open), and later text mustn't replace the run.
+                    app.canvas.accent_ready = None;
+                }
+                if app.canvas.ime_preedit.is_empty() {
+                    app.canvas.ime_accent_run = None;
+                }
+            }
+            egui::Event::Key { key, pressed: false, .. } if !is_modifier_key(*key) => {
+                if let Some(run) = app.canvas.text_run
+                    && run.key == Some(*key)
+                {
+                    // Held long enough for the menu: keep the run for the choice that follows,
+                    // which macOS reports only after the key is up. A short press is typing.
+                    if now - app.canvas.key_pressed_at >= ACCENT_PRESS_SECS {
+                        app.canvas.accent_ready = Some(AccentReady { ch: run.ch, count: run.count, at: now });
+                    }
+                    app.canvas.text_run = None;
+                }
+            }
+            egui::Event::PointerButton { pressed: true, .. } => {
+                app.canvas.text_run = None;
+                app.canvas.accent_ready = None;
+                app.canvas.ime_accent_run = None;
+            }
+            _ => {}
+        }
         // Which presses reached the canvas, and the modifiers held with Mod, in event order: Mod
         // can go down and up within one frame, leaving the frame's modifiers without it.
         match &e {
@@ -277,7 +358,8 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
         }
         // An Alt shortcut (Alt+Shift+D, Alt+F7…) may also send its key's text; it isn't typed.
         match &e {
-            egui::Event::Key { pressed: true, .. } => {
+            egui::Event::Key { pressed: true, repeat, .. } => {
+                key_repeat = *repeat;
                 app.canvas.swallow_text = false;
                 app.canvas.alt_code_echo = None;
                 app.canvas.ime_join_text = None;
@@ -290,8 +372,15 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
                     continue;
                 }
             }
-            // Focus elsewhere (another window) ends an Alt code unfinished.
-            egui::Event::WindowFocused(false) => app.canvas.alt_code.clear(),
+            // Focus elsewhere (another window) ends an Alt code unfinished and drops keys whose
+            // releases arrive there instead.
+            egui::Event::WindowFocused(false) => {
+                app.canvas.alt_code.clear();
+                app.canvas.last_key = None;
+                app.canvas.text_run = None;
+                app.canvas.accent_ready = None;
+                app.canvas.ime_accent_run = None;
+            }
             _ => {}
         }
         if alt_codes && app.session.math.is_none() && alt_code_event(app, &e) {
@@ -354,19 +443,67 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
                 if m.command || (m.ctrl && !cfg!(target_os = "macos")) {
                     continue;
                 }
+                // macOS shows its accent menu while a key is held; the repeats the system keeps
+                // sending meanwhile aren't typing, as in native apps (#2253).
+                if cfg!(target_os = "macos") && key_repeat {
+                    continue;
+                }
                 if t.chars().all(|c| !c.is_control()) && !t.is_empty() {
                     if crate::dialogs_smart_art::type_into(app, &t) {
                         continue;
                     }
                     // Typing with a text box selected types into it.
                     crate::objects::enter_text_box(app);
+                    note_text_run(app, &t);
                     type_text(app, &t);
                 }
             }
-            egui::Event::Ime(egui::ImeEvent::DeleteSurrounding { before_chars, after_chars }) => delete_surrounding(app, before_chars, after_chars),
-            egui::Event::Ime(egui::ImeEvent::Preedit { text, .. }) => app.canvas.ime_preedit = text,
+            egui::Event::Ime(egui::ImeEvent::DeleteSurrounding { before_chars, after_chars }) => {
+                delete_surrounding(app, before_chars, after_chars);
+            }
+            egui::Event::Ime(egui::ImeEvent::Preedit { text, .. }) => {
+                // The accent menu's variant arrives as a preedit: keep one letter, as macOS does
+                // while the menu is up, and let the commit replace it. Only a run whose key was
+                // held for the menu is replaced; a dead key or another input method isn't (#2253).
+                if !text.is_empty()
+                    && cfg!(target_os = "macos")
+                    && let Some(ready) = app.canvas.accent_ready
+                    && now - ready.at < ACCENT_MEMORY_SECS
+                {
+                    let mut kept = ready.count;
+                    if ready.count > 1 && delete_surrounding(app, ready.count - 1, 0) {
+                        kept = 1;
+                        // The erasure joined the typing group, but `join_next_undo` closed it;
+                        // reopen it so the committed accent stays in the same Undo step (#2253).
+                        app.session.continue_typing();
+                    }
+                    app.canvas.ime_accent_run = Some(kept);
+                }
+                app.canvas.ime_preedit = text;
+            }
             egui::Event::Ime(egui::ImeEvent::Commit(text)) => {
                 app.canvas.ime_preedit.clear();
+                // winit drops the replacement range macOS sends with the accent, so the accent
+                // would follow the letter the held key typed ("cç"): erase the run here, as the
+                // web input method's corrections do (#2253, #1480). See `AccentReady` for this
+                // workaround and its known limitation. The menu stays open after the key is
+                // released, so a digit it typed to pick the variant lies between the run and the
+                // commit: it goes too.
+                let mut count = app.canvas.ime_accent_run.take();
+                if count.is_none()
+                    && cfg!(target_os = "macos")
+                    && text.chars().count() == 1
+                    && let Some(ready) = app.canvas.accent_ready
+                    && now - ready.at < ACCENT_MEMORY_SECS
+                    && let Some(replaced) = accent_replaces(app, ready.ch, ready.count)
+                {
+                    count = Some(replaced);
+                }
+                if let Some(count) = count {
+                    delete_surrounding(app, count, 0);
+                    app.canvas.text_run = None;
+                    app.canvas.accent_ready = None;
+                }
                 if !text.is_empty() && !crate::dialogs_smart_art::type_into(app, &text) {
                     type_text(app, &text);
                 }
@@ -596,6 +733,35 @@ fn type_text(app: &mut WordApp, text: &str) {
     note_automatic_change(app);
 }
 
+/// Count the character a text event typed into the run the current key press started (#2253).
+/// Text that isn't one character (a paste, an input method's text) ends the run.
+fn note_text_run(app: &mut WordApp, text: &str) {
+    let mut chars = text.chars();
+    let key = app.canvas.last_key;
+    let run = match (chars.next(), chars.next()) {
+        (Some(ch), None) if !ch.is_control() => match app.canvas.text_run {
+            Some(run) if run.ch == ch => TextRun { ch, count: run.count + 1, key },
+            _ => TextRun { ch, count: 1, key },
+        },
+        _ => {
+            app.canvas.text_run = None;
+            return;
+        }
+    };
+    app.canvas.text_run = Some(run);
+}
+
+/// The characters an accent commit replaces when macOS's accent menu reported no range: the run
+/// the held key typed, plus the digit its selector typed before the commit (#2253).
+fn accent_replaces(app: &WordApp, ch: char, count: usize) -> Option<usize> {
+    let s = &app.session;
+    let f = &s.sel.focus;
+    let head = s.doc.para_at(f)?.text.get(..f.off)?;
+    let digits = usize::from(head.ends_with(|c: char| c.is_ascii_digit()));
+    let head = head.get(..head.len() - digits)?;
+    head.ends_with(&ch.to_string().repeat(count)).then_some(count + digits)
+}
+
 /// AutoCorrect or AutoFormat just changed the text around the caret (its own undo step, which
 /// closes the typing group). The web's text agent still holds the text as typed and counts its
 /// `DeleteSurrounding` from that, so it is asked to start afresh (`canvas::ime_reset`).
@@ -617,19 +783,19 @@ fn note_automatic_change(app: &mut WordApp) {
 /// With a selection (the agent starts afresh on any click or editing key, so it doesn't send
 /// one then) nothing is erased: the text that follows replaces the selection as typing does.
 /// Nor inside an equation, whose text the agent's characters went to.
-fn delete_surrounding(app: &mut WordApp, before: usize, after: usize) {
+fn delete_surrounding(app: &mut WordApp, before: usize, after: usize) -> bool {
     let s = &app.session;
     // Inside an equation the document's text isn't what the input method typed into.
     if !s.sel.is_collapsed() || s.math.is_some() {
-        return;
+        return false;
     }
     let f = s.sel.focus.clone();
-    let Some(text) = s.doc.para_at(&f).map(|p| p.text.as_str()) else { return };
-    let (Some(head), Some(tail)) = (text.get(..f.off), text.get(f.off..)) else { return };
+    let Some(text) = s.doc.para_at(&f).map(|p| p.text.as_str()) else { return false };
+    let (Some(head), Some(tail)) = (text.get(..f.off), text.get(f.off..)) else { return false };
     let start = f.off.saturating_sub(head.chars().rev().take(before).map(char::len_utf8).sum::<usize>());
     let end = f.off.saturating_add(tail.chars().take(after).map(char::len_utf8).sum::<usize>());
     if start == end {
-        return;
+        return false;
     }
     let join = s.typing_open();
     // The formatting typing at the caret would use: that of the erased text (or set for it).
@@ -642,9 +808,11 @@ fn delete_surrounding(app: &mut WordApp, before: usize, after: usize) {
     }
     if app.run("text.backspace", json!({})).is_ok() {
         app.canvas.ime_join_text = Some(props);
+        true
     } else {
         // Refused (a protected document): leave the caret where it was.
         app.session.sel = wordcraft_engine::Selection::caret(caret);
+        false
     }
 }
 
@@ -923,6 +1091,103 @@ mod tests {
         frame(&mut a, vec![egui::Event::ModifiersChanged(alt), key(Key::AltLeft, true, alt)]);
         frame(&mut a, vec![key(Key::AltLeft, false, alt), egui::Event::ModifiersChanged(Modifiers::NONE)]);
         assert_eq!(a.ui.keytips, crate::keytips::Phase::Tabs);
+    }
+
+    /// #2253: holding a letter opens the macOS accent menu and types the letter once (its
+    /// repeats aren't typing). The menu stays open after the key is released, and the chosen
+    /// accent replaces the letter instead of following it ("ç", never "cç"). A composition that
+    /// didn't follow a long press — a dead key, another input method — leaves the text alone.
+    #[test]
+    fn the_accent_menu_replaces_the_run_the_long_press_typed() {
+        if !cfg!(target_os = "macos") {
+            return;
+        }
+        let ctx = egui::Context::default();
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        let text = |a: &WordApp| a.session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim_end().to_string();
+        let press = |repeat: bool| egui::Event::Key { key: Key::C, physical_key: Some(Key::C), pressed: true, repeat, modifiers: Modifiers::NONE };
+        let release = || egui::Event::Key { key: Key::C, physical_key: Some(Key::C), pressed: false, repeat: false, modifiers: Modifiers::NONE };
+        let frame = |a: &mut WordApp, events: Vec<egui::Event>, t: f64| {
+            ctx.run_ui(egui::RawInput { events, time: Some(t), ..Default::default() }, |ui| canvas_events(a, ui.ctx()))
+                .drop_without_applying_deltas();
+        };
+        // Held `c`: the repeats the system sends while the menu opens aren't typing.
+        frame(&mut a, vec![press(false), egui::Event::Text("c".into())], 0.0);
+        frame(&mut a, vec![press(true), egui::Event::Text("c".into())], 0.2);
+        frame(&mut a, vec![press(true), egui::Event::Text("c".into())], 0.4);
+        assert_eq!(text(&a), "c");
+        // Released after a long press: the menu stays open, showing the variant as preedit.
+        frame(&mut a, vec![release()], 0.7);
+        frame(&mut a, vec![egui::Event::Ime(egui::ImeEvent::Preedit { text: "ç".into(), active_range_chars: None })], 1.0);
+        assert_eq!(text(&a), "c");
+        // The choice commits: the accent replaces that one letter.
+        frame(
+            &mut a,
+            vec![
+                egui::Event::Ime(egui::ImeEvent::Preedit { text: String::new(), active_range_chars: None }),
+                egui::Event::Ime(egui::ImeEvent::Commit("ç".into())),
+            ],
+            1.2,
+        );
+        assert_eq!(text(&a), "ç");
+        // The whole hold is one typing step: undo takes it all back.
+        a.run("edit.undo", json!({})).unwrap();
+        assert_eq!(text(&a), "");
+        // Cancelling the menu (an empty preedit, no commit) keeps the one letter.
+        frame(&mut a, vec![press(false), egui::Event::Text("c".into())], 2.0);
+        frame(&mut a, vec![press(true), egui::Event::Text("c".into())], 2.2);
+        frame(&mut a, vec![release()], 2.6);
+        frame(&mut a, vec![egui::Event::Ime(egui::ImeEvent::Preedit { text: "ç".into(), active_range_chars: None })], 2.8);
+        frame(&mut a, vec![egui::Event::Ime(egui::ImeEvent::Preedit { text: String::new(), active_range_chars: None })], 3.0);
+        assert_eq!(text(&a), "c");
+        // A dead key composes after a fresh press, which ended the menu's run: nothing is erased.
+        frame(&mut a, vec![key_event(Key::E, true, Modifiers::NONE)], 3.2);
+        frame(
+            &mut a,
+            vec![
+                egui::Event::Ime(egui::ImeEvent::Preedit { text: "´".into(), active_range_chars: None }),
+                key_event(Key::E, true, Modifiers::NONE),
+                egui::Event::Ime(egui::ImeEvent::Commit("é".into())),
+            ],
+            3.3,
+        );
+        assert_eq!(text(&a), "cé");
+        frame(&mut a, vec![key_event(Key::E, false, Modifiers::NONE)], 3.4);
+        // One press, one letter: the menu still replaces it (no repeats to collapse).
+        frame(&mut a, vec![press(false), egui::Event::Text("c".into())], 4.0);
+        frame(&mut a, vec![release()], 4.5);
+        frame(&mut a, vec![egui::Event::Ime(egui::ImeEvent::Commit("ć".into()))], 4.6);
+        assert_eq!(text(&a), "céć");
+    }
+
+    /// #2253: the menu outlives the key, so the digit that picks a variant is typed into the
+    /// document after the release. The accent replaces the letter and that digit with it.
+    #[test]
+    fn the_accent_menu_replaces_the_run_after_the_selector_digit() {
+        if !cfg!(target_os = "macos") {
+            return;
+        }
+        let ctx = egui::Context::default();
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        let text = |a: &WordApp| a.session.doc.plain_text(wordcraft_doc::StoryRef::Body).trim_end().to_string();
+        let frame = |a: &mut WordApp, events: Vec<egui::Event>, t: f64| {
+            ctx.run_ui(egui::RawInput { events, time: Some(t), ..Default::default() }, |ui| canvas_events(a, ui.ctx()))
+                .drop_without_applying_deltas();
+        };
+        let c = Key::C;
+        frame(&mut a, vec![key_event(c, true, Modifiers::NONE), egui::Event::Text("c".into())], 0.0);
+        frame(&mut a, vec![key_event(c, true, Modifiers::NONE), egui::Event::Text("c".into())], 0.3);
+        assert_eq!(text(&a), "c");
+        // The key is up, the menu still open: the variant's number reaches the document.
+        frame(&mut a, vec![key_event(c, false, Modifiers::NONE)], 0.7);
+        frame(&mut a, vec![key_event(Key::Num1, true, Modifiers::NONE), egui::Event::Text("1".into())], 1.0);
+        assert_eq!(text(&a), "c1");
+        // The accent replaces the letter and the digit that picked it.
+        frame(&mut a, vec![egui::Event::Ime(egui::ImeEvent::Commit("ç".into()))], 1.2);
+        assert_eq!(text(&a), "ç");
+        // The whole hold is one typing step: undo takes it all back.
+        a.run("edit.undo", json!({})).unwrap();
+        assert_eq!(text(&a), "");
     }
 
     fn alt_frame_app() -> (egui::Context, WordApp) {
