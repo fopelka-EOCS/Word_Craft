@@ -2709,7 +2709,11 @@ mod tests {
         // Export writes \rtlpar, and not the unknown \dir\rtldir.
         let out = export(&doc);
         assert!(out.contains("\\rtlpar") && !out.contains("rtldir"), "{out}");
-        assert!(import(out.as_bytes()).unwrap().body.iter().any(|b| if let wordcraft_doc::Block::Para(p) = &**b { p.props.bidi.unwrap_or(false) } else { false }));
+        assert!(import(out.as_bytes()).unwrap().body.iter().any(|b| if let wordcraft_doc::Block::Para(p) = &**b {
+            p.props.bidi.unwrap_or(false)
+        } else {
+            false
+        }));
     }
 
     #[test]
