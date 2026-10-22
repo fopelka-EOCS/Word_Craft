@@ -773,9 +773,20 @@ pub fn apply_animations(ctx: &egui::Context, on: bool) {
     });
 }
 
+/// Coverage exponent for light-on-dark interface text on Linux and the BSDs (see [`visuals`]).
+const DARK_TEXT_GAMMA: f32 = 0.8;
+
 /// egui's visuals for one of our palettes.
 fn visuals(t: &Tokens) -> Visuals {
     let mut v = if t.dark { Visuals::dark() } else { Visuals::light() };
+    // Light text on a dark background, on Linux and the BSDs: egui's dark default thickens every
+    // glyph edge, about a fifth more ink than FreeType gives it in Firefox and the other apps
+    // there, so the interface looked semi-bold. Plain coverage (Firefox's weight) left the thin
+    // light strokes on the darkest strips (the tab row) looking soft; a light boost, about 7 %
+    // more ink, was chosen side by side on a 145 % desktop.
+    if t.dark && cfg!(all(unix, not(target_os = "macos"))) {
+        v.text_options.color_transfer_function = egui::epaint::FontColorTransferFunction::Gamma(DARK_TEXT_GAMMA);
+    }
     v.panel_fill = t.ribbon;
     v.window_fill = t.menu;
     v.extreme_bg_color = t.input;
@@ -816,6 +827,26 @@ pub fn c32(c: wordcraft_doc::Rgb) -> Color32 {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
+
+    #[test]
+    #[cfg(all(unix, not(target_os = "macos")))]
+    fn dark_interface_text_is_only_a_little_heavier_than_light_interface_text() {
+        use egui::epaint::FontColorTransferFunction;
+        // Light text keeps egui's plain coverage; dark text gets the light boost.
+        let transfer = |t: &super::Tokens| super::visuals(t).text_options.color_transfer_function;
+        assert_eq!(transfer(&super::Tokens::light()), FontColorTransferFunction::LIGHT_MODE_DEFAULT);
+        let dark = transfer(&super::Tokens::dark());
+        assert_eq!(dark, FontColorTransferFunction::Gamma(super::DARK_TEXT_GAMMA));
+        // Every partly covered pixel gets more ink than plain coverage (FreeType's weight in
+        // Firefox, which looked soft on the dark tab row) and less than egui's dark default
+        // (which looked semi-bold).
+        for step in 1..20 {
+            let coverage = step as f32 / 20.0;
+            let ink = dark.alpha_from_coverage(coverage);
+            let egui_dark = FontColorTransferFunction::DARK_MODE_DEFAULT.alpha_from_coverage(coverage);
+            assert!(coverage < ink && ink < egui_dark, "coverage {coverage}: {ink} vs egui's {egui_dark}");
+        }
+    }
 
     /// WCAG contrast ratio between two opaque colours.
     pub(super) fn contrast(a: egui::Color32, b: egui::Color32) -> f32 {
