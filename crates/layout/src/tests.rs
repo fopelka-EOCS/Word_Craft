@@ -561,6 +561,92 @@ fn layout_time_ratio(doc: impl Fn(usize) -> Document, n: usize, opts: &LayoutOpt
     )
 }
 
+/// A document that is one word with no break opportunity in it, laid out beside a floating
+/// object: the word is wider than the span the object leaves, so the measurement that asks
+/// whether it would fit the full line runs for every line the word takes.
+fn long_word_beside_a_float(n: usize) -> Document {
+    use wordcraft_doc::para::{Anchor, Float, Wrap};
+    let mut d = Document::from_text(&"a".repeat(n));
+    let f = Float { wrap: Wrap::Square, h_rel: Anchor::Column, v_rel: Anchor::Paragraph, dist: 9.0, ..Default::default() };
+    d.insert_object(&Pos::body(0, 0), rect_shape(144.0, 100.0, f), &Default::default()).unwrap();
+    d
+}
+
+/// A word with no break opportunity in it: measuring the word for every line it takes scanned
+/// the whole paragraph each time, so the layout was quadratic in the word's length.
+#[test]
+fn a_long_unbreakable_word_lays_out_in_linear_time() {
+    let (t1, tk, ratio) = layout_time_ratio(long_word_beside_a_float, 50_000, &LayoutOptions::default());
+    eprintln!("t(n) {t1:.4} s, t(8n) {tk:.4} s, ratio {ratio:.1}");
+    assert!(ratio < 24.0, "8x the word took {ratio:.1}x the time ({t1:.4} s → {tk:.4} s): not linear");
+}
+
+/// A word a megabyte long lays out in a fraction of a second: it used to take half a minute.
+#[test]
+fn a_megabyte_long_word_lays_out_quickly() {
+    let d = long_word_beside_a_float(1_000_000);
+    let t = std::time::Instant::now();
+    lay(&d);
+    assert!(t.elapsed().as_secs() < 15, "a megabyte-long word took {:?}", t.elapsed());
+}
+
+/// A word that a negative advance makes narrower still fits beside a float: the measurement
+/// stops early only when the word is over the room even with everything the rest of it can take
+/// back.
+#[test]
+fn a_word_a_negative_advance_narrows_still_fits() {
+    let cluster = |adv: f32, break_after: bool| para::Cluster {
+        start: 0,
+        end: 1,
+        adv,
+        kind: para::ClKind::Text,
+        style: 0,
+        g0: 0,
+        g1: 1,
+        break_after,
+        obj_h: 0.0,
+        obj_d: 0.0,
+        dot: false,
+    };
+    // A hundred points, then a font that pulls the last glyph back by sixty: the word is forty
+    // wide, and fits in sixty.
+    let clusters = vec![cluster(100.0, false), cluster(-60.0, true)];
+    let neg = para::negative_advances(&clusters, &[]);
+    assert!(para::word_fits(&clusters, &[], 0, 60.0, neg.as_deref()), "a word of forty points fits in sixty");
+    // The same word in thirty points does not.
+    assert!(!para::word_fits(&clusters, &[], 0, 30.0, neg.as_deref()), "a word of forty points does not fit in thirty");
+}
+
+/// The words after a break cannot hold up the measurement of the word before it: a long word
+/// followed by a word that pulls the width back is still measured only as far as it must be.
+#[test]
+fn the_negative_bound_stops_at_the_end_of_the_word() {
+    let cluster = |adv: f32, break_after: bool| para::Cluster {
+        start: 0,
+        end: 1,
+        adv,
+        kind: para::ClKind::Text,
+        style: 0,
+        g0: 0,
+        g1: 1,
+        break_after,
+        obj_h: 0.0,
+        obj_d: 0.0,
+        dot: false,
+    };
+    // A word of two ordinary clusters, then a break, then a word that pulls a hundred points
+    // back.
+    let clusters = vec![cluster(10.0, false), cluster(10.0, true), cluster(-100.0, true)];
+    let bound = para::negative_advances(&clusters, &[]).expect("a negative advance");
+    // Inside the first word the bound is its own: the word after the break gives nothing back.
+    assert_eq!(bound[0], 0.0, "the word after the break must not hold up the measurement");
+    assert_eq!(bound[1], 0.0);
+    // A negative advance inside a word is the word's own.
+    let one = vec![cluster(100.0, false), cluster(-60.0, true)];
+    let bound = para::negative_advances(&one, &[]).expect("a negative advance");
+    assert_eq!(bound[0], -60.0);
+}
+
 #[test]
 fn hidden_separators_with_automatic_hyphenation_lay_out_in_linear_time() {
     // "hyphenation " n times with every space hidden: one joined word of 11n letters reaches the
