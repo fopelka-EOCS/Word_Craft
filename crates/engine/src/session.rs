@@ -1382,6 +1382,26 @@ impl Session {
     /// control channel). Mutating commands are undoable; a failed command leaves the document as
     /// it was; a panic inside a command becomes an error.
     pub fn run(&mut self, id: &str, params: &Value) -> Result<Value, CmdError> {
+        if id != "edit.replaceText" {
+            return self.run_command(id, params);
+        }
+        crate::cmd::edit::replacement_target(self, params)?;
+        // A refused guarded edit also preserves the next Undo join, macro, Repeat and tracked cut.
+        let join_next = self.join_next;
+        let recording = self.recording.clone();
+        let last_command = self.last_command.clone();
+        let pending_move = self.pending_move.clone();
+        let result = self.run_command(id, params);
+        if result.is_err() {
+            self.join_next = join_next;
+            self.recording = recording;
+            self.last_command = last_command;
+            self.pending_move = pending_move;
+        }
+        result
+    }
+
+    fn run_command(&mut self, id: &str, params: &Value) -> Result<Value, CmdError> {
         let join = std::mem::take(&mut self.join_next);
         let reg = self.registry.clone();
         let Some(spec) = reg.get(id) else { return Err(CmdError::Unknown(id.to_string())) };
@@ -1392,9 +1412,6 @@ impl Session {
         let guard = if spec.mutates { crate::cmd::protect::check_before(self, id, params)? } else { false };
         // Quick Parts aren't part of the document, so a refused edit puts them back itself (the Spike).
         let blocks_before = guard.then(|| self.building_blocks.clone());
-        if spec.mutates && self.doc.settings.protection.as_deref() == Some("trackedChanges") {
-            self.doc.settings.track_changes = true;
-        }
         // Macro recording and Repeat.
         let record = !matches!(id, "tools.recordMacro" | "tools.macros" | "edit.undo" | "edit.redo" | "edit.repeat")
             && (spec.mutates || id.starts_with("caret.") || id.starts_with("select."));
@@ -1435,6 +1452,9 @@ impl Session {
         } else {
             None
         };
+        if spec.mutates && self.doc.settings.protection.as_deref() == Some("trackedChanges") {
+            self.doc.settings.track_changes = true;
+        }
         let typing = spec.id == "text.insert" || spec.id == "equation.type";
         if spec.mutates && !typing {
             self.typing_open = false;
