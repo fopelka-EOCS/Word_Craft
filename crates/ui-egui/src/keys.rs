@@ -441,9 +441,14 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
                     app.canvas.context_menu_from_keys = true;
                     continue;
                 }
-                // Escape during a drag on the page cancels only the drag (its own code reads the
-                // key): it neither closes the header nor selects the text box the caret is in.
+                // Escape during a drag on the page goes no further than the drag: it neither
+                // closes the header nor selects the text box the caret is in. A drag that can
+                // cancel reads the key itself; Create Link's wait for a click ends here, wherever
+                // the pointer is, unless a menu or popup nearer took the key.
                 if key == Key::Escape && dragging_on_the_page(app) {
+                    if app.escape_free {
+                        app.canvas.link_from = None;
+                    }
                     continue;
                 }
                 // Escape in a text box (or WordArt) selects the box itself, so Delete then removes
@@ -739,6 +744,30 @@ pub fn global_shortcuts(app: &mut WordApp, ctx: &egui::Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #1930: Escape cancels Create Link's wait for a click with the pointer off the page too
+    /// (on the ribbon, where the button is), and does nothing else.
+    #[test]
+    fn escape_cancels_create_link_with_the_pointer_off_the_page() {
+        let app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Text")), crate::Services::default());
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        h.run_steps(3);
+        let pos = h.state().session.sel.focus.clone();
+        h.state_mut().canvas.link_from = Some(pos);
+        let depth = h.state().session.undo_depth();
+        assert!(h.state().canvas.focused, "the page has the keyboard");
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+        assert!(h.state().canvas.link_from.is_none(), "Escape ends the wait for a click");
+        assert_eq!(h.state().session.undo_depth(), depth, "nothing else happens");
+    }
 
     /// #1678: Ctrl+F1 collapses or expands the ribbon (not on macOS); plain F1 stays Help's.
     #[test]

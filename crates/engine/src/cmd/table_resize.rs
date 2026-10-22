@@ -89,17 +89,23 @@ impl Layer {
 
     /// The layer being edited: the caret's, or for a caret in a text box, the layer the box is in.
     pub fn editing(s: &Session, l: &DocLayout) -> Layer {
-        let story = match s.sel.focus.story {
-            StoryRef::Part(id) if s.doc.parts.get(&id).is_some_and(|p| p.kind == PartKind::TextBox) => {
-                l.text_box(id, s.page_hint).map_or(StoryRef::Part(id), |o| o.story)
+        Layer::drawn(l, &s.doc, s.sel.focus.story, s.page_hint)
+    }
+
+    /// The layer `story` is drawn in: a text box's is the layer the box is in (looked up on page
+    /// `page` first).
+    pub fn drawn(l: &DocLayout, doc: &Document, story: StoryRef, page: usize) -> Layer {
+        let story = match story {
+            StoryRef::Part(id) if doc.parts.get(&id).is_some_and(|p| p.kind == PartKind::TextBox) => {
+                l.text_box(id, page).map_or(StoryRef::Part(id), |o| o.story)
             }
             story => story,
         };
-        Layer::of(&s.doc, story)
+        Layer::of(doc, story)
     }
 
     /// What page `pg` draws in this layer.
-    fn items(self, pg: &Page) -> impl Iterator<Item = &Placed> {
+    pub(crate) fn items(self, pg: &Page) -> impl Iterator<Item = &Placed> {
         let (first, then) = match self {
             Layer::Body => (&pg.items, None),
             Layer::HeaderFooter => (&pg.header, Some(&pg.footer)),
@@ -791,6 +797,56 @@ mod tests {
         let y = a3.y + a3.h / 2.0;
         assert!(s.run("table.resizeDrag", &json!({"page": 0, "x": a3.right(), "y": y, "toX": a3.right() + 30.0, "toY": y})).is_err());
         assert_eq!(header_cell(&mut s, 0, 0), a3, "the header's table is untouched");
+    }
+
+    /// #1930: a text box is in the layer it is drawn in: one in the header is the header's (its
+    /// tables resize, and show their handle, while it is edited), one in the main text the main
+    /// text's.
+    #[test]
+    fn a_text_box_is_in_the_layer_it_is_drawn_in() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        let body_box = s.run("insert.textBox", &json!({"text": "Body"})).unwrap()["story"].as_u64().unwrap() as u32;
+        let anchor = s.doc.text_box_anchor(body_box).unwrap();
+        s.run("caret.set", &json!({"pos": anchor})).unwrap();
+        s.run("insert.editHeader", &json!({})).unwrap();
+        let header_box = s.run("insert.textBox", &json!({"text": "Head"})).unwrap()["story"].as_u64().unwrap() as u32;
+        assert_eq!(s.sel.focus.story, StoryRef::Part(header_box), "the caret is in the header's box");
+        let l = s.layout();
+        assert_eq!(Layer::drawn(&l, &s.doc, StoryRef::Part(header_box), 0), Layer::HeaderFooter);
+        assert_eq!(Layer::editing(&s, &l), Layer::HeaderFooter);
+        assert_eq!(Layer::drawn(&l, &s.doc, StoryRef::Part(body_box), 0), Layer::Body);
+        // Not drawn on the page asked about: the other pages are looked at; nowhere, the main text.
+        assert_eq!(Layer::drawn(&l, &s.doc, StoryRef::Part(header_box), 99), Layer::HeaderFooter);
+        assert_eq!(Layer::drawn(&l, &s.doc, StoryRef::Part(u32::MAX), 0), Layer::Body);
+    }
+
+    /// #1930: while the header is being edited, its table's corner handle scales it, and the main
+    /// text's table, dimmed, is out of reach: neither its border nor its handle resizes it.
+    #[test]
+    fn a_header_tables_handle_scales_it_and_the_dimmed_body_is_out_of_reach() {
+        let mut s = table_session(2, 2);
+        s.run("insert.editHeader", &json!({})).unwrap();
+        s.run("insert.table", &json!({"rows": 2, "cols": 2})).unwrap();
+        let body = first_table(&s);
+        let l = s.layout();
+        let header = tables_on(&l, &s.doc, 0, Layer::HeaderFooter);
+        let [g] = header.as_slice() else { panic!("one header table: {header:?}") };
+        let (w, h) = (g.right() - g.left(), g.bottom() - g.top());
+        let z = g.handle();
+        let (hx, hy) = (z.x + z.w / 2.0, z.y + z.h / 2.0);
+        assert_eq!(resize_target(&l, &s.doc, 0, hx, hy, REACH, Layer::HeaderFooter).map(|t| t.edge), Some(Edge::Corner));
+        s.run("table.resizeDrag", &json!({"page": 0, "x": hx, "y": hy, "toX": hx - w * 0.5, "toY": hy + h})).unwrap();
+        let header = tables_on(&s.layout(), &s.doc, 0, Layer::HeaderFooter);
+        let [g1] = header.as_slice() else { panic!("one header table: {header:?}") };
+        assert!(((g1.right() - g1.left()) - w * 0.5).abs() < 1.5, "{w} → {}", g1.right() - g1.left());
+        assert!(((g1.bottom() - g1.top()) - h * 2.0).abs() < 0.5, "{h} → {}", g1.bottom() - g1.top());
+        // The dimmed main text's table: its column border and its handle are out of reach.
+        let (a, d) = (cell_rect(&mut s, 0, 0), cell_rect(&mut s, 1, 1));
+        let y = a.y + a.h / 2.0;
+        assert!(s.run("table.resizeDrag", &json!({"page": 0, "x": a.right(), "y": y, "toX": a.right() + 30.0, "toY": y})).is_err());
+        let (bx, by) = (d.right() + 1.0 + HANDLE / 2.0, d.bottom() + 1.0 + HANDLE / 2.0);
+        assert!(s.run("table.resizeDrag", &json!({"page": 0, "x": bx, "y": by, "toX": bx + 40.0, "toY": by + 40.0})).is_err());
+        assert_eq!(first_table(&s), body, "the main text's table is untouched");
     }
 
     /// Dragging the border between two columns moves it; the right neighbour gives up the room,

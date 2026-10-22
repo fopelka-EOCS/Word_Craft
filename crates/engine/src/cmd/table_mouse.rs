@@ -200,25 +200,36 @@ pub fn handle_table(l: &DocLayout, doc: &Document, story: StoryRef, page: usize,
         .max_by_key(|g| g.table.0.len())
 }
 
+/// Whether a table in `layer` shows its handles on `page`: a main text table wherever it is
+/// drawn; a header's or footer's, drawn on every page that shows it, only on the caret's page
+/// (`page_hint`), as in Word.
+pub fn handles_show_on(s: &Session, layer: Layer, page: usize) -> bool {
+    layer == Layer::Body || page == s.page_hint
+}
+
 /// The move and resize handles of table `table` of `story` on this page, as Word shows them
 /// while the caret is in the table: the move handle where it starts, the resize handle where it
-/// ends.
+/// ends. A header's or footer's table (also in a text box there) is drawn whole on every page
+/// that shows it: it has its resize handle on each (`handles_show_on` says which one shows
+/// it), and no move handle (only the main text's tables move).
 pub fn caret_handles(l: &DocLayout, doc: &Document, story: StoryRef, table: &Path, page: usize) -> (Option<Rect>, Option<Rect>) {
     let rows = doc.table(story, table).map_or(0, |t| t.rows.len());
+    let layer = Layer::drawn(l, doc, story, page);
+    let body = layer == Layer::Body;
     let has_row = |p: usize, r: usize| {
         l.pages.get(p).is_some_and(|pg| {
-            pg.items.iter().any(|it| matches!(it, Placed::Cell { table: t, story: st, row, .. } if *st == story && t == table && *row == r))
+            layer.items(pg).any(|it| matches!(it, Placed::Cell { table: t, story: st, row, .. } if *st == story && t == table && *row == r))
         })
     };
     // A repeated header row, or a row running on to the next page, is drawn on more than one
     // page: the handles go where the table starts and where it ends (its pages are consecutive).
-    let first = has_row(page, 0) && !page.checked_sub(1).is_some_and(|p| has_row(p, 0));
-    let last = rows.checked_sub(1).is_some_and(|r| has_row(page, r) && !page.checked_add(1).is_some_and(|p| has_row(p, r)));
+    let first = body && has_row(page, 0) && !page.checked_sub(1).is_some_and(|p| has_row(p, 0));
+    let last = rows.checked_sub(1).is_some_and(|r| has_row(page, r) && !(body && page.checked_add(1).is_some_and(|p| has_row(p, r))));
     if !first && !last {
         return (None, None);
     }
     // The table's geometry on this page that the pointer handles are drawn and grabbed from.
-    let Some(g) = table_resize::tables_on(l, doc, page).into_iter().find(|g| g.story == story && g.table == *table) else {
+    let Some(g) = table_resize::tables_on(l, doc, page, layer).into_iter().find(|g| g.story == story && g.table == *table) else {
         return (None, None);
     };
     (first.then(|| handle(&g)), last.then(|| g.handle()))
@@ -1059,7 +1070,7 @@ mod tests {
     #[test]
     fn a_click_below_a_floating_table_goes_to_the_text_not_its_cells() {
         let mut s = table_session(3, 3);
-        let h = handle(&table_resize::tables_on(&s.layout(), &s.doc, 0)[0]);
+        let h = handle(&table_resize::tables_on(&s.layout(), &s.doc, 0, Layer::Body)[0]);
         let (hx, hy) = (h.x + h.w / 2.0, h.y + h.h / 2.0);
         s.run("table.moveDrag", &json!({"page": 0, "x": hx, "y": hy, "toX": hx + 60.0, "toY": hy + 10.0})).unwrap();
         assert!(first_table(&s).props.float.is_some());

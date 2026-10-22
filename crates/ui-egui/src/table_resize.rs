@@ -8,6 +8,7 @@
 
 use egui::{Pos2, Rect, Stroke, Ui, pos2};
 use serde_json::json;
+use wordcraft_engine::cmd::table_mouse;
 use wordcraft_engine::cmd::table_resize::{self, Edge, Layer, Plan, ResizeTarget, Share};
 use wordcraft_layout::DocLayout;
 
@@ -88,8 +89,8 @@ pub(crate) fn to_screen(rects: &[Rect], layout: &DocLayout, scale: f32, page: us
 }
 
 /// Whether table resizing is in reach: not while a pen, the eraser, an object drag, a text drag
-/// or a press on a table's selection area or move handle (`table_mouse`) owns the pointer, nor
-/// while editing a header or footer from the body (or back).
+/// or a press on a table's selection area or move handle (`table_mouse`) owns the pointer. Which
+/// tables it reaches, the header's and footer's or the rest of the page's, is `Layer::editing`.
 pub(crate) fn available(app: &WordApp) -> bool {
     app.canvas.table_tool.is_none()
         && app.canvas.table_drag.is_none()
@@ -100,11 +101,16 @@ pub(crate) fn available(app: &WordApp) -> bool {
 }
 
 /// The border or handle under screen point `p`, if any: of the header's and footer's tables while
-/// one of them is being edited, else of the rest of the page's.
+/// one of them is being edited, else of the rest of the page's. A handle only where it shows
+/// (`handles_show_on`); a border on any page.
 fn target_at(app: &WordApp, layout: &DocLayout, rects: &[Rect], scale: f32, p: Pos2) -> Option<(usize, f32, f32, ResizeTarget)> {
     let (page, x, y) = crate::canvas::page_at(rects, layout, scale, p)?;
     let sc = page_scale(rects, layout, scale, page)?;
-    let t = table_resize::resize_target(layout, &app.session.doc, page, x, y, REACH_PX / sc, Layer::editing(&app.session, layout))?;
+    let layer = Layer::editing(&app.session, layout);
+    let t = table_resize::resize_target(layout, &app.session.doc, page, x, y, REACH_PX / sc, layer)?;
+    if t.edge == Edge::Corner && !table_mouse::handles_show_on(&app.session, layer, page) {
+        return None;
+    }
     Some((page, x, y, t))
 }
 
@@ -278,7 +284,11 @@ pub fn paint(app: &WordApp, painter: &egui::Painter, t: &Tokens, layout: &DocLay
     let Some(p) = painter.ctx().input(|i| i.pointer.hover_pos()) else { return };
     let Some((page, x, y)) = crate::canvas::page_at(rects, layout, scale, p) else { return };
     let Some(sc) = page_scale(rects, layout, scale, page) else { return };
-    let Some(tg) = table_resize::table_under(layout, &app.session.doc, page, x, y, REACH_PX / sc, Layer::editing(&app.session, layout)) else {
+    let layer = Layer::editing(&app.session, layout);
+    if !table_mouse::handles_show_on(&app.session, layer, page) {
+        return;
+    }
+    let Some(tg) = table_resize::table_under(layout, &app.session.doc, page, x, y, REACH_PX / sc, layer) else {
         return;
     };
     let h = tg.handle();
@@ -303,9 +313,11 @@ pub(crate) fn caret_handles(
     rects
         .iter()
         .enumerate()
-        .filter(|(_, r)| r.intersects(clip))
+        .filter(|(page, r)| {
+            r.intersects(clip) && table_mouse::handles_show_on(&app.session, Layer::drawn(layout, &app.session.doc, focus.story, *page), *page)
+        })
         .map(|(page, _)| {
-            let (m, z) = wordcraft_engine::cmd::table_mouse::caret_handles(layout, &app.session.doc, focus.story, &tp, page);
+            let (m, z) = table_mouse::caret_handles(layout, &app.session.doc, focus.story, &tp, page);
             (page, m, z)
         })
         .filter(|(_, m, z)| m.is_some() || z.is_some())

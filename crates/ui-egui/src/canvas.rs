@@ -6449,6 +6449,7 @@ mod tests {
         h.event(Event::PointerMoved(from + (to - from) * 0.5));
         h.step();
         assert!(h.state().canvas.tab_drag.is_some(), "the stop is being dragged");
+        assert!(h.state().canvas.focused, "the page has the keyboard, so Escape reaches it");
         h.event(Event::Key { key: Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() });
         h.step();
         h.event(button(to, false));
