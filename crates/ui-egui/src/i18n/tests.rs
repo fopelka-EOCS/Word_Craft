@@ -1737,3 +1737,77 @@ fn slovenian_has_no_keys_outside_the_other_catalogs() {
     extra.sort();
     assert!(extra.is_empty(), "sl has {} keys no other catalog has: {extra:?}", extra.len());
 }
+
+#[test]
+fn hebrew_locales_preference_and_catalog_are_right_to_left() {
+    let he = lang("he");
+    for tag in ["he", "he-IL", "he_IL.UTF-8", "HE-il"] {
+        assert_eq!(lang_from_tag(tag), Some(he), "{tag}");
+    }
+    assert_eq!(first_supported([UNSUPPORTED, "he-IL", "en-US"]), Some(he));
+    assert!(he.is_rtl());
+    assert!(!he.uses_cjk());
+    assert_eq!(he.name(), "עברית (Hebrew)");
+    assert!(he.catalog_tsv().contains("\tקובץ\n") || he.catalog_tsv().contains("\tקובץ"));
+    assert_eq!(Lang::all().filter(|l| l.is_rtl()).map(Lang::code).collect::<Vec<_>>(), vec!["he"]);
+    let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+    let before = serde_json::to_value(&app.session.doc).unwrap();
+    let result = app.run("ui.language", serde_json::json!({"value": "HE"})).unwrap();
+    assert_eq!(result["effective"], "he");
+    assert_eq!(app.ui.language, "he");
+    assert!(result["available"].as_array().unwrap().iter().any(|l| l["code"] == "he" && l["name"] == "עברית (Hebrew)"));
+    assert_eq!(serde_json::to_value(&app.session.doc).unwrap(), before);
+    let saved = serde_json::to_string(&app.ui).unwrap();
+    let restored: crate::UiState = serde_json::from_str(&saved).unwrap();
+    assert_eq!(Lang::from_pref(&restored.language), he);
+    assert_eq!(tr(he, "File"), "קובץ");
+    assert_eq!(tr(he, "Home"), "בית");
+    assert_eq!(tr(he, "Save"), "שמור");
+    assert_eq!(tr(he, "unknown future label"), "unknown future label");
+    assert_eq!(fmt(tr(he, "Page {page} of {pages}"), &[("page", "3"), ("pages", "9")]), "עמוד 3 מתוך 9");
+    for count in [0, 1, 2, 5, 21, 101] {
+        let words = count.to_string();
+        assert_eq!(fmt(tr(he, "{words} words"), &[("words", &words)]), format!("מילים: {count}"));
+        assert_eq!(fmt(tr(he, "{selected} of {words} words"), &[("selected", "1"), ("words", &words)]), format!("מילים: 1 מתוך {count}"));
+    }
+    // Placeholders survive the visual reorder, so fmt(tl!(template)) still fills them.
+    let template = tr(he, "Page {page} of {pages}");
+    let visual = visual_for_ui(template);
+    assert!(visual.contains("{page}") && visual.contains("{pages}"), "{visual}");
+    let logical = fmt(template, &[("page", "3"), ("pages", "9")]);
+    assert_eq!(fmt(&visual, &[("page", "3"), ("pages", "9")]), visual_for_ui(&logical));
+    set_current(he);
+    assert_eq!(present("שלום"), "םולש");
+    assert_eq!(trailing_layout(egui::Align::Center).main_dir, egui::Direction::LeftToRight);
+    set_current(Lang::EN);
+    assert_eq!(present("שלום"), "שלום");
+    assert_eq!(trailing_layout(egui::Align::Center).main_dir, egui::Direction::RightToLeft);
+}
+
+#[test]
+fn hebrew_rows_pack_from_the_right() {
+    let ctx = egui::Context::default();
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+    set_current(lang("he"));
+    let mut xs = (0.0_f32, 0.0_f32);
+    ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+        mirrored(ui, |ui| {
+            ui.horizontal(|ui| {
+                let first = ui.label("א");
+                let second = ui.label("ב");
+                xs = (first.rect.center().x, second.rect.center().x);
+            });
+        });
+    })
+    .drop_without_applying_deltas();
+    set_current(Lang::EN);
+    assert!(xs.0 > xs.1, "the first widget sits to the right of the second: {xs:?}");
+}
+
+#[test]
+fn hebrew_ui_font_falls_back_when_a_face_is_installed() {
+    let Some(face) = wordcraft_fonts::FontDb::global().fallback_for('א', u32::MAX) else {
+        return;
+    };
+    assert!(face.covers('א') && face.covers('ת'), "the borrowed face covers the Hebrew alphabet");
+}

@@ -1471,8 +1471,10 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
     let id = egui::Id::new(("dialog", title));
     let window = crate::window_close::window(ctx, egui::Window::new(tl!(title)).id(id).collapsible(false).resizable(false));
     let shown = place_dialog(ctx, id, window).show(ctx, |ui| {
-        ui.set_min_width(340.0);
-        close = body(app, ui, &mut d);
+        crate::i18n::mirrored(ui, |ui| {
+            ui.set_min_width(340.0);
+            close = body(app, ui, &mut d);
+        });
     });
     if let Some(shown) = &shown {
         if let Dialog::SaveChanges { name, message, .. } = &d {
@@ -1642,7 +1644,7 @@ pub(crate) fn buttons(ui: &mut Ui, ok: &str) -> (bool, bool) {
     let mut r = (false, false);
     ui.add_space(8.0);
     ui.horizontal(|ui| {
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.with_layout(crate::i18n::trailing_layout(egui::Align::Center), |ui| {
             // Enter and Escape belong to the Colors dialog while it is open above this one.
             let keys = !crate::colors::is_open(ui.ctx());
             let (okb, cancelb) = ok_cancel_responses(ui, |ui| ui.add(crate::widgets::primary_button(ui, ok)), tl!("Cancel"));
@@ -2744,7 +2746,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             }
             ui.add_space(8.0);
             let buttons = ui.horizontal(|ui| {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.with_layout(crate::i18n::trailing_layout(egui::Align::Center), |ui| {
                     let cancel = ui.button(tl!("Cancel"));
                     let dont_save = ui.button(tl!("Don't Save"));
                     let save = ui.add(crate::widgets::primary_button(ui, tl!("Save")));
@@ -3593,7 +3595,7 @@ fn bookmark(app: &mut WordApp, ui: &mut Ui, name: &mut String, by_location: &mut
     ui.add_space(8.0);
     let mut close = ui.input(|i| i.key_pressed(egui::Key::Escape));
     ui.horizontal(|ui| {
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.with_layout(crate::i18n::trailing_layout(egui::Align::Center), |ui| {
             close |= ui.button(if *deleted { tl!("Close") } else { tl!("Cancel") }).clicked();
         });
     });
@@ -3707,7 +3709,7 @@ fn manage_styles(app: &mut WordApp, ui: &mut Ui, alphabetical: &mut bool, select
 fn close_button(ui: &mut Ui) -> bool {
     ui.add_space(8.0);
     let mut close = ui.input(|i| i.key_pressed(egui::Key::Escape));
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+    ui.with_layout(crate::i18n::trailing_layout(egui::Align::Center), |ui| {
         close |= ui.add(crate::widgets::primary_button(ui, tl!("Close"))).clicked();
     });
     close
