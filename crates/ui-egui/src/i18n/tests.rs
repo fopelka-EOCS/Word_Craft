@@ -991,8 +991,9 @@ fn polish_covers_every_key_of_every_other_catalog() {
     // Hungarian and Bulgarian also name the citation styles, and Bulgarian has a few one-line
     // pieces of gallery labels. Polish matches every other catalog, including the built-in style
     // names, citation styles and equation gallery. French carries newer strings (paper sizes,
-    // bookmarks, printing) the Polish catalog hasn't caught up with yet.
-    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "pl" | "it" | "hu" | "bg" | "vi" | "sv" | "hr" | "fr")) {
+    // bookmarks, printing) the Polish catalog hasn't caught up with yet; Indonesian (translated
+    // from Polish) and Swedish have those too.
+    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "pl" | "it" | "hu" | "bg" | "vi" | "sv" | "hr" | "fr" | "id")) {
         let mut missing: Vec<String> = keys(other.0.source).difference(&polish).cloned().collect();
         missing.sort();
         assert!(missing.is_empty(), "pl lacks {}'s {missing:?}", other.code());
@@ -1123,7 +1124,7 @@ fn an_italian_interface_writes_new_documents_in_italian() {
 #[test]
 fn the_editing_languages_are_the_ones_wordcraft_can_proof() {
     let with: Vec<(&str, &str)> = Lang::all().filter_map(|l| l.editing_lang().map(|e| (l.code(), e))).collect();
-    assert_eq!(with, [("pt-br", "pt-BR"), ("pl", "pl-PL"), ("cs", "cs-CZ"), ("tr", "tr-TR"), ("it", "it-IT")]);
+    assert_eq!(with, [("pt-br", "pt-BR"), ("pl", "pl-PL"), ("cs", "cs-CZ"), ("tr", "tr-TR"), ("it", "it-IT"), ("id", "id-ID")]);
 }
 
 #[test]
@@ -1493,6 +1494,85 @@ fn vietnamese_locales_and_saved_preference_work_without_changing_the_document() 
     assert_eq!(restored.language, "vi");
     assert_eq!(Lang::from_pref(&restored.language), vi);
     assert_eq!(vi.name(), "Tiếng Việt");
+}
+
+#[test]
+fn indonesian_locales_and_saved_preference_work_without_changing_the_document() {
+    let id = lang("id");
+    for tag in ["id", "id-ID", "id_ID.UTF-8", "ID-id", "id-Latn-ID", "id-SG"] {
+        assert_eq!(lang_from_tag(tag), Some(id), "{tag}");
+    }
+    // The former ISO 639 code for Indonesian is `in`; older Windows and Unix locales still use it.
+    for tag in ["in", "in-ID", "in_ID.UTF-8", "IN-id"] {
+        assert_eq!(lang_from_tag(tag), Some(id), "{tag}");
+    }
+    assert_eq!(first_supported([UNSUPPORTED, "in-ID", "en-US"]), Some(id));
+    assert_eq!(normalize_pref("ID"), Some("id"));
+    let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+    let before = serde_json::to_value(&app.session.doc).unwrap();
+    let result = app.run("ui.language", serde_json::json!({"value": "ID"})).unwrap();
+    assert_eq!(result["effective"], "id");
+    assert_eq!(app.ui.language, "id");
+    assert!(result["available"].as_array().unwrap().iter().any(|l| l["code"] == "id" && l["name"] == "Bahasa Indonesia"));
+    assert_eq!(serde_json::to_value(&app.session.doc).unwrap(), before);
+    let saved = serde_json::to_string(&app.ui).unwrap();
+    let restored: crate::UiState = serde_json::from_str(&saved).unwrap();
+    assert_eq!(Lang::from_pref(&restored.language), id);
+    assert_eq!(id.name(), "Bahasa Indonesia");
+    // WordCraft proofs Indonesian, so new documents are written in it (`wordcraft-proof`).
+    assert_eq!(id.editing_lang(), Some("id-ID"));
+}
+
+#[test]
+fn indonesian_covers_the_whole_catalog_and_keeps_count_labels_neutral() {
+    use std::collections::HashSet;
+    let keys = |source| parse_entries(source).0.into_iter().map(|e| e.source).collect::<HashSet<_>>();
+    let id = lang("id");
+    // Every key of every other catalog (translated from Polish, then caught up with the newer
+    // paper-size, bookmark and print-dialog strings), and no catalog errors.
+    for other in Lang::all().filter(|l| *l != Lang::EN) {
+        let mut missing: Vec<String> = keys(other.0.source).difference(&keys(id.0.source)).cloned().collect();
+        missing.sort();
+        assert!(missing.is_empty(), "id lacks {}'s {missing:?}", other.code());
+    }
+    assert!(parse_entries(id.0.source).1.is_empty());
+    for (source, expected) in [
+        ("File", "Berkas"),
+        ("Home", "Beranda"),
+        ("Insert", "Sisipkan"),
+        ("Layout", "Tata Letak"),
+        ("References", "Referensi"),
+        ("Review", "Tinjauan"),
+        ("View", "Tampilan"),
+        ("Save", "Simpan"),
+        ("Bold", "Tebal"),
+        ("Italic", "Miring"),
+        ("Heading 1", "Judul 1"),
+        ("Spelling & Grammar", "Ejaan dan Tata Bahasa"),
+        ("Hyphenation", "Pemenggalan Kata"),
+        ("Table of Contents", "Daftar Isi"),
+        ("WordCraft", "WordCraft"),
+        ("unknown future label", "unknown future label"),
+    ] {
+        assert_eq!(tr(id, source), expected, "{source}");
+    }
+    assert_eq!(fmt(tr(id, "Page {page} of {pages}"), &[("page", "3"), ("pages", "9")]), "Halaman 3 dari 9");
+    assert_eq!(fmt(tr(id, "Undo {action}"), &[("action", "Tebal")]), "Batalkan: Tebal");
+    // The letter template is "Surat"; the paper size of the same English name stays "Letter".
+    assert_eq!(trc(id, "template", "Letter"), "Surat");
+    assert_eq!(tr(id, "Letter"), "Letter");
+    // The preview tile has its own short title, so the Design tab fits a small tile.
+    assert_eq!(trc(id, "preview", "Title"), "Judul");
+    // Indonesian nouns take no plural inflection, so counts read `{words} kata` for every number.
+    for count in [0, 1, 2, 5, 11, 21, 101, 1000] {
+        let words = count.to_string();
+        assert_eq!(fmt(tr(id, "{words} words"), &[("words", &words)]), format!("{count} kata"));
+        assert_eq!(fmt(tr(id, "{selected} of {words} words"), &[("selected", "1"), ("words", &words)]), format!("1 dari {count} kata"));
+    }
+    set_current(id);
+    assert_eq!(location("Review › Proofing"), "Tinjauan › Pemeriksaan");
+    set_current(Lang::EN);
+    assert!(!id.uses_cjk());
 }
 
 #[test]

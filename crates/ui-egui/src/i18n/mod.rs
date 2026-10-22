@@ -52,7 +52,7 @@ pub struct LangInfo {
 }
 
 /// The registry. English first: it is the fallback and the source language.
-pub static LANGUAGES: [LangInfo; 23] = [
+pub static LANGUAGES: [LangInfo; 24] = [
     LangInfo { code: "en", name: "English", source: "", prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
     // Simplified Chinese; `zh`, `zh-CN`, `zh-SG` and `zh-Hans-*` resolve here (see `candidates`).
     LangInfo {
@@ -165,6 +165,17 @@ pub static LANGUAGES: [LangInfo; 23] = [
     LangInfo { code: "sv", name: "Svenska", source: include_str!("sv.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
     // Croatian; `hr`, `hr-HR` and `hr_HR.UTF-8` resolve here.
     LangInfo { code: "hr", name: "Hrvatski", source: include_str!("hr.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    // Indonesian (Bahasa Indonesia); `id`, `id-ID`, `id_ID.UTF-8` and the former ISO 639 code
+    // `in` resolve here (see `candidates`). WordCraft proofs Indonesian (`id-ID`), so new
+    // documents are written in it.
+    LangInfo {
+        code: "id",
+        name: "Bahasa Indonesia",
+        source: include_str!("id.tsv"),
+        prefer_hans: false,
+        editing_lang: Some("id-ID"),
+        catalog: OnceLock::new(),
+    },
 ];
 
 impl LangInfo {
@@ -272,7 +283,11 @@ pub fn normalize_pref(pref: &str) -> Option<&'static str> {
 
 /// Candidate codes for a locale tag, most specific first: `zh_TW.UTF-8` → `zh-tw`, `zh-hant`, `zh`.
 fn candidates(tag: &str) -> Vec<String> {
-    let base = tag.split(['.', '@']).next().unwrap_or("").replace('_', "-").to_ascii_lowercase();
+    let mut base = tag.split(['.', '@']).next().unwrap_or("").replace('_', "-").to_ascii_lowercase();
+    // Indonesian's former ISO 639 code is `in` (Windows still reports `in-ID`); fold it onto `id`.
+    if base == "in" || base.starts_with("in-") {
+        base.replace_range(..2, "id");
+    }
     let parts: Vec<&str> = base.split('-').filter(|p| !p.is_empty()).collect();
     let Some(&primary) = parts.first() else { return Vec::new() };
     let mut out = Vec::new();
