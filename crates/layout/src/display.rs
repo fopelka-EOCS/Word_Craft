@@ -1478,7 +1478,7 @@ fn equation(items: &[MItem], x: f32, base: f32, alpha: f32, screen: bool, out: &
                         S::Close => S::Close,
                     })
                     .collect();
-                out.push(Draw::Path { segs, fill: Some(*color), stroke: None, stroke_width: 0.0 });
+                out.push(Draw::Path { segs, fill: Some(Paint::solid(*color)), stroke: None, stroke_width: 0.0, dash: Vec::new() });
             }
             MItem::ScreenOnly(inner) => {
                 if screen {
