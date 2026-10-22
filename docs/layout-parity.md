@@ -219,6 +219,7 @@ Page-relative footer tables keep their physical wrap bounds without adding to fo
 | 2026-10-17 | trivial | A float above its anchor whose wrap pushes the anchor onto the next page settles with no text under it on any page (#2048 review) |
 | 2026-10-15 | trivial | A float placed above its anchor paragraph (fixed on the page, or moved up from it) has the text of the paragraphs above the anchor on its page wrap around it, as in Word, instead of running behind it (#2048) |
 | 2026-10-18 | trivial | A word after a slash (" /word") wraps whole instead of splitting between two letters (#2963) |
+| 2026-10-16 | trivial | Text overflowing a narrow column into a wide one is broken for the column it lands in, as in Word (#2382; text after a column break already was, #934) |
 | 2026-10-15 | trivial | An at-least table row with less room than its minimum on a page that holds something starts the next page whole, as checked in Word (#1742); the taller-than-a-page case (it then splits from the top of that page) and repeated header rows (they go with it) follow the issue and synthetic tests, not a Word check |
 | 2026-10-16 | trivial | Table row keep-next uses the first paragraph of the first cell, including inherited flags. Kept row chains start on a fresh page when the following row cannot start below them. Synthetic Word export covers mixed-cell flags, multiple paragraphs and kept prefixes before oversized followers. |
 | 2026-10-16 | trivial | Include table-cell headings in regenerated TOCs with full target paths |
