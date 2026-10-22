@@ -53,7 +53,12 @@ fn ends_sentence(gap: &str, prev: &str) -> bool {
     if rest.starts_with(CLOSING) {
         return false;
     }
-    rest.starts_with(char::is_whitespace) && rest.trim_start().chars().all(|c| OPENING.contains(&c) || c.is_whitespace())
+    let tail = rest.trim_start();
+    // So does a dialogue line: `— Vii? — a întrebat`. After a full stop a dash opens a new line.
+    if matches!(end, '?' | '!') && tail.starts_with(['—', '–']) {
+        return false;
+    }
+    rest.starts_with(char::is_whitespace) && tail.chars().all(|c| OPENING.contains(&c) || c.is_whitespace())
 }
 
 /// Grammar issues in a paragraph of Romanian text, in order.
@@ -198,9 +203,14 @@ mod tests {
             "Am citit cap. II. apoi am plecat.",
             "Ora 10. după aceea pauză.",
             "Așteaptă... apoi pleacă.",
+            // A dialogue line ending in `?` or `!` goes on with a lower-case speech tag.
+            "— Vii? — a întrebat.",
+            "— Gata! – a strigat el.",
         ] {
             assert!(check(text).iter().all(|i| !i.message.starts_with("Propoziția")), "{text}: {:?}", found(text));
         }
+        // After a full stop a dash still opens a new sentence.
+        assert_eq!(found("Am terminat. — apoi am plecat."), [("apoi".into(), "Propoziția trebuie să înceapă cu literă mare".into())]);
     }
 
     #[test]
