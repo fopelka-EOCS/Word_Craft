@@ -390,13 +390,24 @@ fn draw_page_picture(ctx: &mut RenderContext, doc: &Document, page: &Page, view:
         _ => return,
     }
     let Some(pm) = pixmap_for(doc, &pic.media) else { return };
-    let (pw, ph) = (pm.width().max(1) as f64, pm.height().max(1) as f64);
     let (w, h) = (page.w as f64, (page.h as f64).min(1e6));
     if !(w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0) {
         return;
     }
     let tile = pic.fill_type.eq_ignore_ascii_case("tile");
-    let (sx, sy) = if tile { (0.75, 0.75) } else { (w / pw, h / ph) };
+    let (pw0, ph0) = (pm.width().max(1) as f64, pm.height().max(1) as f64);
+    // How much page the whole picture covers: its natural 96-dpi size (0.75 pt per pixel) when
+    // tiled, the page when stretched. Both come from the original pixels, never from a resampled
+    // copy — a copy has fewer pixels, and scaling each of them by 0.75 pt would shrink the tile
+    // period by the resample ratio (a 100-px tile repeating every 56 pt instead of 75).
+    let (tw, th) = if tile { (pw0 * 0.75, ph0 * 0.75) } else { (w, h) };
+    let scales = |pw: f64, ph: f64| (tw / pw, th / ph);
+    let (sx, sy) = scales(pw0, ph0);
+    // The same minification treatment as a document picture: a letterhead background is usually
+    // much larger than the page, and plain bilinear aliases on any reduction.
+    let pm = picture_at_device_size(doc, &pic.media, view, sx, sy).unwrap_or(pm);
+    let (pw, ph) = (pm.width().max(1) as f64, pm.height().max(1) as f64);
+    let (sx, sy) = scales(pw, ph);
     let extend = if tile { peniko::Extend::Repeat } else { peniko::Extend::Pad };
     ctx.set_transform(view);
     ctx.set_paint(vello_cpu::Image {
@@ -408,6 +419,8 @@ fn draw_page_picture(ctx: &mut RenderContext, doc: &Document, page: &Page, view:
     ctx.reset_paint_transform();
 }
 
+/// The full decode of a media key, cached and shared: decoding a picture twice is the expensive
+/// part of scrolling a picture-heavy page. `None` (also cached) when the bytes aren't an image.
 fn pixmap_for(doc: &Document, key: &str) -> Option<Arc<Pixmap>> {
     let bytes = doc.media.get(key)?;
     if let Some(v) = lock(images()).get(key, bytes) {
@@ -417,6 +430,165 @@ fn pixmap_for(doc: &Document, key: &str) -> Option<Arc<Pixmap>> {
     let size = pm.as_ref().map_or(0, |p| p.width() as usize * p.height() as usize * 4);
     lock(images()).insert(key, bytes, pm.clone(), size);
     pm
+}
+
+/// The cache holding one resampled copy per (media key, output size), bounded like the decode
+/// cache above it. Its entries are pure functions of the source bytes, so a hit is always safe.
+fn resampled() -> &'static Mutex<MediaCache<Option<Arc<Pixmap>>>> {
+    static C: std::sync::OnceLock<Mutex<MediaCache<Option<Arc<Pixmap>>>>> = std::sync::OnceLock::new();
+    C.get_or_init(|| Mutex::new(MediaCache { map: HashMap::new(), bytes: 0 }))
+}
+
+/// The pixmap to paint a picture at: the full decode when drawn at or above its own size, else a
+/// copy resampled to the exact device size. Plain bilinear's 2×2 taps alias on any real
+/// minification (a 1920-px screenshot drawn across a page at 100% zoom is a 2–3× reduction, its
+/// small text breaking into speckle, grainier than Word), while resampling first averages each
+/// device pixel over the source pixels it covers and keeps their stroke contrast — the quality
+/// Word and WPS draw with. `sx`/`sy` are page points per source pixel; `view` carries the device
+/// scale.
+fn picture_at_device_size(doc: &Document, key: &str, view: Affine, sx: f64, sy: f64) -> Option<Arc<Pixmap>> {
+    let pm = pixmap_for(doc, key)?;
+    let d = device_pixel(view);
+    if !d.is_finite() || d <= 0.0 {
+        return Some(pm);
+    }
+    let (pw, ph) = (pm.width().max(1) as f64, pm.height().max(1) as f64);
+    // Device pixels per source pixel on each axis; the tighter axis decides.
+    let (dx, dy) = (sx / d, sy / d);
+    if !(dx.is_finite() && dy.is_finite()) || dx.min(dy) >= 0.98 {
+        return Some(pm);
+    }
+    // Resample only the axes that shrink. An axis that grows keeps its source pixels and the
+    // sampler magnifies it smoothly; pre-scaling it would box-replicate (blocky, banded) a buffer
+    // up to 65535 px a side — a 4000×100 background stretched down a tall page asked for tens of
+    // MB per render, before the cache budget ever saw it.
+    let ow = (pw * dx.min(1.0)).round().clamp(1.0, pw) as u16;
+    let oh = (ph * dy.min(1.0)).round().clamp(1.0, ph) as u16;
+    Some(minified_for(doc, key, ow, oh).unwrap_or(pm))
+}
+
+/// A copy of a picture resampled to `ow × oh` device pixels, cached beside the full decode (a hit
+/// needs the same source bytes, like [`pixmap_for`]). None when the picture has no usable decode
+/// or the size would not shrink it.
+fn minified_for(doc: &Document, key: &str, ow: u16, oh: u16) -> Option<Arc<Pixmap>> {
+    let bytes = doc.media.get(key)?;
+    let cache_key = format!("{key}\u{1}{ow}\u{1}{oh}");
+    if let Some(v) = lock(resampled()).get(&cache_key, bytes) {
+        return v;
+    }
+    let full = pixmap_for(doc, key)?;
+    let pm = resample_to(&full, ow, oh).map(Arc::new);
+    let size = pm.as_ref().map_or(0, |p| p.width() as usize * p.height() as usize * 4);
+    lock(resampled()).insert(&cache_key, bytes, pm.clone(), size);
+    pm
+}
+
+/// How much of the local contrast an area-averaged picture gets back. A pure box average is an
+/// exact area integral, but it also flattens stroke contrast — a 1-px glyph line spread over two
+/// source pixels comes out as one pale grey column, which next to Word or WPS reads as "smoothed,
+/// low contrast". A mild zero-sum unsharp pass puts the slope back without moving any flat colour.
+/// A constant, not an environment knob: this decides how every picture in every document looks,
+/// and a hidden switch that only some builds honour would make bug reports and the parity
+/// screenshots incomparable. Judge a change by rebuilding with a different value.
+const UNSHARP: f32 = 0.22;
+
+/// Resample a premultiplied pixmap to `ow × oh`, the exact device size it is about to be drawn at,
+/// in two steps. First a fractional-coverage box average in sRGB space: each output pixel averages
+/// the source pixels it actually covers (integer bins at a non-integer ratio would alternate 2-px
+/// and 3-px wide, making a 1-px line pulse as it crosses bin edges). Then a mild zero-sum unsharp
+/// pass restores the stroke contrast the average necessarily removed. Averaging in linear light is
+/// **not** the fix for contrast: under a screen of thin white glyphs the white carries far more
+/// linear energy than its sRGB value suggests, so the dark background is lifted and a black window
+/// turns grey. Premultiplied values average correctly on their own, so a partly transparent
+/// picture stays right. None unless it shrinks.
+fn resample_to(pm: &Pixmap, ow: u16, oh: u16) -> Option<Pixmap> {
+    let (w, h) = (pm.width() as usize, pm.height() as usize);
+    let (ow, oh) = (ow as usize, oh as usize);
+    if w == 0 || h == 0 || ow == 0 || oh == 0 || (ow >= w && oh >= h) {
+        return None;
+    }
+    let src = pm.data();
+    let mut out = Vec::with_capacity(ow * oh);
+    for oy in 0..oh {
+        let ys = oy as f64 * h as f64 / oh as f64;
+        let ye = (oy + 1) as f64 * h as f64 / oh as f64;
+        let y0 = ys as usize;
+        let y1 = ((ye as usize) + 1).min(h);
+        for ox in 0..ow {
+            let xs = ox as f64 * w as f64 / ow as f64;
+            let xe = (ox + 1) as f64 * w as f64 / ow as f64;
+            let x0 = xs as usize;
+            let x1 = ((xe as usize) + 1).min(w);
+            let (mut r, mut g, mut b, mut a, mut sum) = (0f64, 0f64, 0f64, 0f64, 0f64);
+            for y in y0..y1 {
+                let wy = ye.min(y as f64 + 1.0) - ys.max(y as f64);
+                if wy == 0.0 {
+                    continue;
+                }
+                for x in x0..x1 {
+                    let wx = xe.min(x as f64 + 1.0) - xs.max(x as f64);
+                    if wx == 0.0 {
+                        continue;
+                    }
+                    let p = &src[y * w + x];
+                    let wt = wy * wx;
+                    r += p.r as f64 * wt;
+                    g += p.g as f64 * wt;
+                    b += p.b as f64 * wt;
+                    a += p.a as f64 * wt;
+                    sum += wt;
+                }
+            }
+            let px = |v: f64| (v / sum + 0.5) as u8;
+            out.push(if sum > 0.0 {
+                vello_cpu::color::PremulRgba8 { r: px(r), g: px(g), b: px(b), a: px(a) }
+            } else {
+                vello_cpu::color::PremulRgba8 { r: 0, g: 0, b: 0, a: 0 }
+            });
+        }
+    }
+    unsharp(&mut out, ow, oh);
+    Some(Pixmap::from_parts(out, ow as u16, oh as u16))
+}
+
+/// A mild zero-sum unsharp pass: each pixel moves [`UNSHARP`] of the way from the 3×3 box
+/// average around it back towards its own value. The weights sum to zero, so a flat colour and the
+/// picture's overall brightness are untouched; only local slopes steepen, which is what the area
+/// average flattened.
+fn unsharp(px: &mut [vello_cpu::color::PremulRgba8], w: usize, h: usize) {
+    let amount = UNSHARP;
+    if amount == 0.0 {
+        return;
+    }
+    let src: Vec<vello_cpu::color::PremulRgba8> = px.to_vec();
+    let at = |x: usize, y: usize| src[(y * w + x).min(src.len() - 1)];
+    for y in 0..h {
+        for x in 0..w {
+            let (mut r, mut g, mut b, mut a) = (0u32, 0u32, 0u32, 0u32);
+            for dy in 0..3 {
+                for dx in 0..3 {
+                    let p = at((x + dx).saturating_sub(1).min(w - 1), (y + dy).saturating_sub(1).min(h - 1));
+                    r += p.r as u32;
+                    g += p.g as u32;
+                    b += p.b as u32;
+                    a += p.a as u32;
+                }
+            }
+            let p = at(x, y);
+            let sharp = |v: u8, sum: u32| {
+                let blur = sum as f32 / 9.0;
+                (v as f32 + amount * (v as f32 - blur) + 0.5).clamp(0.0, 255.0) as u8
+            };
+            let o = &mut px[y * w + x];
+            // Premultiplied invariant: a colour channel can never exceed alpha. Sharpening the
+            // channels apart breaks it where a channel equals alpha (a white glyph pixel) and its
+            // neighbours are darker but just as opaque — the channel overshoots while alpha stays
+            // put, and source-over then adds more light than the coverage allows (bright fringes
+            // on transparent logos and letterheads). Clamp to the sharpened alpha.
+            let alpha = sharp(p.a, a);
+            *o = vello_cpu::color::PremulRgba8 { r: sharp(p.r, r).min(alpha), g: sharp(p.g, g).min(alpha), b: sharp(p.b, b).min(alpha), a: alpha };
+        }
+    }
 }
 
 /// Options for a page raster.
@@ -906,10 +1078,18 @@ fn draw(ctx: &mut RenderContext, doc: &Document, it: &Draw, view: Affine, visibl
                 ctx.fill_rect(&r);
                 return;
             };
-            let (pw, ph) = (pm.width().max(1) as f64, pm.height().max(1) as f64);
             let [cl, ct, cr, cb] = crop.map(|v| if v.is_finite() { v.clamp(0.0, 0.95) as f64 } else { 0.0 });
             let vis_w = (1.0 - cl - cr).max(0.05);
             let vis_h = (1.0 - ct - cb).max(0.05);
+            let (pw, ph) = (pm.width().max(1) as f64, pm.height().max(1) as f64);
+            let sx = r.width() / (pw * vis_w);
+            let sy = r.height() / (ph * vis_h);
+            // Any real minification aliases under plain bilinear (a full-page screenshot at 100%
+            // zoom is a 2–3× reduction): resample the picture to the exact device size first, and
+            // the sampler draws 1:1. The smaller `pw`/`ph` raise `sx`/`sy` back, so the paint
+            // transform below lands on the same rect.
+            let pm = picture_at_device_size(doc, media, view, sx, sy).unwrap_or(pm);
+            let (pw, ph) = (pm.width().max(1) as f64, pm.height().max(1) as f64);
             let sx = r.width() / (pw * vis_w);
             let sy = r.height() / (ph * vis_h);
             ctx.set_transform(view);
@@ -1583,6 +1763,207 @@ mod tests {
         let big = render_page(&d, &l.pages[0], 1e9, &RenderOptions::default());
         assert!(big.width <= MAX_SIDE);
         assert!(decode_pixmap(b"not an image").is_none());
+    }
+
+    #[test]
+    fn minified_pictures_resample_to_the_exact_device_size() {
+        let mut d = Document::new();
+        let mut png = Vec::new();
+        image::RgbaImage::from_fn(16, 16, |_, _| image::Rgba([200, 30, 30, 255]))
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        let media = d.add_media(png, "png");
+        // Drawn 1:1 (1 device px per source px), the full decode is kept.
+        let pm = picture_at_device_size(&d, &media, Affine::IDENTITY, 1.0, 1.0).unwrap();
+        assert_eq!((pm.width(), pm.height()), (16, 16));
+        // A 16-px picture drawn 12 pt wide at 1 px per point resamples to exactly 12×12.
+        let pm = picture_at_device_size(&d, &media, Affine::IDENTITY, 12.0 / 16.0, 12.0 / 16.0).unwrap();
+        assert_eq!((pm.width(), pm.height()), (12, 12));
+        assert!(pm.data().iter().all(|p| (p.r, p.g, p.b) == (200, 30, 30)));
+        // A device scale of 2 (zoomed in) resamples to 24×24 only if still minified; drawn past
+        // its own size the full decode stays.
+        let pm = picture_at_device_size(&d, &media, Affine::scale(4.0), 12.0 / 16.0, 12.0 / 16.0).unwrap();
+        assert_eq!((pm.width(), pm.height()), (16, 16), "3 device px per source px is magnification");
+        // Hostile views are sanitized to 1 pt per device pixel by `device_pixel`, so the drawn
+        // size still decides: 8 pt of picture resamples to 8×8 instead of crashing or aliasing.
+        let pm = picture_at_device_size(&d, &media, Affine::scale(f64::NAN), 0.5, 0.5).unwrap();
+        assert_eq!((pm.width(), pm.height()), (8, 8));
+    }
+
+    /// A test picture: PNG bytes for a `w`×`h` image coloured by `f`.
+    fn test_png(w: u32, h: u32, f: impl Fn(u32, u32) -> image::Rgba<u8>) -> Vec<u8> {
+        let mut png = Vec::new();
+        image::RgbaImage::from_fn(w, h, f).write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+        png
+    }
+
+    #[test]
+    fn tiled_background_keeps_its_96_dpi_period() {
+        // An 8-px tile (4 px red, 4 px blue) at 96 dpi covers 6 pt, so at 100% zoom it repeats
+        // every 6 device px. Resampling it to the device size (75%) and then still drawing every
+        // resampled pixel at 0.75 pt squeezed the period to 4.5 px — every tiled background came
+        // out too small, at any zoom.
+        let png = test_png(8, 8, |x, _| if x < 4 { image::Rgba([200, 0, 0, 255]) } else { image::Rgba([0, 0, 200, 255]) });
+        let mut d = Document::new();
+        d.media.insert("bg.png".into(), Arc::new(png));
+        d.settings.page_picture = Some(wordcraft_doc::PagePicture { media: "bg.png".into(), fill_type: "tile".into(), title: String::new() });
+        let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+        let img = render_page(&d, &l.pages[0], 1.0, &RenderOptions::default());
+        let red = |x: u32| matches!(img.pixel(x, 300), [r, g, b, _] if r > 120 && r > b && g < 80);
+        let blue = |x: u32| matches!(img.pixel(x, 300), [r, g, b, _] if b > 120 && b > r && g < 80);
+        for x in 0..3 {
+            assert!(red(x), "x {x} is in the red half, got {:?}", img.pixel(x, 300));
+        }
+        for x in 3..6 {
+            assert!(blue(x), "x {x} is in the blue half, got {:?}", img.pixel(x, 300));
+        }
+        // The period itself, not just one tile's colours: the second tile starts at 6, not 4.5.
+        for x in 0..30 {
+            assert_eq!(red(x), red(x + 6), "tile period broken at x {x}");
+            assert_eq!(blue(x), blue(x + 6), "tile period broken at x {x}");
+        }
+    }
+
+    #[test]
+    fn a_minified_axis_is_never_upsampled_before_drawing() {
+        // Drawn 12 pt wide but 128 pt tall: only the horizontal axis shrinks. The vertical axis
+        // keeps its 16 source rows — the sampler magnifies those smoothly, whereas pre-scaling
+        // them box-replicated 16 rows into 128 and allocated 12×128 pixels for a 16×16 source.
+        let mut d = Document::new();
+        let media = d.add_media(test_png(16, 16, |_, _| image::Rgba([10, 90, 200, 255])), "png");
+        let pm = picture_at_device_size(&d, &media, Affine::IDENTITY, 12.0 / 16.0, 8.0).unwrap();
+        assert_eq!((pm.width(), pm.height()), (12, 16));
+        let pm = picture_at_device_size(&d, &media, Affine::IDENTITY, 8.0, 12.0 / 16.0).unwrap();
+        assert_eq!((pm.width(), pm.height()), (16, 12));
+    }
+
+    #[test]
+    fn sharpening_keeps_premultiplied_colours_within_alpha() {
+        /// Every pixel of a premultiplied image obeys `r, g, b <= a`.
+        fn within_alpha(px: &[vello_cpu::color::PremulRgba8]) {
+            for p in px {
+                assert!(p.r <= p.a && p.g <= p.a && p.b <= p.a, "invalid premultiplied pixel {:?}", (p.r, p.g, p.b, p.a));
+            }
+        }
+        let px = |v: u8, a: u8| vello_cpu::color::PremulRgba8 { r: v, g: v, b: v, a };
+        // A semi-transparent white edge beside opaque black — the shape a logo or a letterhead
+        // has. For such a pixel the 3×3 blur of alpha is 241 while the blur of red is 14, so
+        // sharpening the channels apart pulls alpha down to 103 and pushes red up to 153: a colour
+        // larger than its own coverage, which source-over paints as a bright fringe.
+        let logo: Vec<_> = (0..16 * 16).map(|i| if i % 16 < 8 { px(0, 255) } else { px(128, 128) }).collect();
+        let mut sharpened = logo.clone();
+        unsharp(&mut sharpened, 16, 16);
+        within_alpha(&sharpened);
+        // And the whole path a picture takes: area average down to 7×7, then the sharpening pass.
+        let m = resample_to(&Pixmap::from_parts(logo, 16, 16), 7, 7).unwrap();
+        within_alpha(m.data());
+    }
+
+    #[test]
+    fn resample_keeps_flat_colour_and_stroke_contrast() {
+        let px = |v: u8, a: u8| vello_cpu::color::PremulRgba8 { r: v, g: v, b: v, a };
+        // A flat patch keeps its exact value: the kernel's weights sum to one, so resampling never
+        // lightens the picture. Averaging in linear light did — a black window under thin white
+        // text came out grey, which is what this guards against.
+        let data: Vec<vello_cpu::color::PremulRgba8> = (0..64).map(|_| px(32, 200)).collect();
+        let m = resample_to(&Pixmap::from_parts(data, 8, 8), 3, 3).unwrap();
+        assert_eq!((m.width(), m.height()), (3, 3));
+        for p in m.data() {
+            assert_eq!((p.r, p.g, p.b, p.a), (32, 32, 32, 200));
+        }
+        // The unsharp pass is zero-sum: a flat colour survives it untouched, and only local
+        // slopes steepen — this is the regression test for averaging in linear light, which
+        // lifted every dark pixel under a screen of thin white text.
+        let flat = resample_to(&Pixmap::from_parts(vec![px(0, 255); 64], 8, 8), 3, 3).unwrap();
+        assert!(flat.data().iter().all(|p| (p.r, p.g, p.b, p.a) == (0, 0, 0, 255)), "black stays black");
+        // A checkerboard this deep averages to its own mid grey, with no black or white speckle
+        // left over from the cells.
+        let cells: Vec<vello_cpu::color::PremulRgba8> = (0..8usize)
+            .flat_map(|y| (0..8usize).map(move |x| (x, y)))
+            .map(|(x, y)| px(if (x / 2 + y / 2) % 2 == 0 { 255 } else { 0 }, 255))
+            .collect();
+        let m = resample_to(&Pixmap::from_parts(cells, 8, 8), 2, 2).unwrap();
+        for p in m.data() {
+            assert!((110..=146).contains(&p.r), "mid grey expected, got {}", p.r);
+        }
+        // All white shrinks to all white; the odd trailing sides stay covered.
+        let m = resample_to(&Pixmap::from_parts(vec![px(255, 255); 9], 3, 3), 2, 2).unwrap();
+        assert!(m.data().iter().all(|p| p.r == 255 && p.a == 255));
+        // Nothing to do when it would not shrink, or a side is 0.
+        let full = Pixmap::from_parts(vec![px(0, 255); 4], 2, 2);
+        assert!(resample_to(&full, 2, 2).is_none());
+        assert!(resample_to(&full, 0, 1).is_none());
+        // Premultiplied: one transparent pixel among three opaque reds resamples to red at ¾
+        // alpha, not to a washed-out pink.
+        let red = vello_cpu::color::PremulRgba8 { r: 255, g: 0, b: 0, a: 255 };
+        let clear = vello_cpu::color::PremulRgba8 { r: 0, g: 0, b: 0, a: 0 };
+        let m = resample_to(&Pixmap::from_parts(vec![clear, red, red, red], 2, 2), 1, 1).unwrap();
+        let p = m.data()[0];
+        assert_eq!((p.r, p.g, p.b, p.a), (191, 0, 0, 191));
+    }
+
+    #[test]
+    fn minified_picture_is_area_averaged_not_aliased() {
+        // A 64×64 black/white checkerboard (2 px cells) drawn 12 pt wide: at 1 px per point the
+        // bilinear sampler minifies it 5.3× and used to break the cells into speckle. Resampling
+        // to the device size first reduces it to the mid grey its cells actually average to.
+        let mut d = Document::new();
+        let mut png = Vec::new();
+        image::RgbaImage::from_fn(
+            64,
+            64,
+            |x, y| {
+                if (x / 2 + y / 2) % 2 == 0 { image::Rgba([255, 255, 255, 255]) } else { image::Rgba([0, 0, 0, 255]) }
+            },
+        )
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+        let media = d.add_media(png, "png");
+        let mut p = wordcraft_doc::Paragraph::new();
+        p.insert_object(
+            0,
+            wordcraft_doc::para::InlineObject::Image {
+                media,
+                w: 12.0,
+                h: 12.0,
+                alt: String::new(),
+                float: Default::default(),
+                crop: [0.0; 4],
+                ole: None,
+            },
+            &Default::default(),
+        )
+        .unwrap();
+        d.body = vec![wordcraft_doc::para_block(p)];
+        let l = layout(&d, &mut LayoutCache::new(), &LayoutOptions::default());
+        let img = render_page(&d, &l.pages[0], 1.0, &RenderOptions::default());
+        // The picture is the only non-white content on the page.
+        let (mut x0, mut x1, mut y0, mut y1) = (img.width, 0u32, img.height, 0u32);
+        for y in 0..img.height {
+            for x in 0..img.width {
+                let p = img.pixel(x, y);
+                if p[0] < 250 || p[1] < 250 || p[2] < 250 {
+                    x0 = x0.min(x);
+                    x1 = x1.max(x);
+                    y0 = y0.min(y);
+                    y1 = y1.max(y);
+                }
+            }
+        }
+        assert!(x1 > x0 && y1 > y0, "the picture rendered");
+        assert_eq!(x1 - x0 + 1, 12, "drawn at its 12 pt size");
+        // Every interior pixel stays near the cells' mid grey (128 in sRGB). A 5⅓× reduction's
+        // taps spread a little around it, the failure this guards against being bilinear's
+        // black/white speckle.
+        let (mut lo, mut hi) = (255u8, 0u8);
+        for y in (y0 + 1)..y1 {
+            for x in (x0 + 1)..x1 {
+                let v = img.pixel(x, y)[0];
+                lo = lo.min(v);
+                hi = hi.max(v);
+            }
+        }
+        assert!((108..=152).contains(&lo) && (108..=152).contains(&hi), "no black or white speckle expected, got {lo}..{hi}");
     }
 
     #[test]
