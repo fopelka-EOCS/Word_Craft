@@ -2802,3 +2802,11 @@ template	Letter	Brev
 	More tabs	Fler flikar
 # #3013: Insert Table of Figures
 	Include label and number	Ta med etikett och nummer
+
+	Subpixel text:	Subpixeltext:
+	Sharper page text on LCD screens: each third of a pixel lights its own colour. Pick the order of your screen's colour stripes, left to right.	Skarpare sidtext på LCD-skärmar: varje tredjedel av en pixel lyser i sin egen färg. Välj ordningen på skärmens färgränder, från vänster till höger.
+	Your desktop's font settings use subpixel rendering, RGB.	Skrivbordets teckensnittsinställningar använder subpixelrendering, RGB.
+	Your desktop's font settings use subpixel rendering, BGR.	Skrivbordets teckensnittsinställningar använder subpixelrendering, BGR.
+	Your desktop's font settings use greyscale text, so page text is greyscale.	Skrivbordets teckensnittsinställningar använder text i gråskala, så sidtexten visas i gråskala.
+	RGB	RGB
+	BGR	BGR

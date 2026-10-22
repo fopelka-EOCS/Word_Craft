@@ -2814,3 +2814,11 @@ template	Letter	Thư
 	More tabs	Các tab khác
 # #3013: Insert Table of Figures
 	Include label and number	Bao gồm nhãn và số
+
+	Subpixel text:	Chữ điểm ảnh con:
+	Sharper page text on LCD screens: each third of a pixel lights its own colour. Pick the order of your screen's colour stripes, left to right.	Chữ trên trang sắc nét hơn trên màn hình LCD: mỗi một phần ba điểm ảnh sáng màu riêng của nó. Chọn thứ tự các sọc màu của màn hình, từ trái sang phải.
+	Your desktop's font settings use subpixel rendering, RGB.	Cài đặt phông chữ của màn hình nền đang dùng kết xuất điểm ảnh con, RGB.
+	Your desktop's font settings use subpixel rendering, BGR.	Cài đặt phông chữ của màn hình nền đang dùng kết xuất điểm ảnh con, BGR.
+	Your desktop's font settings use greyscale text, so page text is greyscale.	Cài đặt phông chữ của màn hình nền đang dùng chữ thang xám, nên chữ trên trang hiển thị thang xám.
+	RGB	RGB
+	BGR	BGR

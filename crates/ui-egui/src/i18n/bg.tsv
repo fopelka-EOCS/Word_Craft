@@ -2764,3 +2764,11 @@
 	More tabs	Още раздели
 # #3013: Insert Table of Figures
 	Include label and number	Включване на етикета и номера
+
+	Subpixel text:	Субпикселен текст:
+	Sharper page text on LCD screens: each third of a pixel lights its own colour. Pick the order of your screen's colour stripes, left to right.	По-ясен текст на страниците на LCD екрани: всяка трета част от пиксела свети в свой цвят. Изберете реда на цветните ивици на екрана, отляво надясно.
+	Your desktop's font settings use subpixel rendering, RGB.	Настройките за шрифтове на работната среда използват субпикселно изобразяване, RGB.
+	Your desktop's font settings use subpixel rendering, BGR.	Настройките за шрифтове на работната среда използват субпикселно изобразяване, BGR.
+	Your desktop's font settings use greyscale text, so page text is greyscale.	Настройките за шрифтове на работната среда използват текст в нюанси на сивото, затова текстът на страниците е в нюанси на сивото.
+	RGB	RGB
+	BGR	BGR

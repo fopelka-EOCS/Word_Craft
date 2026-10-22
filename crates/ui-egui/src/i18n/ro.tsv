@@ -2762,3 +2762,11 @@ template	Letter	Scrisoare
 	cm	cm
 	mm	mm
 	pi	pi
+
+	Subpixel text:	Text subpixel:
+	Sharper page text on LCD screens: each third of a pixel lights its own colour. Pick the order of your screen's colour stripes, left to right.	Text mai clar în pagină pe ecranele LCD: fiecare treime de pixel se aprinde în propria culoare. Alegeți ordinea benzilor de culoare ale ecranului, de la stânga la dreapta.
+	Your desktop's font settings use subpixel rendering, RGB.	Setările de font ale desktopului folosesc randarea subpixel, RGB.
+	Your desktop's font settings use subpixel rendering, BGR.	Setările de font ale desktopului folosesc randarea subpixel, BGR.
+	Your desktop's font settings use greyscale text, so page text is greyscale.	Setările de font ale desktopului folosesc text în tonuri de gri, așa că textul paginii este în tonuri de gri.
+	RGB	RGB
+	BGR	BGR

@@ -2367,3 +2367,11 @@
 	More tabs	その他のタブ
 # #3013: Insert Table of Figures
 	Include label and number	ラベルと番号を含める
+
+	Subpixel text:	サブピクセル文字:
+	Sharper page text on LCD screens: each third of a pixel lights its own colour. Pick the order of your screen's colour stripes, left to right.	LCD 画面でページの文字をよりくっきり表示します。ピクセルの 3 分の 1 ずつがそれぞれの色で光ります。画面のカラー ストライプの並び (左から右) を選んでください。
+	Your desktop's font settings use subpixel rendering, RGB.	デスクトップのフォント設定はサブピクセル レンダリング (RGB) を使用しています。
+	Your desktop's font settings use subpixel rendering, BGR.	デスクトップのフォント設定はサブピクセル レンダリング (BGR) を使用しています。
+	Your desktop's font settings use greyscale text, so page text is greyscale.	デスクトップのフォント設定はグレースケールの文字を使用しているため、ページの文字はグレースケールです。
+	RGB	RGB
+	BGR	BGR

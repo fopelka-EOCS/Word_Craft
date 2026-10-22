@@ -89,6 +89,8 @@ pub struct CanvasState {
     pub scrollbar_page: Option<usize>,
     /// Effective scale (screen points per document point).
     pub scale: f32,
+    /// Whether this frame's pages were drawn hinted ([`hint_pages`]).
+    pub(crate) pages_hinted: bool,
     pub canvas_rect: Option<Rect>,
     pub focused: bool,
     /// The page's widget id and the pass that last drew it, so a click elsewhere can hand the
@@ -254,6 +256,7 @@ impl Default for CanvasState {
             page_rects: Vec::new(),
             scrollbar_page: None,
             scale: PX_PER_PT,
+            pages_hinted: screen_render_options().hinting,
             canvas_rect: None,
             focused: false,
             widget_id: None,
@@ -750,8 +753,12 @@ pub fn sync_fit_zoom(app: &mut WordApp, scale: f32) {
 /// marks and markup, dark mode, the page colour and watermark, header/body dimming, the media,
 /// and (while a drag lasts) the object left out of the page.
 /// Taken once per frame.
-fn view_key(app: &WordApp, dim_body: bool, hidden: Option<&Pos>) -> u64 {
+fn view_key(app: &WordApp, dim_body: bool, hidden: Option<&Pos>, hinted: bool) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
+    // A page drawn unhinted mid-zoom must not pass for the hinted page (see [`hint_pages`]), nor
+    // one with greyscale text for one with subpixel text.
+    hinted.hash(&mut h);
+    app.subpixel_order().hash(&mut h);
     let v = &app.session.view;
     (v.marks, app.session.prefs.marks, v.show_markup, v.dark_mode, wordcraft_render::DARK_PAPER, v.hide_ink, v.draw.replay).hash(&mut h);
     app.session.prefs.markup.hash(&mut h);
@@ -1038,9 +1045,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     // The status bar's zoom readout and slider were laid out before this, from the last frame's
     // scale: after a zoom change draw again at once, so they follow in the next frame rather than
     // whenever something else next repaints (the caret's blink).
-    if (geo.scale - app.canvas.scale).abs() > 1e-6 {
+    let rescaled = (geo.scale - app.canvas.scale).abs() > 1e-6;
+    if rescaled {
         ui.ctx().request_repaint();
     }
+    let hinted = hint_pages(zoom_delta, rescaled);
+    app.canvas.pages_hinted = hinted;
     app.canvas.scale = geo.scale;
     sync_fit_zoom(app, geo.scale);
     // A pointer zoom scrolls so the same page point is under the pointer at the new scale, also
@@ -1226,7 +1236,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         // The object a move has taken off its page: the page is drawn again without it (or it
         // would be on the page where it was and under the pointer at once).
         let hidden = app.canvas.dragged_off_page();
-        let view = view_key(app, dim_body, hidden.as_ref().map(|(_, p)| p));
+        let view = view_key(app, dim_body, hidden.as_ref().map(|(_, p)| p), hinted);
         for (i, pr) in geo.rects.iter().enumerate() {
             let sr = pr.translate(content_origin.to_vec2());
             let Some(page) = layout.pages.get(i) else { continue };
@@ -1236,6 +1246,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             let width_scale = (geo.scale * ppp).min(max_tex / page.w.max(1.0)).max(0.05);
             let tiled = page.h.clamp(1.0, 1e6) * width_scale > max_tex;
             let scale_px = if tiled { width_scale } else { width_scale.min(max_tex / page.h.clamp(1.0, 1e6)).max(0.05) };
+            // Subpixel text only where the raster is shown one texel per screen pixel: not on a
+            // page shrunk to the GPU's texture size, where it would be scaled.
+            let one_to_one = (scale_px - geo.scale * ppp).abs() <= 1e-4 * scale_px.abs().max(1.0);
             let tile_height_px = TILE_HEIGHT_PX.min(max_tex as usize).max(1);
             // Hide White Space shows only a band of the page; everything below paints into it.
             let band_of = |r: Rect| Rect::from_min_max(pos2(r.min.x - 4.0, r.min.y + band_top), pos2(r.max.x + 4.0, r.min.y + band_bot));
@@ -1252,6 +1265,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             // edit) then sits on the pixel grid in this frame too, rather than a frame later.
             if visible && !tiled && !fresh && (forced || rendered < 2 || !app.canvas.textures.contains_key(&i) && rendered < 4) {
                 let mut opts = page_render_options(app, dim_body);
+                opts.hinting &= hinted;
+                opts.subpixel = opts.subpixel.filter(|_| one_to_one);
                 // Only on the page it is on: the `Pos` can't match an object of another page.
                 opts.display.hide_object = hidden.as_ref().filter(|(page, _)| *page == i).map(|(_, p)| p.clone());
                 let img = wordcraft_render::render_page(&app.session.doc, page, scale_px, &opts);
@@ -1308,6 +1323,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     let fresh = app.canvas.tiles.get(&id).is_some_and(|(k, _)| *k == key);
                     if !fresh && rendered < 4 {
                         let mut opts = page_render_options(app, dim_body);
+                        opts.hinting &= hinted;
+                        opts.subpixel = opts.subpixel.filter(|_| one_to_one);
                         // Only on the page it is on: the `Pos` can't match an object of another page.
                         opts.display.hide_object = hidden.as_ref().filter(|(page, _)| *page == i).map(|(_, p)| p.clone());
                         // The tiny subtraction avoids a 1px overshoot from round-tripping f32
@@ -3470,6 +3487,8 @@ fn field_showing_code(app: &WordApp, pos: &wordcraft_doc::Pos) -> Option<wordcra
 /// Render options for this view's page rasters: marks, markup, dark page, header/body dimming.
 fn page_render_options(app: &WordApp, dim_body: bool) -> wordcraft_render::RenderOptions {
     let mut opts = screen_render_options();
+    // The canvas pages only: thumbnails and previews are shown scaled.
+    opts.subpixel = app.subpixel_order();
     opts.display.marks = app.session.view.marks;
     opts.display.always = app.session.prefs.marks;
     opts.display.placeholders = true;
@@ -3553,10 +3572,37 @@ pub(crate) fn caret_color_on(app: &WordApp, layout: &DocLayout, page: usize, x: 
     caret_contrast(wordcraft_render::background_at(&app.session.doc, p, &page_render_options(app, dims_body(app, layout)), x, y))
 }
 
-/// Render options for page rasters shown on screen: on macOS, text is darkened the way the system
-/// draws it, so a page looks as it does in other Mac apps (exports never are).
+/// The view part of the pages' texture key at rest, for tests elsewhere in the crate.
+#[cfg(test)]
+pub(crate) fn tests_view_key(app: &WordApp) -> u64 {
+    view_key(app, false, None, true)
+}
+
+/// Are pages drawn hinted this frame (as [`screen_render_options`] says)? Not while a pointer
+/// zoom (Ctrl/⌘+wheel easing in, a pinch: `zoom_delta` other than 1) changes the scale
+/// (`rescaled`): each such frame is a new size shown for a moment, and hinting every one would
+/// cost each page about 1.5 ms more and fill the hint caches with sizes nobody rests on, pushing
+/// out the one the zoom ends at. The first frame at rest draws the page hinted (the hinting is in
+/// the page's key). A zoom that leaves the scale as it is (at 10 % or 500 %, or over the ribbon)
+/// keeps the pages hinted, and other scale changes (the Zoom dialog or slider, a fit zoom
+/// following the window) are drawn hinted at once.
+fn hint_pages(zoom_delta: f32, rescaled: bool) -> bool {
+    let gesture = zoom_delta.is_nan() || (zoom_delta - 1.0).abs() > 1e-3;
+    let zooming = gesture && rescaled;
+    screen_render_options().hinting && !zooming
+}
+
+/// Render options for page rasters shown on screen, so a page looks as text does in the
+/// platform's other apps (exports never change): on macOS, text is darkened the way the system
+/// draws it; on Linux and the BSDs it is hinted lightly, as FreeType's `hintslight` draws it
+/// there (not darkened: hinted text already has FreeType's weight, and darkening made it
+/// look semi-bold).
 pub(crate) fn screen_render_options() -> wordcraft_render::RenderOptions {
-    wordcraft_render::RenderOptions { text_darkening: cfg!(target_os = "macos"), ..Default::default() }
+    wordcraft_render::RenderOptions {
+        text_darkening: cfg!(target_os = "macos"),
+        hinting: cfg!(all(unix, not(target_os = "macos"))),
+        ..Default::default()
+    }
 }
 
 /// The hyperlink under the pointer at (x, y) on `page`, where `pos` is the caret position the
@@ -3853,7 +3899,7 @@ mod tests {
         let at = |a: &mut WordApp, off: usize| {
             let layout = a.session.layout();
             let c = layout.caret_on(&Pos::body(0, off), 0).unwrap();
-            let view = view_key(a, false, None);
+            let view = view_key(a, false, None, true);
             caret_color_at(a, &layout, c.page, c.x, c.top + c.height / 2.0, view, false)
         };
         assert_eq!(at(&mut a, 2), Color32::BLACK, "white paper");
@@ -6723,8 +6769,62 @@ mod tests {
         let doc = wordcraft_doc::Document::from_text("Hello WordCraft");
         let app = WordApp::new(wordcraft_engine::Session::new(doc), Default::default());
         let object = Pos::body(0, 5);
-        let hidden = view_key(&app, false, Some(&object));
-        assert_ne!(hidden, view_key(&app, false, None), "the page without the dragged object is rendered again");
-        assert_eq!(hidden, view_key(&app, false, Some(&object)), "the same drag keeps the key: no re-render every frame");
+        let hidden = view_key(&app, false, Some(&object), true);
+        assert_ne!(hidden, view_key(&app, false, None, true), "the page without the dragged object is rendered again");
+        assert_eq!(hidden, view_key(&app, false, Some(&object), true), "the same drag keeps the key: no re-render every frame");
+    }
+
+    /// A zoom easing in (or a pinch) shows a new size every frame for a moment: those pages are
+    /// drawn unhinted, so they fill no hint caches with sizes nobody rests on. The first frame
+    /// without zooming draws the page hinted again, even at the size the last zoom frame drew.
+    #[test]
+    fn pages_are_hinted_again_once_a_zoom_stops() {
+        let platform = screen_render_options().hinting;
+        assert_eq!(hint_pages(1.0, false), platform, "at rest, as the platform draws text");
+        for zoom in [1.1, 0.9, 1.002, 0.998, f32::NAN, f32::INFINITY, 0.0] {
+            assert!(!hint_pages(zoom, true), "{zoom}: the scale changes under a pointer zoom");
+            assert_eq!(hint_pages(zoom, false), platform, "{zoom}: at 10 % or 500 %, or over the ribbon: nothing changes");
+        }
+        assert_eq!(hint_pages(1.0, true), platform, "the Zoom dialog or slider, a fit zoom: hinted at once");
+        // The hinting is part of the page's key: the last zoom frame's raster is replaced.
+        let doc = wordcraft_doc::Document::from_text("Hello WordCraft");
+        let app = WordApp::new(wordcraft_engine::Session::new(doc), Default::default());
+        assert_ne!(view_key(&app, false, None, true), view_key(&app, false, None, false));
+    }
+
+    /// A real page (tables with banded fills, shading, coloured headings): with subpixel text it
+    /// differs from the greyscale page only along the edges of its text; every fill under and
+    /// around the text is where it was, in its colour.
+    #[test]
+    fn a_page_with_subpixel_text_differs_from_greyscale_only_at_text_edges() {
+        let doc = wordcraft_engine::sample::sample_document();
+        let l = wordcraft_layout::layout(&doc, &mut wordcraft_layout::LayoutCache::new(), &wordcraft_layout::LayoutOptions::default());
+        let grey = wordcraft_render::RenderOptions { hinting: true, ..Default::default() };
+        let sub = wordcraft_render::RenderOptions { subpixel: Some(wordcraft_render::Subpixel::Rgb), ..grey.clone() };
+        for page in &l.pages {
+            let a = wordcraft_render::render_page(&doc, page, 1.93, &grey);
+            let b = wordcraft_render::render_page(&doc, page, 1.93, &sub);
+            let (pa, pb) = (a.pixels.as_chunks::<4>().0, b.pixels.as_chunks::<4>().0);
+            // Each pixel's brightness: greyscale and subpixel text cover about the same.
+            let lum = |p: &[u8; 4]| (u32::from(p[0]) + u32::from(p[1]) + u32::from(p[2])) / 3;
+            let far = pa.iter().zip(pb).filter(|(x, y)| lum(x).abs_diff(lum(y)) > 90).count();
+            assert!(far * 1000 < pa.len(), "{far} of {} pixels far apart", pa.len());
+            // Inside every area of one colour (paper, fills, shading, a thick stroke), two pixels
+            // from any edge, the pages are the same pixel for pixel: subpixel text changes only
+            // the pixels at the edges of text, and nothing is drawn out of order.
+            let (w, h) = (a.width as usize, a.height as usize);
+            let at = |x: usize, y: usize| pa[y * w + x];
+            let mut inside = 0;
+            for y in 2..h.saturating_sub(2) {
+                for x in 2..w.saturating_sub(2) {
+                    let c = at(x, y);
+                    if (y - 2..=y + 2).all(|yy| (x - 2..=x + 2).all(|xx| at(xx, yy) == c)) {
+                        inside += 1;
+                        assert_eq!(pb[y * w + x], c, "({x}, {y}) inside an area of {c:?}");
+                    }
+                }
+            }
+            assert!(inside * 2 > pa.len(), "most of a page is inside areas: {inside} of {}", pa.len());
+        }
     }
 }

@@ -2775,3 +2775,11 @@ template	Letter	Lettre
 	More tabs	Plus d'onglets
 # #3013: Insert Table of Figures
 	Include label and number	Inclure l’étiquette et le numéro
+
+	Subpixel text:	Texte en sous-pixels :
+	Sharper page text on LCD screens: each third of a pixel lights its own colour. Pick the order of your screen's colour stripes, left to right.	Texte des pages plus net sur les écrans LCD : chaque tiers de pixel s’allume dans sa propre couleur. Choisissez l’ordre des bandes de couleur de votre écran, de gauche à droite.
+	Your desktop's font settings use subpixel rendering, RGB.	Les paramètres de police de votre bureau utilisent le rendu en sous-pixels, RGB.
+	Your desktop's font settings use subpixel rendering, BGR.	Les paramètres de police de votre bureau utilisent le rendu en sous-pixels, BGR.
+	Your desktop's font settings use greyscale text, so page text is greyscale.	Les paramètres de police de votre bureau utilisent du texte en niveaux de gris : le texte des pages est donc en niveaux de gris.
+	RGB	RGB
+	BGR	BGR

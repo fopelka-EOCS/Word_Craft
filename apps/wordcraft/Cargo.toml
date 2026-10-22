@@ -54,6 +54,9 @@ winit = { version = "0.30", default-features = false, features = ["x11"] }
 # The desktop's animation setting on Linux and the BSDs, read from the XDG settings portal over
 # D-Bus. Already in the build through AccessKit, at this version; this adds only its blocking API.
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
+# The desktop's subpixel text setting: the X resources (`Xft.rgba`) its font settings write. Pure
+# Rust, already in the build (through arboard and winit) at this version.
+x11rb = { version = "0.13", default-features = false }
 # Wayland's clipboard through the data-control protocol (#687, #833): the RTF and other picture
 # types that arboard doesn't read, and the formats offered. Already in the build through arboard's
 # `wayland-data-control` feature, at this version.

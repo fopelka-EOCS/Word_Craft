@@ -2763,3 +2763,11 @@ preview	Title	Naslov
 	{names} and {n} more	{names} and {n} more
 	{name} options	{name} options
 	{width} × {height} pixels	{width} × {height} pixels
+
+	Subpixel text:	Podpikselno besedilo:
+	Sharper page text on LCD screens: each third of a pixel lights its own colour. Pick the order of your screen's colour stripes, left to right.	Ostrejše besedilo strani na zaslonih LCD: vsaka tretjina slikovne pike sveti v svoji barvi. Izberite vrstni red barvnih trakov zaslona, od leve proti desni.
+	Your desktop's font settings use subpixel rendering, RGB.	Nastavitve pisav namizja uporabljajo podpikselno upodabljanje, RGB.
+	Your desktop's font settings use subpixel rendering, BGR.	Nastavitve pisav namizja uporabljajo podpikselno upodabljanje, BGR.
+	Your desktop's font settings use greyscale text, so page text is greyscale.	Nastavitve pisav namizja uporabljajo besedilo v odtenkih sive, zato je besedilo strani v odtenkih sive.
+	RGB	RGB
+	BGR	BGR

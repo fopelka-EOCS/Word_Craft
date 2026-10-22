@@ -2770,3 +2770,11 @@
 	More tabs	További lapok
 # #3013: Insert Table of Figures
 	Include label and number	Címkével és számmal
+
+	Subpixel text:	Képpontrész-szöveg:
+	Sharper page text on LCD screens: each third of a pixel lights its own colour. Pick the order of your screen's colour stripes, left to right.	Élesebb oldalszöveg LCD-kijelzőkön: a képpont minden harmada a saját színében világít. Válaszd ki a kijelződ színsávjainak sorrendjét balról jobbra.
+	Your desktop's font settings use subpixel rendering, RGB.	Az asztali környezeted betűtípus-beállításai képpontrész-megjelenítést használnak, RGB.
+	Your desktop's font settings use subpixel rendering, BGR.	Az asztali környezeted betűtípus-beállításai képpontrész-megjelenítést használnak, BGR.
+	Your desktop's font settings use greyscale text, so page text is greyscale.	Az asztali környezeted betűtípus-beállításai szürkeárnyalatos szöveget használnak, ezért az oldalszöveg szürkeárnyalatos.
+	RGB	RGB
+	BGR	BGR

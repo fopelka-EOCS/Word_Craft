@@ -2766,3 +2766,11 @@ preview	Title	Ukázka
 	More tabs	Další karty
 # #3013: Insert Table of Figures
 	Include label and number	Zahrnout popisek a číslo
+
+	Subpixel text:	Subpixelový text:
+	Sharper page text on LCD screens: each third of a pixel lights its own colour. Pick the order of your screen's colour stripes, left to right.	Ostřejší text stránek na LCD obrazovkách: každá třetina pixelu svítí vlastní barvou. Vyberte pořadí barevných proužků obrazovky zleva doprava.
+	Your desktop's font settings use subpixel rendering, RGB.	Nastavení písem ve vašem prostředí používá subpixelové vykreslování, RGB.
+	Your desktop's font settings use subpixel rendering, BGR.	Nastavení písem ve vašem prostředí používá subpixelové vykreslování, BGR.
+	Your desktop's font settings use greyscale text, so page text is greyscale.	Nastavení písem ve vašem prostředí používá text ve stupních šedi, proto je text stránek ve stupních šedi.
+	RGB	RGB
+	BGR	BGR
