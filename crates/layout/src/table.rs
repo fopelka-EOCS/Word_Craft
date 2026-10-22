@@ -847,8 +847,7 @@ pub fn layout_table(ctx: &mut Ctx, story: StoryRef, t: &Table, path: &[u32], ava
                 story,
                 clip: exact && c.h > span_h + 0.01,
             });
-            let top = c.margins[0] + c.borders.top.filter(Border::is_visible).map_or(0.0, |b| b.width.clamp(0.0, 12.0));
-            parts.push(CellPart { top, items: first..items.len(), end: end.filter(|(band, _)| *band == 0).map(|(_, e)| e) });
+            parts.push(CellPart { top: c.top, items: first..items.len(), end: end.filter(|(band, _)| *band == 0).map(|(_, e)| e) });
         }
         // The row's own cells come first: `row_keeps_next` reads the first cell's paragraph.
         parts.extend(run_on.into_iter().map(|(_, p)| p));
