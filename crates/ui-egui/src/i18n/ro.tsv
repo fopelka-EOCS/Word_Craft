@@ -2762,3 +2762,11 @@ template	Letter	Scrisoare
 	cm	cm
 	mm	mm
 	pi	pi
+	Switch Windows	Comută ferestrele
+	Switch\nWindows	Comută\nferestrele
+	Arrange All	Aranjează toate
+	View Side by Side	Vizualizare alăturată
+	Synchronous Scrolling	Derulare sincronă
+	No other WordCraft windows are open.	Nu sunt deschise alte ferestre WordCraft.
+	only the desktop app has several windows	doar aplicația desktop are mai multe ferestre
+	turn on View Side by Side first	activează mai întâi Vizualizare alăturată
