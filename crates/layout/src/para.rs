@@ -1322,12 +1322,17 @@ impl<'a> Builder<'a> {
             }
         }
         self.force_face = None;
-        // The combined cluster draws all its glyphs in one face. Shaping a piece per character can
-        // still split it across faces (a symbol or a substituted numeral the run's face lacks, say).
-        // In that case drawing the cluster with the upper piece's face would use glyph ids from
-        // another font; give the run back to the ordinary path, where each character keeps its face.
-        let face_of = |b: &Self, k: usize| b.clusters.get(k).and_then(|c| b.styles.get(c.style as usize)).map(|st| st.face.id());
-        if pieces.is_empty() || pieces.iter().flat_map(|(_, a, b)| *a..*b).any(|k| face_of(self, k) != face_of(self, pieces[0].1)) {
+        // The combined cluster draws all its glyphs with the upper piece's style: one face and one
+        // size. Shaping a piece per character can still split it across faces (a symbol or a
+        // substituted numeral the run's face lacks, say) or sizes (complex-script text is shaped
+        // at `size_cs`, the rest at `size`). In either case drawing the cluster with the upper
+        // piece's style would use glyph ids from another font or the wrong size; give the run back
+        // to the ordinary path, where each character keeps its own face and size.
+        let draw_of = |b: &Self, k: usize| {
+            let st = b.clusters.get(k).and_then(|c| b.styles.get(c.style as usize))?;
+            Some((st.face.id(), st.size.to_bits(), st.rc.size.to_bits(), st.rc.size_cs.to_bits()))
+        };
+        if pieces.is_empty() || pieces.iter().flat_map(|(_, a, b)| *a..*b).any(|k| draw_of(self, k) != draw_of(self, pieces[0].1)) {
             self.glyphs.truncate(g0 as usize);
             self.clusters.truncate(c0);
             return false;

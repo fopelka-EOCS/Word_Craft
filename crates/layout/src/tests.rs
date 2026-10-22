@@ -10979,3 +10979,57 @@ fn combine_uses_ordinary_text_when_its_pieces_would_mix_faces() {
     assert_eq!(face('日').id(), asian.id(), "the Japanese letter keeps the East Asian face");
     assert_eq!(face('a').id(), latin.id(), "the Latin letter keeps the run's own face");
 }
+
+/// A combined cluster keeps the upper piece's style, so its pieces must also draw at one size: a
+/// Latin piece is shaped at `size` and a complex-script one at `size_cs`, and if those differ,
+/// drawing the lower sub-line with the upper piece's style would draw it at the wrong size. Such a
+/// run stays ordinary text, each letter keeping its own size; with `size_cs` equal to `size` it
+/// combines.
+#[test]
+fn combine_uses_ordinary_text_when_its_pieces_draw_at_different_sizes() {
+    let Some(family) = ["DejaVu Sans", "Liberation Sans", "Open Sans", "Noto Sans Hebrew", "Arial", "Tahoma"].into_iter().find(|f| {
+        let r = wordcraft_fonts::word::resolve(f, false, false);
+        !r.substituted && r.face.covers('a') && r.face.covers('א')
+    }) else {
+        eprintln!("skipped: needs an installed font covering Latin and Hebrew");
+        return;
+    };
+    let chr = |size_cs: f32| wordcraft_doc::CharProps {
+        font: Some(family.into()),
+        font_cs: Some(family.into()),
+        size: Some(20.0),
+        size_cs: Some(size_cs),
+        east_asian_layout: Some(EastAsianLayout { combine: Some(true), combine_brackets: Some(CombineBrackets::None), ..Default::default() }),
+        ..Default::default()
+    };
+    let text = "aא";
+    let layout = |size_cs: f32| {
+        let mut d = Document::new();
+        d.body = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text(text, chr(size_cs)))];
+        lay(&d)
+    };
+    // The Latin letter at 20 pt, the Hebrew one at `size_cs` 10: one half size for both would draw
+    // the Latin letter at the Hebrew letter's size, so the run stays ordinary text.
+    let mixed = layout(10.0);
+    let c = only_para(&mixed);
+    assert!(
+        c.clusters.iter().all(|cl| !cl.warichu),
+        "ordinary text, not one cluster drawn at the upper piece's size: {:?}",
+        c.clusters.iter().map(|cl| (cl.start, cl.end, cl.warichu)).collect::<Vec<_>>()
+    );
+    let size_of = |ch: char| {
+        let cl =
+            c.clusters.iter().find(|cl| text.get(cl.start..cl.end).and_then(|t| t.chars().next()) == Some(ch)).expect("a cluster for the letter");
+        c.styles[cl.style as usize].size
+    };
+    assert!((size_of('a') - 20.0).abs() < 0.01, "the Latin letter keeps the run's size");
+    assert!((size_of('א') - 10.0).abs() < 0.01, "the Hebrew letter keeps the complex-script size");
+    // Same face and the same drawing size (half of 20 for both): one combined cluster.
+    let same = layout(20.0);
+    let c = only_para(&same);
+    assert_eq!(c.clusters.len(), 1, "{:?}", c.clusters.iter().map(|cl| (cl.start, cl.end, cl.warichu)).collect::<Vec<_>>());
+    let w = &c.clusters[0];
+    assert!(w.warichu, "the run combines");
+    let half = c.styles[w.style as usize].size;
+    assert!((half - 10.0).abs() < 0.01, "half the run's size: {half}");
+}
