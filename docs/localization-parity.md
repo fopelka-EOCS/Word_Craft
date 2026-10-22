@@ -1,6 +1,6 @@
 # Localization parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-16 · **Change:** minor (English dialects: en-GB, en-CA, en-AU and the other British-spelling Englishes proof their own spellings and flag the other dialect's, #1281, #1045; previously minor: how to install the Hunspell dictionaries on Windows, macOS and Linux: `docs/spelling-dictionaries.md`; previously minor: Read Aloud speaks each sentence in its own language, #1843; previously minor: Indonesian proofing: id-ID spelling from the installed Hunspell dictionary, dictionary-driven suggestions, generic checks with Indonesian messages, #498; previously trivial: print-area strings translated in every catalog; previously trivial: Italian: the interface audit checks the Italian catalog, `Privacy Settings` wording; previously trivial: Italian grammar: `po'`, `qual è`, `È`, `un`/`un'` rules; more elisions and truncations in spelling; previously trivial: Czech interface catalog completed, 2,447 entries; previously trivial: interface audit runs in CI again: size labels translated, 20 strings in every catalog, Read Aloud error race fixed, #1128; previously trivial: Review › Language reaches every language again — Set Proofing Language… and Set As Default, #860; previously minor: Italian proofing: it-IT spelling from the installed Hunspell dictionary, accent-first suggestions, conservative grammar with Italian messages; previously minor: Portuguese proofing; previously trivial: Turkish interface catalog completed, 2,325 entries, #774; previously minor: Hungarian interface added; previously trivial: sorting and table numbers follow the text's language, #836, #837; previously minor: Polish interface; Polish proofing — spelling, grammar, hyphenation — and a proofing language per run; previously minor: Turkish interface added; previously major: first version; catalogs measured from `crates/ui-egui/src/i18n`, Word's languages from its bundle listing) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-21 · **Change:** trivial (table sort and formulas read Latin American currency signs: `R$`, `US$`, `Arg$`, `CUP$`, `RD$`, `MX$`, `C$` may touch the number, while `Bs.`/`Bs`/`Bs.S`, `S/.`/`S/`, `$U`, `Q` and `L` are words of their own, as Word 16.0 reads them; `es-PE`/`es-CU` are point-decimal regions as CLDR says, and whole amounts without cents read as integers; previously minor: English dialects: en-GB, en-CA, en-AU and the other British-spelling Englishes proof their own spellings and flag the other dialect's, #1281, #1045; previously minor: how to install the Hunspell dictionaries on Windows, macOS and Linux: `docs/spelling-dictionaries.md`; previously minor: Read Aloud speaks each sentence in its own language, #1843; previously minor: Indonesian proofing: id-ID spelling from the installed Hunspell dictionary, dictionary-driven suggestions, generic checks with Indonesian messages, #498; previously trivial: print-area strings translated in every catalog; previously trivial: Italian: the interface audit checks the Italian catalog, `Privacy Settings` wording; previously trivial: Italian grammar: `po'`, `qual è`, `È`, `un`/`un'` rules; more elisions and truncations in spelling; previously trivial: Czech interface catalog completed, 2,447 entries; previously trivial: interface audit runs in CI again: size labels translated, 20 strings in every catalog, Read Aloud error race fixed, #1128; previously trivial: Review › Language reaches every language again — Set Proofing Language… and Set As Default, #860; previously minor: Italian proofing: it-IT spelling from the installed Hunspell dictionary, accent-first suggestions, conservative grammar with Italian messages; previously minor: Portuguese proofing; previously trivial: Turkish interface catalog completed, 2,325 entries, #774; previously minor: Hungarian interface added; previously trivial: sorting and table numbers follow the text's language, #836, #837; previously minor: Polish interface; Polish proofing — spelling, grammar, hyphenation — and a proofing language per run; previously minor: Turkish interface added; previously major: first version; catalogs measured from `crates/ui-egui/src/i18n`, Word's languages from its bundle listing) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 Interface languages, script support and proofing per language. How translation works (catalog
 format, adding a language, clean-room rule): `crates/ui-egui/src/i18n/mod.rs`.
@@ -148,8 +148,17 @@ Romanian, Estonian, Latvian, Lithuanian, Slovenian and Icelandic (`crates/doc/sr
 a hand-written per-language alphabet table; full CLDR collation is not used). Table sort and
 table formulas read numbers with the language's decimal and group separators (`1 250,50` in
 Polish, `1.250,50` in German, `1,250.50` in English) and write formula results with its decimal
-separator (`crates/doc/src/locale_number.rs`). Interface lists (styles, fonts) still sort by code
-point.
+separator (`crates/doc/src/locale_number.rs`). Currency signs and short currency words around the
+number are ignored as Word ignores them: single-character signs may touch the number (`$1,250`,
+`1 250,00 zł`, `PLN 12`), and so may the Latin American dollar signs `R$`, `US$`, `Arg$`, `CUP$`,
+`RD$`, `MX$` and `C$` (`R$1,250.50`). The multi-character words `Bs.`/`Bs`/`Bs.S`, `S/.`, `$U`, `Q`
+and `L` are a word of their own (`Bs. 1,250.50`, `Q 1,250.50`), as Word 16.0 reads them; `S/` is
+also accepted as CLDR writes the Peruvian sol. ISO codes (`ARS`, `BOB`, `BRL`, … `VES`) were
+already read as three-letter currency words. Numbers follow the region as well as the language:
+`es-MX`, `es-PA`, `es-PE` and `es-CU` write `1,250.50`, while `es-AR`, `es-BO`, `es-CL`, `es-CO`,
+`es-CR`, `es-PY`, `es-UY`, `es-VE` and `pt-BR` write `1.250,50`; whole amounts without cents
+(`R$ 1.250`, `S/. 1,250`) read as integers, and whole results show no decimals. Interface lists
+(styles, fonts) still sort by code point.
 
 ## Region conventions (#838)
 
@@ -176,9 +185,9 @@ Where the region comes from:
 Runs without preferences (`WORDCRAFT_NO_PREFS`) stay `en-US` unless `WORDCRAFT_REGION` is set, so
 agents and screenshots give the same result on every machine. The decimal separator belongs to
 the language's own number format (CLDR): a decimal-comma language uses a comma everywhere except
-where CLDR says otherwise (`de-CH`), and English, whose `en-XX` locales follow the territory, uses a
-comma in decimal-comma territories (`en-DE`, `en-PL`). Other decimal-point languages keep the point
-in any territory (`ja-PL` is `2.54 cm`), as CLDR's fallback to the language gives.
+where CLDR says otherwise (`de-CH`, `es-PE`, `es-CU`), and English, whose `en-XX` locales follow
+the territory, uses a comma in decimal-comma territories (`en-DE`, `en-PL`). Other decimal-point
+languages keep the point in any territory (`ja-PL` is `2.54 cm`), as CLDR's fallback to the language gives.
 
 Templates (Letter, Resume, Report) keep their own size. Not yet: Word's "Default paper size"
 preference of its own, and Word's locale-specific Normal margins (2,5 cm in some regions;
@@ -198,6 +207,7 @@ WordCraft keeps 2,54 cm).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-21 | trivial | Latin American currency signs in table numbers: `R$`, `US$`, `Arg$`, `CUP$`, `RD$`, `MX$` and `C$` may touch the number; `Bs.`/`Bs`/`Bs.S`, `S/.`/`S/`, `$U`, `Q` and `L` are words of their own, as Word 16.0 reads them. Regional separators follow CLDR (`es-PE` and `es-CU` write `1,250.50`), and whole amounts without cents (`R$ 1.250`, `S/. 1,250`) read as integers; ISO codes already worked (#3550) |
 | 2026-10-14 | trivial | The sentence-capital rule (English, Polish, Croatian, Italian, Turkish, Portuguese) skips the first word of a list item (#1741) |
 | 2026-10-16 | minor | Indonesian proofing (#498): id-ID spelling from the installed Hunspell `id_ID` dictionary (not bundled), Czech's dictionary-driven suggestions, repeated-word (hyphenated reduplication offered) and spacing checks with Indonesian messages; Review › Language, the status bar, Set Proofing Language and File › Options › Proofing list Indonesian; estimates unchanged |
 | 2026-10-16 | trivial | Read Aloud picks a voice for the sentence's language (run tag, else script) when the default voice doesn't speak it, reads Windows text as UTF-8 |
