@@ -2129,6 +2129,7 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
         let mut pending_tab: Option<(usize, TabStop, f32)> = None; // tab cluster, stop, x where tab started
         let mut space_w = 0.0f32; // width of the spaces so far on this line
         let mut has_tab = false;
+        let mut hanging_tab = None; // a tab at the first line's hanging-indent stop
         while j < n {
             let Some(c) = pl.clusters.get(j).cloned() else { break };
             match c.kind {
@@ -2188,11 +2189,18 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                             x += w;
                         }
                         _ => {
+                            // A tab laid out again after a wrap keeps no width from the line before.
+                            if let Some(c) = pl.clusters.get_mut(j) {
+                                c.adv = 0.0;
+                            }
                             pending_tab = Some((j, stop, x));
                             if stop.leader != TabLeader::None {
                                 leaders.push((j, stop.leader));
                             }
                         }
+                    }
+                    if first && hanging_at.is_some_and(|h| (stop.pos - h).abs() < 0.01) {
+                        hanging_tab = Some(j);
                     }
                     last_break = Some(j);
                     j += 1;
@@ -2235,12 +2243,38 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                 {
                     last_break = Some(pj);
                 }
-                // The text after a right, centre or decimal tab doesn't fit: like Word, the tab
-                // goes to the next line with its text (a TOC entry's page number stays at the
-                // right margin, after a leader) instead of ending this line.
-                if let Some((tj, ..)) = pending_tab
-                    && last_break == Some(tj)
-                    && (c0..tj).any(|k| pl.clusters.get(k).is_some_and(|c| c.kind != ClKind::Marker))
+                // The width of the word starting at a cluster: up to the next break that isn't a
+                // hyphenation point.
+                let word_at = |from: usize| -> f32 {
+                    (from..n)
+                        .filter_map(|k| pl.clusters.get(k).map(|c| (k, c)))
+                        .scan(false, |done, (k, c)| {
+                            let end = c.break_after && pl.hyph_after.binary_search(&(k as u32)).is_err();
+                            (!std::mem::replace(done, end)).then_some(c)
+                        })
+                        .filter(|c| c.kind != ClKind::Space)
+                        .map(|c| c.adv)
+                        .sum()
+                };
+                let full = base_right - row_lo;
+                // The room after the tab once it's moved: past the next line's first stop.
+                let next_stop = next_tab(rp.indent_left, &rp.tabs, default_tab, hanging_at);
+                let moved_room = match next_stop.align {
+                    TabAlign::Left | TabAlign::Bar | TabAlign::Clear => base_right - next_stop.pos,
+                    _ => base_right - rp.indent_left,
+                };
+                // The text after a tab doesn't fit: like Word, the tab goes to the next line with its
+                // text and takes the first stop there (a TOC entry's page number stays at the right
+                // margin, after a leader) instead of ending this line. Not at the first line's
+                // hanging-indent stop (a label such as "[1]" keeps its tab), nor when the word
+                // after it wouldn't fit after the tab there either: the tab would get a line of its own.
+                // shortcut: measured against the next line unnarrowed; beside a float the tab can
+                // still get a span of its own, upgrade if that shows up in documents.
+                if let Some(tj) = last_break
+                    && pl.clusters.get(tj).is_some_and(|c| c.kind == ClKind::Tab)
+                    && hanging_tab != Some(tj)
+                    && (c0..tj).any(|k| pl.clusters.get(k).is_some_and(takes_room))
+                    && word_at(tj + 1) <= moved_room + 0.01
                 {
                     last_break = Some(tj - 1);
                     pending_tab = None;
@@ -2256,17 +2290,7 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                     // floating object and the word fits the full line; then it tries the row's
                     // next span, or the next row. The word runs to the next break that isn't a
                     // hyphenation point.
-                    let word: f32 = (c0..n)
-                        .filter_map(|k| pl.clusters.get(k).map(|c| (k, c)))
-                        .scan(false, |done, (k, c)| {
-                            let end = c.break_after && pl.hyph_after.binary_search(&(k as u32)).is_err();
-                            (!std::mem::replace(done, end)).then_some(c)
-                        })
-                        .filter(|c| c.kind != ClKind::Space)
-                        .map(|c| c.adv)
-                        .sum();
-                    let full = base_right - row_lo;
-                    skip = narrowed && skipped < 50 && word <= full + 0.01;
+                    skip = narrowed && skipped < 50 && word_at(c0) <= full + 0.01;
                     // Never split a ligature's letters across lines: the glyph sits on the first
                     // letter, so back up to it (unless it starts the line).
                     let glyphless = |k: usize| pl.clusters.get(k).is_some_and(|c| c.kind == ClKind::Text && c.g1 <= c.g0);
