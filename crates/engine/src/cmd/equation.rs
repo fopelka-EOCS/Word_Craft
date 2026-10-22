@@ -265,6 +265,17 @@ fn edit(s: &mut Session, v: &Value) -> CmdResult {
 /// Drag the equation by its frame's grip and drop it at `to` (Word): it moves there in one step
 /// and is edited where it landed. Dropped on itself it stays.
 fn move_to(s: &mut Session, v: &Value) -> CmdResult {
+    // A refused move (a locked control, protection) puts the document back; the equation stays
+    // in editing too.
+    let editing = s.math.clone();
+    let r = move_equation(s, v);
+    if r.is_err() {
+        s.math = editing;
+    }
+    r
+}
+
+fn move_equation(s: &mut Session, v: &Value) -> CmdResult {
     let to: Pos = v.get("to").and_then(|p| serde_json::from_value(p.clone()).ok()).ok_or_else(|| CmdError::Params("`to` required".into()))?;
     let at = s
         .math
@@ -290,10 +301,12 @@ fn move_to(s: &mut Session, v: &Value) -> CmdResult {
     if !p::bool(v, "copy").unwrap_or(false) {
         let from = if same_para && new_at.off <= at.off { Pos { off: at.off + n, ..at.clone() } } else { at.clone() };
         s.sel = Selection { anchor: from.clone(), focus: Pos { off: from.off + n, ..from.clone() } };
+        let len = |s: &Session| s.doc.para_at(&from).map(|p| p.len());
+        let before = len(s);
         delete_selection(s)?;
-        // Without tracked changes the original leaves the text before the drop point; tracked, it
-        // stays there as a deletion.
-        if same_para && from.off < new_at.off && !s.doc.settings.track_changes {
+        // The original leaves the text before the drop point, unless it stays there as a tracked
+        // deletion (tracked, the author's own insertion still goes).
+        if same_para && from.off < new_at.off && len(s) < before {
             new_at.off -= n;
         }
     }
@@ -825,6 +838,58 @@ mod tests {
         assert_eq!(p.text.matches(OBJ).count(), 2, "{:?}", p.text);
         assert!(p.runs.iter().any(|r| r.props.del.is_some()) && p.runs.iter().any(|r| r.props.ins.is_some()));
         assert_eq!(s.math.as_ref().map(|m| m.at.off), Some(8));
+    }
+
+    /// Tracked, an equation the author inserted is removed outright when it moves, so a drop
+    /// further on in the same paragraph lands where the pointer let go.
+    #[test]
+    fn a_tracked_insertion_moved_forward_lands_at_the_drop() {
+        let mut s = session();
+        s.run("insert.equation", &json!({"linear": "x"})).unwrap();
+        s.run("equation.exit", &json!({})).unwrap();
+        s.run("text.insert", &json!({"text": " tail"})).unwrap();
+        // A tracked paste of the equation at the start: the author's own insertion.
+        s.sel = Selection { anchor: Pos::body(0, 0), focus: Pos::body(0, OBJ.len_utf8()) };
+        s.run("edit.copy", &json!({})).unwrap();
+        s.doc.settings.track_changes = true;
+        s.sel = Selection::caret(Pos::body(0, 0));
+        s.run("edit.paste", &json!({})).unwrap();
+        s.sel = Selection::caret(Pos::body(0, 0));
+        s.run("equation.edit", &json!({})).unwrap();
+        let end = s.doc.para_at(&Pos::body(0, 0)).unwrap().len();
+        s.run("equation.moveTo", &json!({"to": Pos::body(0, end)})).unwrap();
+        let p = s.doc.para_at(&Pos::body(0, 0)).unwrap();
+        assert_eq!(p.text.matches(OBJ).count(), 2, "{:?}", p.text);
+        let at = s.math.as_ref().unwrap().at.clone();
+        assert_eq!(at.off, p.len() - OBJ.len_utf8(), "{:?}", p.text);
+        assert!(matches!(p.object_at(at.off), Some(InlineObject::Equation { .. })));
+    }
+
+    /// A move the document refuses (here a control locked against editing around the equation)
+    /// leaves the document as it was and the equation still being edited.
+    #[test]
+    fn a_refused_move_keeps_the_equation_in_editing() {
+        let mut s = session();
+        s.run("text.insert", &json!({"text": "Before after."})).unwrap();
+        s.sel = Selection::caret(Pos::body(0, 7));
+        s.run("insert.equation", &json!({"linear": "a/b"})).unwrap();
+        s.run("equation.exit", &json!({})).unwrap();
+        s.sel = Selection { anchor: Pos::body(0, 7), focus: Pos::body(0, 7 + OBJ.len_utf8()) };
+        s.run("developer.richText", &json!({"tag": "eq"})).unwrap();
+        s.run("developer.properties", &json!({"control": "eq", "lockEdit": true})).unwrap();
+        let at = s
+            .doc
+            .para_at(&Pos::body(0, 0))
+            .unwrap()
+            .object_offsets()
+            .into_iter()
+            .find(|o| matches!(s.doc.para_at(&Pos::body(0, 0)).unwrap().object_at(*o), Some(InlineObject::Equation { .. })));
+        s.sel = Selection::caret(Pos::body(0, at.unwrap()));
+        s.run("equation.edit", &json!({})).unwrap();
+        let (before, editing) = (s.doc.clone(), s.math.clone());
+        assert!(s.run("equation.moveTo", &json!({"to": Pos::body(0, 0)})).is_err());
+        assert_eq!(s.doc, before);
+        assert_eq!(s.math, editing);
     }
 
     /// Shift+arrows select inside an equation; moving without Shift ends the selection.
