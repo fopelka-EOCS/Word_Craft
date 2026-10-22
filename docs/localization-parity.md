@@ -1,6 +1,6 @@
 # Localization parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-21 · **Change:** trivial (Slovenian interface catalog: every key of every other catalog, 2,614 entries; previously minor: Romanian interface catalog; previously trivial: the File › Home greeting is translated in every catalog; previously trivial: Japanese row: ruby (Phonetic Guide) is supported and HTML export/import keeps it, #1681; previously trivial: Russian sorting keeps ё with е and recognises decomposed ё/й; previously minor: English dialects: en-GB, en-CA, en-AU and the other British-spelling Englishes proof their own spellings and flag the other dialect's, #1281, #1045; previously minor: how to install the Hunspell dictionaries on Windows, macOS and Linux: `docs/spelling-dictionaries.md`; previously minor: Read Aloud speaks each sentence in its own language, #1843; previously minor: Indonesian proofing: id-ID spelling from the installed Hunspell dictionary, dictionary-driven suggestions, generic checks with Indonesian messages, #498; previously trivial: print-area strings translated in every catalog; previously trivial: Italian: the interface audit checks the Italian catalog, `Privacy Settings` wording; previously trivial: Italian grammar: `po'`, `qual è`, `È`, `un`/`un'` rules; more elisions and truncations in spelling; previously trivial: Czech interface catalog completed, 2,447 entries; previously trivial: interface audit runs in CI again: size labels translated, 20 strings in every catalog, Read Aloud error race fixed, #1128; previously trivial: Review › Language reaches every language again — Set Proofing Language… and Set As Default, #860; previously minor: Italian proofing: it-IT spelling from the installed Hunspell dictionary, accent-first suggestions, conservative grammar with Italian messages; previously minor: Portuguese proofing; previously trivial: Turkish interface catalog completed, 2,325 entries, #774; previously minor: Hungarian interface added; previously trivial: sorting and table numbers follow the text's language, #836, #837; previously minor: Polish interface; Polish proofing — spelling, grammar, hyphenation — and a proofing language per run; previously minor: Turkish interface added; previously major: first version; catalogs measured from `crates/ui-egui/src/i18n`, Word's languages from its bundle listing) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-22 · **Change:** minor (Vietnamese collation, canonical equivalence and Table Sort options (Case sensitive, Sorting language); previously trivial: Slovenian interface catalog: every key of every other catalog, 2,614 entries; previously minor: Romanian interface catalog; previously trivial: the File › Home greeting is translated in every catalog; previously trivial: Japanese row: ruby (Phonetic Guide) is supported and HTML export/import keeps it, #1681; previously trivial: Russian sorting keeps ё with е and recognises decomposed ё/й; previously minor: English dialects: en-GB, en-CA, en-AU and the other British-spelling Englishes proof their own spellings and flag the other dialect's, #1281, #1045; previously minor: how to install the Hunspell dictionaries on Windows, macOS and Linux: `docs/spelling-dictionaries.md`; previously minor: Read Aloud speaks each sentence in its own language, #1843; previously minor: Indonesian proofing: id-ID spelling from the installed Hunspell dictionary, dictionary-driven suggestions, generic checks with Indonesian messages, #498; previously trivial: print-area strings translated in every catalog; previously trivial: Italian: the interface audit checks the Italian catalog, `Privacy Settings` wording; previously trivial: Italian grammar: `po'`, `qual è`, `È`, `un`/`un'` rules; more elisions and truncations in spelling; previously trivial: Czech interface catalog completed, 2,447 entries; previously trivial: interface audit runs in CI again: size labels translated, 20 strings in every catalog, Read Aloud error race fixed, #1128; previously trivial: Review › Language reaches every language again — Set Proofing Language… and Set As Default, #860; previously minor: Italian proofing: it-IT spelling from the installed Hunspell dictionary, accent-first suggestions, conservative grammar with Italian messages; previously minor: Portuguese proofing; previously trivial: Turkish interface catalog completed, 2,325 entries, #774; previously minor: Hungarian interface added; previously trivial: sorting and table numbers follow the text's language, #836, #837; previously minor: Polish interface; Polish proofing — spelling, grammar, hyphenation — and a proofing language per run; previously minor: Turkish interface added; previously major: first version; catalogs measured from `crates/ui-egui/src/i18n`, Word's languages from its bundle listing) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 Interface languages, script support and proofing per language. How translation works (catalog
 format, adding a language, clean-room rule): `crates/ui-egui/src/i18n/mod.rs`.
@@ -147,13 +147,31 @@ A native speaker reviewed the catalog on 2026-10-14 (wording fixes, consistent t
 ## Sorting and numbers in the text's language
 
 Sorts follow the alphabet of the text's language (`w:lang`, else the document default):
-Table › Sort, Home › Sort, the index and its letter headings, the bibliography and the Table of
-Authorities. Letters with diacritics sort with their base letter (`é` with `e`) unless the
-language makes them letters of their own: Polish `ą ć ę ł ń ó ś ź ż`, Czech/Slovak `č ch ř š ž`
-(and Slovak `ä ô`), Hungarian `cs dz dzs gy ly ny sz ty zs ö ü`, Swedish/Finnish `å ä ö` and
-Danish/Norwegian `æ ø å` after `z`, Spanish `ñ`, Turkish, Croatian/Bosnian/Serbian Latin,
-Romanian, Estonian, Latvian, Lithuanian, Slovenian and Icelandic (`crates/doc/src/collate.rs`,
-a hand-written per-language alphabet table; full CLDR collation is not used). Table sort and
+Table › Sort, Home › Sort, the index and its letter headings, the bibliography, the Table of
+Authorities and Edit Recipient List. Letters with diacritics sort with their base letter (`é`
+with `e`, `Ánh` next to `Anh`) unless the language makes them letters of their own: Polish
+`ą ć ę ł ń ó ś ź ż`, Czech/Slovak `č ch ř š ž` (and Slovak `ä ô`), Hungarian `cs dz dzs gy ly ny
+sz ty zs ö ü`, Swedish/Finnish `å ä ö` and Danish/Norwegian `æ ø å` after `z`, Spanish `ñ`,
+Turkish, Croatian/Bosnian/Serbian Latin, Romanian, Estonian, Latvian, Lithuanian, Slovenian and
+Icelandic. Vietnamese follows the CLDR `vi` standard order: `a ă â b c d đ e ê … o ô ơ … u ư`,
+with the tone as a second-level difference (`ma < mà < mả < mã < má < mạ`, `Hoà` before `Hòa`).
+Latin letters typed precomposed and as a base letter plus combining marks compare equal (U+00C0–U+024F
+and U+1E00–U+1EFF, with marks from U+0300–U+036F), and marks of different combining classes match in
+either order (marks of the same class keep their order, as Unicode requires); of other scripts only
+Cyrillic ё and й match their decomposed forms (see Russian below), and Greek ά against α + U+0301 is
+not unified yet. Sorting never
+changes the text itself. Sort accepts a Sorting language (Table › Sort
+dialog, or `lang` on `table.sort` and `para.sort`; Column language, the first language marked on
+the column's cells, by default) and Case sensitive (lower case before upper case among
+otherwise equal texts). Mail merge "contains" conditions match whole letters, so `e` does not
+match inside `ễ`, even when the text is decomposed; the recipient sort and the less, greater and equal
+filters use the document's language order (`equal` is canonical-equivalence aware). The collation is `crates/doc/src/collate.rs`, a hand-written per-language
+table over canonical decomposition data (Unicode Character Database 17.0 data as packaged in ICU4X
+`icu_normalizer_data` 2.3.0, `crates/doc/src/collate_ucd.rs`, under the Unicode License v3, see
+`ATTRIBUTION.md`); full CLDR collation is not used. The agreement tests against ICU4X compare the
+Vietnamese order only; the order used when no language applies is our own, not CLDR root: accented
+letters (and `ø ł æ ß ð ħ ı œ`) sort with their base letters, and everything else, punctuation
+included, by code point. Table sort and
 table formulas read numbers with the language's decimal and group separators (`1 250,50` in
 Polish, `1.250,50` in German, `1,250.50` in English) and write formula results with its decimal
 separator (`crates/doc/src/locale_number.rs`). Cuban and Peruvian Spanish (`es-CU`, `es-PE`) use
@@ -216,6 +234,8 @@ WordCraft keeps 2,54 cm).
 | 2026-10-20 | trivial | Cuban and Peruvian Spanish table numbers use decimal points for parsing and formula results, matching CLDR and the existing region settings; regression covers grouped values and a Spain control |
 | 2026-10-20 | trivial | Set As Default persists the proofing language across restarts; command and dialog regressions cover new documents, interface changes, existing document languages and rejection rollback (#2882); readiness estimates unchanged |
 | 2026-10-18 | trivial | German hyphenation: runs in `de` (any region) use the TeX German patterns for the reformed spelling (MIT) instead of the English ones; still no German spelling or grammar |
+| 2026-10-20 | trivial | Collation: the marks with a decomposition of their own (U+0340 and U+0341, the grave and acute tone marks; U+0343; U+0344) equal the marks they decompose to, so `a` + U+0341 sorts and matches as `á` (sắc in `vi`); the ICU check now covers every mark of U+0300–U+036F |
+| 2026-10-19 | minor | Vietnamese collation (CLDR `vi` standard, tones secondary), canonical equivalence of Latin letters (precomposed = decomposed, marks of different combining classes in either order) and accented Latin letters next to their base letter in sorting; Sort gains Case sensitive and a Sorting language; mail-merge "contains" matches whole letters |
 | 2026-10-14 | trivial | The sentence-capital rule (English, Polish, Croatian, Italian, Turkish, Portuguese) skips the first word of a list item (#1741) |
 | 2026-10-16 | minor | Indonesian proofing (#498): id-ID spelling from the installed Hunspell `id_ID` dictionary (not bundled), Czech's dictionary-driven suggestions, repeated-word (hyphenated reduplication offered) and spacing checks with Indonesian messages; Review › Language, the status bar, Set Proofing Language and File › Options › Proofing list Indonesian; estimates unchanged |
 | 2026-10-16 | trivial | Read Aloud picks a voice for the sentence's language (run tag, else script) when the default voice doesn't speak it, reads Windows text as UTF-8 |

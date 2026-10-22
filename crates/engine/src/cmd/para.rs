@@ -1,7 +1,7 @@
 //! Paragraph formatting, lists and styles (Home › Paragraph, Home › Styles).
 
 use serde_json::{Value, json};
-use wordcraft_doc::collate::{SortKey, sort_key};
+use wordcraft_doc::collate::{CaseKey, SortKey, case_key, sort_key};
 use wordcraft_doc::numbering::ListKind;
 use wordcraft_doc::props::{Align, Border, BorderStyle, Borders, LineSpacing, NumRef, ParaProps, Rgb, TabAlign, TabLeader, TabStop};
 use wordcraft_doc::styles::{Style, StyleKind};
@@ -172,7 +172,9 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("para.borders", "Borders", "Home › Paragraph", borders).params(
             r#"{"kind": "bottom|top|left|right|none|all|outside|inside|horizontalLine", "width"?: pt, "color"?: "RRGGBB", "style"?: "single|double|dotted|dashed|thick|triple|dotDash|wave", "sides"?: Sides} where Sides = {"top"|"left"|"bottom"|"right"|"between": {"style"?, "width"?: pt, "color"?: "RRGGBB"} | null}: exactly these sides (others off), instead of `kind`"#,
         ),
-        CommandSpec::new("para.sort", "Sort", "Home › Paragraph", sort).params(r#"{"descending"?: bool}"#),
+        CommandSpec::new("para.sort", "Sort", "Home › Paragraph", sort).params(
+            r#"{"descending"?: bool, "caseSensitive"?: bool (lowercase first; default: case-only differences keep their order), "lang"?: string (BCP 47 sorting language for the whole range; default: the first paragraph's, else the document's)}"#,
+        ),
         CommandSpec::new("para.keepNext", "Keep with Next", "Home › Paragraph › Line and Page Breaks", |s, v| tog(s, v, |p| p.keep_next, |p, b| p.keep_next = Some(b)))
             .params(r#"{"value"?: bool}"#),
         CommandSpec::new("para.keepLines", "Keep Lines Together", "Home › Paragraph › Line and Page Breaks", |s, v| tog(s, v, |p| p.keep_lines, |p, b| p.keep_lines = Some(b)))
@@ -881,22 +883,31 @@ fn borders(s: &mut Session, v: &Value) -> CmdResult {
     })
 }
 
-/// Sort the selected paragraphs (same container) alphabetically.
+/// Sort the selected paragraphs (same container) alphabetically, in one language for the whole
+/// range: `lang`, else the first paragraph's, else the document's. `caseSensitive` breaks ties
+/// between paragraphs that differ only in case, lowercase first. Equal paragraphs keep their
+/// order, also when descending; the paragraphs move, their text is never re-encoded.
 fn sort(s: &mut Session, v: &Value) -> CmdResult {
     let desc = p::bool(v, "descending").unwrap_or(false);
+    let case_sensitive = p::bool(v, "caseSensitive").unwrap_or(false);
     let (a, b) = s.sel.ordered();
     if a.path.parent() != b.path.parent() {
         return Err(CmdError::Failed("select paragraphs in one place to sort".into()));
     }
     let (i0, i1) = (a.path.last(), b.path.last());
-    let lang = s.doc.para(a.story, &a.path).and_then(|p| super::para_lang(&s.doc, p)).or_else(|| super::default_lang(s));
+    let lang = super::sort_lang_param(v)
+        .or_else(|| s.doc.para(a.story, &a.path).and_then(|p| super::para_lang(&s.doc, p)))
+        .or_else(|| super::default_lang(s));
     let bl = s.doc.container_mut(a.story, &a.path)?;
     let Some(slice) = bl.get_mut(i0..=i1) else { return Err(CmdError::Failed("bad range".into())) };
     if slice.iter().any(|b| !matches!(**b, Block::Para(_))) {
         return Err(CmdError::Failed("sorting tables isn't supported here; use Table › Sort".into()));
     }
-    let mut keyed: Vec<_> =
-        slice.iter().map(|b| (natural_key(&b.as_para().map(|p| p.plain_text()).unwrap_or_default(), lang.as_deref()), b.clone())).collect();
+    // Keys computed once per paragraph, then a stable sort of the keyed blocks.
+    let mut keyed: Vec<_> = slice
+        .iter()
+        .map(|b| (natural_key(&b.as_para().map(|p| p.plain_text()).unwrap_or_default(), lang.as_deref(), case_sensitive), b.clone()))
+        .collect();
     keyed.sort_by(|(x, _), (y, _)| {
         let o = natural_cmp(x, y);
         if desc { o.reverse() } else { o }
@@ -909,22 +920,24 @@ fn sort(s: &mut Session, v: &Value) -> CmdResult {
     sel_result(s)
 }
 
-/// A paragraph's sort key: the number it starts with, then its text in its language's order.
-fn natural_key(text: &str, lang: Option<&str>) -> (Option<f64>, SortKey) {
+/// A paragraph's sort key: the number it starts with, then its text in its language's order,
+/// then (only when `case_sensitive`) its letter case.
+fn natural_key(text: &str, lang: Option<&str>, case_sensitive: bool) -> (Option<f64>, SortKey, CaseKey) {
     let num = text.trim().split(|c: char| !c.is_ascii_digit()).next().and_then(|n| n.parse::<f64>().ok());
-    (num, sort_key(text, lang))
+    (num, sort_key(text, lang), if case_sensitive { case_key(text) } else { CaseKey::default() })
 }
 
 /// Paragraphs starting with a number come first, in numeric order ("item 2" < "item 10" within
-/// the same number, by text); the rest follow in collation order. A total order.
-fn natural_cmp(a: &(Option<f64>, SortKey), b: &(Option<f64>, SortKey)) -> std::cmp::Ordering {
+/// the same number, by text); the rest follow in collation order, then by case (empty case keys
+/// when the sort ignores case). A total order.
+fn natural_cmp(a: &(Option<f64>, SortKey, CaseKey), b: &(Option<f64>, SortKey, CaseKey)) -> std::cmp::Ordering {
     let num = match (a.0, b.0) {
         (Some(x), Some(y)) => x.total_cmp(&y),
         (Some(_), None) => std::cmp::Ordering::Less,
         (None, Some(_)) => std::cmp::Ordering::Greater,
         (None, None) => std::cmp::Ordering::Equal,
     };
-    num.then_with(|| a.1.cmp(&b.1))
+    num.then_with(|| a.1.cmp(&b.1)).then_with(|| a.2.cmp(&b.2))
 }
 
 fn create_style(s: &mut Session, v: &Value) -> CmdResult {

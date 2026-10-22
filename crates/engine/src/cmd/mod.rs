@@ -501,6 +501,12 @@ pub fn default_lang(s: &Session) -> Option<String> {
     doc_lang(&s.doc).or_else(|| s.editing_lang.clone())
 }
 
+/// The `lang` param of the sort commands (Table › Sort, Home › Sort): a BCP 47 tag naming the
+/// sorting language, trimmed; blank or missing is none (the text's own language decides).
+pub(crate) fn sort_lang_param(v: &Value) -> Option<String> {
+    crate::p::str(v, "lang").map(str::trim).filter(|l| !l.is_empty()).map(str::to_string)
+}
+
 #[cfg(test)]
 mod iso_tests {
     use super::{civil_from_days, iso_from_unix_secs};

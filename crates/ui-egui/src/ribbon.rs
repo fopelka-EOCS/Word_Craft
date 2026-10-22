@@ -3220,6 +3220,14 @@ mod tests {
         assert_eq!(first_words, ["Narrow", "Landscape", "A4", "Right"], "{checked:?}");
     }
 
+    /// Vietnamese is in the language list (the Sort dialog offers it), so the status bar names it
+    /// instead of showing the tag.
+    #[test]
+    fn vietnamese_shows_by_name() {
+        assert_eq!(language_name(Some("vi-VN")), "Vietnamese");
+        assert_eq!(language_name(Some("vi-vn")), "Vietnamese");
+    }
+
     /// #860 review: a tag the language list doesn't have shows by language and region, not as
     /// the tag; Portuguese (Angola) isn't Brazil's, and no name shows twice in the menu.
     #[test]

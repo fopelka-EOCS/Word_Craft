@@ -2799,3 +2799,7 @@ template	Letter	Lettera
 	More tabs	Altre schede
 # #3013: Insert Table of Figures
 	Include label and number	Includi etichetta e numero
+# Table › Sort: Options (M3-COLL.6)
+	Case sensitive	Distingui maiuscole/minuscole
+	Column language	Lingua della colonna
+	Sorting language	Lingua di ordinamento
