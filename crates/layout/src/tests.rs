@@ -11237,3 +11237,50 @@ fn list_items_in_a_table_after_a_kept_caption_are_counted_once() {
     d.insert_block(StoryRef::Body, &Path::top(1), wordcraft_doc::Block::Table(t)).unwrap();
     assert_eq!(labels(&lay(&d)), ["1.", "2."]);
 }
+
+/// Before Word 2013 layout (compatibility mode 15, measured in Word for Mac in modes 12 and 14) a
+/// row split across pages divides its cells' text at any line, the repeated header row may stay
+/// alone at the foot of a page, and a caption kept with the table keeps with the header row only.
+/// The bottom margin shrinks a point at a time, so the caption lands at every offset from the
+/// foot of the page.
+#[test]
+fn before_word_2013_layout_a_kept_caption_goes_with_the_header_row_only() {
+    let (mut one_line, mut header_alone) = (false, false);
+    for extra in 0..40 {
+        let fill = 25;
+        let mut d = Document::from_text(&format!("{}Caption", "filler\n".repeat(fill)));
+        d.settings.compat_mode = wordcraft_doc::LEGACY_COMPAT_MODE;
+        d.last_section.margin_bottom -= extra as f32;
+        // (No space after the caption: the table starts right under it.)
+        d.format_paragraphs(&Pos::body(fill, 0), &Pos::body(fill, 0), &|p| {
+            p.keep_next = Some(true);
+            p.space_after = Some(0.0);
+        })
+        .unwrap();
+        let mut t = Table::new(2, 1, 468.0);
+        t.rows[0].props.header = true;
+        t.rows[0].cells[0].blocks = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("Header", Default::default()))];
+        t.rows[1].cells[0].blocks =
+            vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text(&"first row words go on and on ".repeat(60), Default::default()))];
+        d.insert_block(StoryRef::Body, &Path::top(fill + 1), wordcraft_doc::Block::Table(t)).unwrap();
+        let l = lay(&d);
+        let page = l
+            .pages
+            .iter()
+            .find(|p| p.items.iter().any(|it| matches!(it, Placed::Lines { story: StoryRef::Body, path, .. } if *path == Path::top(fill))))
+            .unwrap();
+        let rows: Vec<usize> = page.items.iter().filter_map(|it| if let Placed::Cell { row, .. } = it { Some(*row) } else { None }).collect();
+        let lines: usize = page
+            .items
+            .iter()
+            .filter_map(|it| match it {
+                Placed::Lines { path, l0, l1, .. } if path.0.len() > 1 && path.0.get(1) == Some(&1) => Some(l1 - l0),
+                _ => None,
+            })
+            .sum();
+        assert!(rows.contains(&0), "bottom margin -{extra}: the caption is alone on its page");
+        one_line |= lines == 1;
+        header_alone |= !rows.contains(&1);
+    }
+    assert!(one_line && header_alone, "one line of the first row: {one_line}, the header row alone: {header_alone}");
+}
