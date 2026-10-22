@@ -1928,71 +1928,36 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
     pl
 }
 
-/// Does the word that starts at cluster `c0` fit in `full` points?
+/// The width of the word that starts at each cluster: the clusters up to the first break
+/// opportunity that isn't a hyphenation point, their advance, spaces aside.
 ///
-/// The word is the clusters up to the first break opportunity that isn't a hyphenation point,
-/// and its width is their advance, spaces aside — the same set the scan this replaces gathered,
-/// which stopped at that first opportunity rather than running on to the end of the paragraph.
+/// The word is the same set the scan this replaces gathered, which stopped at that first
+/// opportunity rather than running on to the end of the paragraph.
 ///
-/// The measurement stops as soon as the word is clearly wider than the room there is: then the
-/// answer is already known, and the advances are widths, so measuring the rest of it could only
-/// make it wider. A font can pull a glyph back, though — a negative advance — so the rest of the
-/// word is measured only as far as it could take the width back: `neg` holds the most the
-/// clusters after each one can give back before the word ends, and the scan stops early only
-/// while the word stays wider than the room even with all of it. That keeps a long word beside
-/// a float from costing a pass over the whole paragraph for every line it takes (#18).
-pub(crate) fn word_fits(clusters: &[Cluster], hyph_after: &[u32], c0: usize, full: f32, neg: Option<&[f32]>) -> bool {
-    let mut word = 0.0f32;
-    let mut done = false;
-    for (k, c) in (c0..clusters.len()).filter_map(|k| clusters.get(k).map(|c| (k, c))) {
-        let end = c.break_after && hyph_after.binary_search(&(k as u32)).is_err();
-        if done {
-            // The cluster after a break opportunity ends the word.
-            break;
-        }
-        done = end;
-        if c.kind != ClKind::Space {
-            word += c.adv;
-            if word > full + 0.01 {
-                // What the rest of the word can take back: its own negative advances.
-                let back = neg.and_then(|b| b.get(k).copied()).unwrap_or(0.0);
-                if word + back > full + 0.01 {
-                    return false;
-                }
-            }
-        }
-    }
-    word <= full + 0.01
-}
-
-/// The most the clusters after `k` can take back before their word ends: the sum of their
-/// negative advances, spaces aside — a lower bound for the width the rest of the word can still
-/// add.
+/// Every word is measured once, before the line is broken, so a word that has to be measured
+/// again — it doesn't fit the span beside a floating object, so it moves on to the next row —
+/// costs a lookup rather than another pass over it (#18, #3412).
 ///
-/// A word that ends at a break opportunity gives nothing back to the words after it, so the
-/// bound is reset at every break: the words that follow cannot hold up the measurement of this
-/// one, or a long word followed by a word with a negative advance would be measured whole on
-/// every line it takes.
+/// The width is the sum of the advances, the negative ones included: a font that pulls a glyph
+/// back takes the width off again, so a word whose advances alternate is measured by that sum
+/// and not by how wide it gets on the way. The sum is taken over the whole word for that
+/// reason, and the words after a break are left out of it: they are words of their own.
 ///
-/// `None` when no advance is negative: nothing can take the width back, and the early exit in
-/// [`word_fits`] needs no bound. Only a font that pulls glyphs back gives a negative advance,
-/// so the common case costs a look over the clusters and nothing more.
-pub(crate) fn negative_advances(clusters: &[Cluster], hyph_after: &[u32]) -> Option<Vec<f32>> {
-    if !clusters.iter().any(|c| c.kind != ClKind::Space && c.adv < 0.0) {
-        return None;
-    }
+/// The sum is added up from the word's end rather than its start, which is the same number in
+/// all but the last bits of a float: the sum a float holds depends on the order it is added in,
+/// and the two differ by far less than the tenth of a point the comparison that uses the width
+/// allows.
+pub(crate) fn word_widths(clusters: &[Cluster], hyph_after: &[u32]) -> Vec<f32> {
     let n = clusters.len();
-    let mut bound = vec![0.0f32; n + 1];
+    let mut width = vec![0.0f32; n + 1];
     for k in (0..n).rev() {
-        if clusters[k].break_after && hyph_after.binary_search(&(k as u32)).is_err() {
-            // The word ends here: what comes after it belongs to the next word.
-            bound[k] = 0.0;
-            continue;
-        }
-        let neg = clusters.get(k + 1).map(|c| if c.kind == ClKind::Space { 0.0 } else { c.adv.min(0.0) }).unwrap_or(0.0);
-        bound[k] = neg + bound[k + 1];
+        let c = &clusters[k];
+        let adv = if c.kind == ClKind::Space { 0.0 } else { c.adv };
+        // The word ends at a break opportunity. A hyphenation point isn't one: the break there
+        // is optional, so the word runs on to the next.
+        width[k] = if c.break_after && hyph_after.binary_search(&(k as u32)).is_err() { adv } else { adv + width[k + 1] };
     }
-    Some(bound)
+    width
 }
 
 /// Lays a paragraph out as nothing: no height, no spacing, no label, its lines (kept for the
@@ -2068,9 +2033,10 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
     let zone = Some(env.doc.settings.hyphenation_zone).filter(|z| z.is_finite() && *z >= 0.0).unwrap_or(HYPHENATION_ZONE).min(1584.0);
     let hyph_limit = env.doc.settings.consecutive_hyphen_limit as usize;
     let n = pl.clusters.len();
-    // The most the clusters can take back: a font that pulls a glyph back gives a negative
-    // advance, and the word beside a float is measured only as far as it could still fit.
-    let neg_adv = negative_advances(&pl.clusters, &pl.hyph_after);
+    // The width of every word, measured once: the word beside a float is measured again for
+    // every row it is tried on, and measuring it again costs a lookup rather than another pass
+    // over the word (#18).
+    let widths = word_widths(&pl.clusters, &pl.hyph_after);
     // A right-to-left paragraph is laid out from its start edge, as if mirrored: indents, tabs,
     // the list label and alignment are measured from the right. Lines are mirrored back (and
     // bidirectional text reordered) once broken; floating objects are mirrored in.
@@ -2327,7 +2293,7 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                     // next span, or the next row. The word runs to the next break that isn't a
                     // hyphenation point.
                     let full = base_right - row_lo;
-                    skip = narrowed && skipped < 50 && word_fits(&pl.clusters, &pl.hyph_after, c0, full, neg_adv.as_deref());
+                    skip = narrowed && skipped < 50 && widths[c0] <= full + 0.01;
                     // Never split a ligature's letters across lines: the glyph sits on the first
                     // letter, so back up to it (unless it starts the line).
                     let glyphless = |k: usize| pl.clusters.get(k).is_some_and(|c| c.kind == ClKind::Text && c.g1 <= c.g0);

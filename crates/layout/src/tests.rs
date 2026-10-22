@@ -590,61 +590,142 @@ fn a_megabyte_long_word_lays_out_quickly() {
     assert!(t.elapsed().as_secs() < 15, "a megabyte-long word took {:?}", t.elapsed());
 }
 
-/// A word that a negative advance makes narrower still fits beside a float: the measurement
-/// stops early only when the word is over the room even with everything the rest of it can take
-/// back.
-#[test]
-fn a_word_a_negative_advance_narrows_still_fits() {
-    let cluster = |adv: f32, break_after: bool| para::Cluster {
-        start: 0,
-        end: 1,
-        adv,
-        kind: para::ClKind::Text,
-        style: 0,
-        g0: 0,
-        g1: 1,
-        break_after,
-        obj_h: 0.0,
-        obj_d: 0.0,
-        dot: false,
-    };
-    // A hundred points, then a font that pulls the last glyph back by sixty: the word is forty
-    // wide, and fits in sixty.
-    let clusters = vec![cluster(100.0, false), cluster(-60.0, true)];
-    let neg = para::negative_advances(&clusters, &[]);
-    assert!(para::word_fits(&clusters, &[], 0, 60.0, neg.as_deref()), "a word of forty points fits in sixty");
-    // The same word in thirty points does not.
-    assert!(!para::word_fits(&clusters, &[], 0, 30.0, neg.as_deref()), "a word of forty points does not fit in thirty");
+/// A cluster with the given advance and kind, for the tests that measure a word by hand.
+fn word_cluster(kind: para::ClKind, adv: f32, break_after: bool) -> para::Cluster {
+    para::Cluster { start: 0, end: 1, adv, kind, style: 0, g0: 0, g1: 1, break_after, obj_h: 0.0, obj_d: 0.0, dot: false }
 }
 
-/// The words after a break cannot hold up the measurement of the word before it: a long word
-/// followed by a word that pulls the width back is still measured only as far as it must be.
+/// A word that a negative advance makes narrower still fits beside a float: the width of a word
+/// is the sum of its advances, and a font that pulls a glyph back takes the width off again.
 #[test]
-fn the_negative_bound_stops_at_the_end_of_the_word() {
-    let cluster = |adv: f32, break_after: bool| para::Cluster {
-        start: 0,
-        end: 1,
-        adv,
-        kind: para::ClKind::Text,
-        style: 0,
-        g0: 0,
-        g1: 1,
-        break_after,
-        obj_h: 0.0,
-        obj_d: 0.0,
-        dot: false,
-    };
+fn a_word_a_negative_advance_narrows_still_fits() {
+    // A hundred points, then a font that pulls the last glyph back by sixty: the word is forty
+    // wide, and fits in sixty.
+    let clusters = vec![word_cluster(para::ClKind::Text, 100.0, false), word_cluster(para::ClKind::Text, -60.0, true)];
+    let widths = para::word_widths(&clusters, &[]);
+    assert_eq!(widths[0], 40.0, "the word is the sum of its advances");
+    assert!(widths[0] <= 60.0, "a word of forty points fits in sixty");
+    assert!(widths[0] > 30.0, "a word of forty points does not fit in thirty");
+}
+
+/// The words after a break are words of their own: their advances are not counted in the word
+/// before them, or a long word followed by a word that pulls the width back would be measured
+/// as if the two were one.
+#[test]
+fn the_words_after_a_break_are_not_counted_in_the_word_before_it() {
     // A word of two ordinary clusters, then a break, then a word that pulls a hundred points
     // back.
-    let clusters = vec![cluster(10.0, false), cluster(10.0, true), cluster(-100.0, true)];
-    let bound = para::negative_advances(&clusters, &[]).expect("a negative advance");
-    // Inside the first word the bound is its own: the word after the break gives nothing back.
-    assert_eq!(bound[0], 0.0, "the word after the break must not hold up the measurement");
-    assert_eq!(bound[1], 0.0);
-    // A negative advance inside a word is the word's own.
-    let one = vec![cluster(100.0, false), cluster(-60.0, true)];
-    let bound = para::negative_advances(&one, &[]).expect("a negative advance");
-    assert_eq!(bound[0], -60.0);
+    let clusters = vec![
+        word_cluster(para::ClKind::Text, 10.0, false),
+        word_cluster(para::ClKind::Text, 10.0, true),
+        word_cluster(para::ClKind::Text, -100.0, true),
+    ];
+    let widths = para::word_widths(&clusters, &[]);
+    assert_eq!(widths[0], 20.0, "the word after the break must not hold up the word before it");
+    assert_eq!(widths[1], 10.0, "the word that ends at the break is a word of its own");
+    assert_eq!(widths[2], -100.0);
+}
+
+/// A word whose advances alternate in sign is measured by their sum: a font that pulls some
+/// glyphs back must not make the measurement walk the word to find out how wide it is.
+#[test]
+fn a_word_whose_advances_alternate_is_measured_by_its_sum() {
+    // A thousand points forward, nine hundred and ninety-nine back: the word is one point wider
+    // per pair, so it is far wider than the room even though it is never wider than a thousand
+    // points at a time.
+    let mut clusters = Vec::new();
+    for i in 0..1_000 {
+        clusters.push(word_cluster(para::ClKind::Text, if i % 2 == 0 { 1000.0 } else { -999.0 }, false));
+    }
+    clusters.push(word_cluster(para::ClKind::Text, 0.0, true));
+    let widths = para::word_widths(&clusters, &[]);
+    assert_eq!(widths[0], 500.0, "the word is the sum of its advances");
+}
+
+/// The width of a word is the sum of its advances: the same sum the scan this replaces took, over
+/// every shape of word — negative advances, spaces, break opportunities and hyphenation points
+/// included.
+#[test]
+fn a_word_is_measured_by_the_sum_of_its_advances() {
+    // The measurement as the scan this replaces took it: the clusters up to the first break
+    // opportunity that isn't a hyphenation point, their advance, spaces aside.
+    let scan = |clusters: &[para::Cluster], hyph: &[u32], c0: usize| -> f32 {
+        let mut done = false;
+        let mut word = 0.0f32;
+        for (k, c) in (c0..clusters.len()).map(|k| (k, &clusters[k])) {
+            let end = c.break_after && hyph.binary_search(&(k as u32)).is_err();
+            if done {
+                break;
+            }
+            done = end;
+            if c.kind != para::ClKind::Space {
+                word += c.adv;
+            }
+        }
+        word
+    };
+    // A deterministic spread of advances, spaces, breaks and hyphenation points.
+    let mut seed = 0x2545_f491_4f6c_dd1du64;
+    let mut next = move || {
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        (seed >> 33) as i32
+    };
+    for _ in 0..2_000 {
+        let n = 1 + next().unsigned_abs() as usize % 40;
+        let clusters: Vec<para::Cluster> = (0..n)
+            .map(|_| {
+                let kind = if next() % 7 == 0 { para::ClKind::Space } else { para::ClKind::Text };
+                word_cluster(kind, (next() % 4000) as f32 / 100.0 - 20.0, next() % 3 == 0)
+            })
+            .collect();
+        let mut hyph = Vec::new();
+        if next() % 2 == 0 {
+            for _ in 0..next().unsigned_abs() as usize % 4 {
+                hyph.push(next().unsigned_abs() % n as u32);
+            }
+            hyph.sort_unstable();
+            hyph.dedup();
+        }
+        let widths = para::word_widths(&clusters, &hyph);
+        for (c0, &width) in widths.iter().enumerate().take(n) {
+            // The two sums are the same number, added in a different order: one adds the word's
+            // advances from its start and the other from its end, and a float sum depends on
+            // the order it is added in. The difference is far below the tenth of a point the
+            // comparison that uses the width allows.
+            let scan = scan(&clusters, &hyph, c0);
+            assert!((width - scan).abs() < 0.001, "the word at cluster {c0} of {clusters:?} is {width}, the scan says {scan}");
+        }
+    }
+}
+
+/// A word with no break opportunity in it whose advances alternate in sign: a run with wide
+/// character spacing and a run with condensed spacing, so that half the glyphs are pulled back.
+/// The word is wider than the line it is laid out on, so it takes a line per few characters, and
+/// measuring it must not walk it again for every one of those lines.
+fn long_word_with_alternating_advances_beside_a_float(n: usize) -> Document {
+    use wordcraft_doc::para::{Anchor, Float, Wrap};
+    let mut d = Document::from_text(&"a".repeat(n));
+    // One run per block of characters, alternating the spacing: half the glyphs are pulled back.
+    let block = 64;
+    let p = d.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+    p.runs = (0..n.div_ceil(block))
+        .map(|i| wordcraft_doc::Run {
+            len: block.min(n - i * block),
+            props: wordcraft_doc::CharProps { spacing: Some(if i % 2 == 0 { 50.0 } else { -50.0 }), ..Default::default() },
+        })
+        .collect();
+    let f = Float { wrap: Wrap::Square, h_rel: Anchor::Column, v_rel: Anchor::Paragraph, dist: 9.0, ..Default::default() };
+    d.insert_object(&Pos::body(0, 0), rect_shape(144.0, 100.0, f), &Default::default()).unwrap();
+    d
+}
+
+/// A word whose advances alternate in sign lays out in linear time: the measurement that asks
+/// whether it would fit the full line must not walk the word again for every line it takes.
+#[test]
+fn a_word_with_alternating_advances_lays_out_in_linear_time() {
+    let (t1, tk, ratio) = layout_time_ratio(long_word_with_alternating_advances_beside_a_float, 50_000, &LayoutOptions::default());
+    eprintln!("t(n) {t1:.4} s, t(8n) {tk:.4} s, ratio {ratio:.1}");
+    assert!(ratio < 24.0, "8x the word took {ratio:.1}x the time ({t1:.4} s → {tk:.4} s): not linear");
 }
 
 #[test]
