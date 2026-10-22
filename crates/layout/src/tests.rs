@@ -612,9 +612,9 @@ fn a_word_a_negative_advance_narrows_still_fits() {
     // wide, and fits in sixty.
     let clusters = vec![cluster(100.0, false), cluster(-60.0, true)];
     let neg = para::negative_advances(&clusters, &[]);
-    assert!(para::word_fits(&clusters, &[], 0, clusters.len(), 60.0, neg.as_deref()), "a word of forty points fits in sixty");
-    // The same word in seventy points does not.
-    assert!(!para::word_fits(&clusters, &[], 0, clusters.len(), 30.0, neg.as_deref()), "a word of forty points does not fit in thirty");
+    assert!(para::word_fits(&clusters, &[], 0, 60.0, neg.as_deref()), "a word of forty points fits in sixty");
+    // The same word in thirty points does not.
+    assert!(!para::word_fits(&clusters, &[], 0, 30.0, neg.as_deref()), "a word of forty points does not fit in thirty");
 }
 
 /// The words after a break cannot hold up the measurement of the word before it: a long word

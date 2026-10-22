@@ -1941,10 +1941,10 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
 /// clusters after each one can give back before the word ends, and the scan stops early only
 /// while the word stays wider than the room even with all of it. That keeps a long word beside
 /// a float from costing a pass over the whole paragraph for every line it takes (#18).
-pub(crate) fn word_fits(clusters: &[Cluster], hyph_after: &[u32], c0: usize, n: usize, full: f32, neg: Option<&[f32]>) -> bool {
+pub(crate) fn word_fits(clusters: &[Cluster], hyph_after: &[u32], c0: usize, full: f32, neg: Option<&[f32]>) -> bool {
     let mut word = 0.0f32;
     let mut done = false;
-    for (k, c) in (c0..n).filter_map(|k| clusters.get(k).map(|c| (k, c))) {
+    for (k, c) in (c0..clusters.len()).filter_map(|k| clusters.get(k).map(|c| (k, c))) {
         let end = c.break_after && hyph_after.binary_search(&(k as u32)).is_err();
         if done {
             // The cluster after a break opportunity ends the word.
@@ -2327,7 +2327,7 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                     // next span, or the next row. The word runs to the next break that isn't a
                     // hyphenation point.
                     let full = base_right - row_lo;
-                    skip = narrowed && skipped < 50 && word_fits(&pl.clusters, &pl.hyph_after, c0, n, full, neg_adv.as_deref());
+                    skip = narrowed && skipped < 50 && word_fits(&pl.clusters, &pl.hyph_after, c0, full, neg_adv.as_deref());
                     // Never split a ligature's letters across lines: the glyph sits on the first
                     // letter, so back up to it (unless it starts the line).
                     let glyphless = |k: usize| pl.clusters.get(k).is_some_and(|c| c.kind == ClKind::Text && c.g1 <= c.g0);
