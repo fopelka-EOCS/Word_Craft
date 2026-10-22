@@ -19,23 +19,20 @@ native-speaker review (human).
 
 ## What WordCraft ships (measured)
 
-- **24 interface languages**: English plus `zh-hans`, `zh-hant`, `ja`, Korean `ko` (#1216), `uk`, `es`, `pt-br`,
-  Serbian `sr`/`sr-latn` (#250), Estonian `et`, Turkish `tr`, Russian `ru`, Italian `it` (#594), German `de` (#574), Polish `pl`, Czech `cs`, Hungarian `hu`, French `fr`, Bulgarian `bg`, Vietnamese `vi` (#1434), Swedish `sv` (#1219), Croatian `hr` (#1271) and Indonesian `id` (#572). Catalogs have 2,309–2,732 entries
-  each; Indonesian has every key of every other catalog, including the built-in style names, the
-  equation gallery, the newer paper-size, bookmark and print-dialog strings, and the shape-gradient, English-dialect and personal-template strings, while Polish has
-  every key except those newer strings and the citation style names only Hungarian, Bulgarian and
-  Swedish translate so far (a test checks it). A test (`every_tab_and_command_is_translated`) enforces that every ribbon tab, command
+- **28 interface languages**: English plus `zh-hans`, `zh-hant`, `ja`, Korean `ko` (#1216), `uk`, `es`, `pt-br`,
+  Serbian `sr`/`sr-latn` (#250), Estonian `et`, Turkish `tr`, Russian `ru`, Italian `it` (#594), German `de` (#574), Polish `pl`, Czech `cs`, Hungarian `hu`, French `fr`, Bulgarian `bg`, Vietnamese `vi` (#1434), Swedish `sv` (#1219), Croatian `hr` (#1271), Romanian `ro`, Slovenian `sl`, Dutch `nl`, Danish `da` (#2722) and Indonesian `id` (#572). Catalogs have 2,061–2,674 entries
+  each; Polish has every key of every other catalog, including the built-in style names and the equation gallery, except the citation style names only Hungarian, Bulgarian, Swedish, Romanian and Slovenian translate so far (a test checks it). A test (`every_tab_and_command_is_translated`) enforces that every ribbon tab, command
   label and ribbon location is translated in every language.
   `pl`, `pl-PL` and `pl_PL.UTF-8` system locales pick Polish automatically, and `id`, `id-ID` and
   the former ISO 639 code `in` (Windows still reports `in-ID`) pick Indonesian.
 - Of the 675 English strings a scan extracts from `tl!(…)` calls and command labels/locations, each
   catalog covers **661 (98%)**. Some newer dialog and pane strings (Equation tab tooltips, Zotero,
-  Read Aloud, Backstage greetings) aren't wrapped in `tl!` yet, so they show in English in every
+  Read Aloud) aren't wrapped in `tl!` yet, so they show in English in every
   language: the true share of visible strings is **~93–95%** (estimated).
 - Pending PRs: Norwegian Bokmål (#208) and Nynorsk (#210), Hebrew with RTL (#20).
 - **Proofing: English, Polish, Portuguese, Italian, Russian, Czech and Indonesian**, chosen per run from its language (`w:lang`, resolved through
   the styles; Review › Language and the status bar set it: a short list, plus Set Proofing
-  Language… for any of 30 languages and Set As Default for the document). Languages without proofing tools get
+  Language… for any of 30 languages and Set As Default for the document and future blank documents). Languages without proofing tools get
   the styles; Review › Language and the status bar set it). Languages without proofing tools get
   no spelling or grammar marks (as in Word without the language's tools) instead of being flagged
   as English. Detail in [Proofing per language](#proofing-per-language).
@@ -58,17 +55,19 @@ shared items below.
 | French | fr | 2,615 entries (complete catalog) | all | Latin ✅ | no | partial (no proofing) | 1–2 (proofing) |
 | Portuguese | pt-br (pt-PT none) | ~930; 98% / ~95% (pt-BR) | most | Latin ✅ | no | partial | 2–4 (pt-BR finish + pt-PT) |
 | Indonesian | id | 2,732 entries (every key of every catalog) | all | Latin ✅ | no | partial (interface complete, review pending) | 0–1 (review) |
-| Japanese | ja | ~930; 98% / ~95% | most | CJK ✅, IME ✅; no vertical text, ruby or document grid | no | partial | 3–5 |
+| Japanese | ja | ~930; 98% / ~95% | most | CJK ✅, IME ✅; ruby (Phonetic Guide) over its base text, kept by HTML export/import (#1681); no vertical text or document grid | no | partial | 3–5 |
 | German | de | 2,021 entries; same key set as zh-hans (#574); 98% of extracted, ~95% of visible | most | Latin ✅ | no | partial | 1–2 |
 | Korean | ko | 2,463 entries (all catalog keys and preview context) | most; newer panes English | Hangul ✅ (Korean-first embedded/system UI font fallback); macOS Korean IME fixes pending (#163, #164) | no | partial | 3–5 |
 | Vietnamese | vi | 2,448 entries; every key of the reference catalogs (#1434); 98% of extracted, ~95% of visible | most | Latin ✅ | no | partial | 0–1 (review) |
+| Romanian | ro | 2,674 entries; every key of the other catalogs; AI-assisted draft | most | Latin ✅ (ă â î ș ț in the bundled faces) | no | partial | 0–1 (review) |
 
-Other shipped languages: **17** — Traditional Chinese (`zh-hant`), Ukrainian (`uk`), Serbian
-Cyrillic and Latin (`sr`, `sr-latn`, #250), Estonian (`et`), Turkish (`tr`), Russian (`ru`), Italian (`it`, #594), Polish (`pl`), Czech (`cs`), Hungarian (`hu`), French (`fr`), Bulgarian (`bg`), Vietnamese (`vi`, #1434), Swedish (`sv`, #1219), Croatian (`hr`, #1271) and Indonesian (`id`, #572), all partial.
+Other shipped languages: **20** — Traditional Chinese (`zh-hant`), Ukrainian (`uk`), Serbian
+Cyrillic and Latin (`sr`, `sr-latn`, #250), Estonian (`et`), Turkish (`tr`), Russian (`ru`), Italian (`it`, #594), Polish (`pl`), Czech (`cs`), Hungarian (`hu`), French (`fr`), Bulgarian (`bg`), Vietnamese (`vi`, #1434), Swedish (`sv`, #1219), Croatian (`hr`, #1271), Romanian (`ro`), Slovenian (`sl`), Dutch (`nl`) and Danish (`da`, #2722), all partial.
 Swedish (`sv-SE` and `sv-FI` system locales, `{"value":"sv"}`) has 2,504 entries. Counts use
 count-neutral wording (`{words} ord`: the noun is the same in the singular and the plural). The
 catalog is an AI-assisted draft whose terminology and running app were reviewed by a native
 speaker. Swedish proofing is not included; terminology: [`localization-sv.md`](localization-sv.md).
+Romanian (`ro-RO` and `ro-MD` system locales, `{"value":"ro"}`) has 2,674 entries covering every key of the other catalogs. Commands use the noun form ("Salvare", "Deschidere…") and messages address the user formally. Counts keep the number and noun as the English does; Romanian proofing is a separate change. The catalog is an AI-assisted draft that a native speaker has not yet reviewed line by line.
 Croatian (`hr-HR` system locales, `{"value":"hr"}`) has 2,507 entries: every key of the reference catalog, built-in style names and the equation gallery. Counts use count-neutral wording (`Riječi: 21`) because Croatian numerals take three noun forms. The catalog was written and checked by a native speaker; Croatian proofing is a separate change.
 Indonesian (`id`, `id-ID`, `in_ID.UTF-8`, `{"value":"id"}`) has 2,732 entries: every key of every
 other catalog, so built-in style names, the equation gallery, paper sizes, bookmarks, the print
@@ -92,6 +91,9 @@ Bulgarian (`bg-BG` system locales, `{"value":"bg"}`) has 2,419 entries: every ke
 catalog, the equation gallery's labels and everything the interface audit finds (the audit checks
 Bulgarian as it does Russian). Counts use count-neutral wording (`Думи: 21`). Bulgarian text is
 hyphenated by the Bulgarian syllable rules (#826); Bulgarian spelling and grammar are not included.
+Slovenian (`sl-SI` system locales, `{"value":"sl"}`) has 2,614 entries: every key of every other
+catalog. Counts use count-neutral wording (`Besede: 21`); terminology: [`localization-sl.md`](localization-sl.md).
+Slovenian proofing is not included.
 Hungarian follows `hu-HU` system locales and `{"value":"hu"}`, with a complete catalog of 2,419 entries: every key of
 the Russian catalog, built-in style names shown translated, plus the citation style names. Hungarian proofing is not included; terminology and conventions:
 [`localization-hu.md`](localization-hu.md).
@@ -115,6 +117,8 @@ scripts and MCP, stay English. Size labels (Envelopes, Labels, Layout › Size) 
 patterns (`{name}   {height} × {width} in`) with the region's decimal separator; paper names
 other than envelopes (Letter, Legal, A4, B5 (JIS)) stay as they are (#1128).
 
+Set Proofing Language › Set As Default keeps the chosen language in user preferences across restarts (#2882), taking precedence over the interface language for blank documents and plain-text/Markdown files. Existing DOCX and built-in English templates keep their own language. Ordinary selection-language changes do not change this preference; older settings keep following the interface language. A rejected command, including a final protected-region check, retains the previous saved default. This does not install dictionaries or add proofing support.
+
 ## Proofing per language
 
 | Language | Spelling | Suggestions | Grammar | Hyphenation |
@@ -126,6 +130,7 @@ other than envelopes (Letter, Legal, A4, B5 (JIS)) stay as they are (#1128).
 | Czech (`cs`, `cs-CZ`, `ces`, `cze`) | The system Hunspell `cs_CZ` dictionary, read at runtime (Debian/Ubuntu: `hunspell-cs`; the same system, LibreOffice and `WORDCRAFT_DICTIONARIES` search paths as Polish). No dictionary data is bundled; without an installed dictionary spelling stays off | suggestions from the loaded dictionary's MAP/REP/TRY/KEY tables, missing spaces and a stem scan; short-word splits rank after deleting an extra letter; NOSUGGEST stems and their derived forms are accepted when typed but excluded from suggestions | Czech messages (including Czech quotation marks) for repeated words, space before punctuation and double spaces only; digit-space-colon-space-digit ratios keep their spaces; no Czech-specific grammar rules | existing English fallback, as for `Other`; no Czech patterns bundled (the TeX/LibreOffice Czech patterns are GPL-2) |
 | Italian (`it`, any region) | The Hunspell `it_IT` dictionary installed on the system (same places as Polish and Portuguese; not bundled — the upstream file is GPL-licensed), read at runtime by the same affix engine; elided forms check the word after the apostrophe (`l'amico`, `un'idea`, `c'è`, `dov'è`, `senz'altro`), truncations keep their apostrophe (`po'`, `mo'`), hyphenated compounds part by part | missing accents first (`caffe` → `caffè`, `perche` → `perché`), the dictionary's confusion table, missing space (`perme` → `per me`), one typo, then an accent-folding stem scan | Italian messages: repeated word (emphatic doubles like `piano piano` are allowed), space before punctuation, double space, sentence capital (knows `ecc.`, `dott.`, `prof.`, initials, ordinals), doubled punctuation, `un pò` → `un po'`, `qual'è` → `qual è`, `E'` → `È`, `un'altro` → `un altro` and `un altra` → `un'altra` (gender from the ending, masculine `-ista`/`-ma`/`-cida`… left alone); these work without a dictionary; no comma rule | TeX Italian patterns (Beccari; MIT option), no exception words |
 | Turkish (`tr`, any region) | The Hunspell `tr_TR` dictionary installed on the system (same places as Polish; not bundled), read at runtime; proper nouns capitalized, apostrophe suffixes (`Ankara'da`, `WordCraft'ta`) and hyphenated compounds | missing diacritics / ASCII restoration first (`turkce` → `Türkçe`, `isik` → `ışık`), common confusion table (`yalnış` → `yanlış`, `herşey` → `her şey`), detached suffixes (`bende` → `ben de`, `geldinmi` → `geldi mi`), one typo | Turkish messages: repeated word (idiomatic reduplications allowed: `yavaş yavaş`), space before punctuation, double space, sentence capital (knows `vb.`, `vs.`, `prof.`, `dr.`), no comma before/after conjunctions (`ve`, `veya`, `de`), doubled punctuation | Turkish syllable rules (TDK rules); no external pattern file or word list needed |
+| German (`de`, any region) | — (no marks yet, #1564) | — | — | TeX German patterns for the reformed spelling (Trennmustermannschaft; MIT), no exception words; Swiss text uses them too. The patterns leave ambiguous compound joints unbroken on purpose (`Staubecken`, `Urinstinkt`), so German text can hyphenate a little less than in Word |
 | Indonesian (`id`, `id-ID`, `ind`, legacy `in`) | The system Hunspell `id_ID` dictionary, read at runtime (Debian/Ubuntu: `hunspell-id`; LibreOffice's `dict-id`; the same system, LibreOffice, Dictionaries folder and `WORDCRAFT_DICTIONARIES` search paths as Polish). No dictionary data is bundled; without an installed dictionary spelling stays off. Hyphenated reduplication is accepted whole (`kupu-kupu`) or by parts (`anak-anak`); hyphenated clitics after capitals and abbreviations (`KTP-nya`, `se-Indonesia`) are accepted | the same dictionary-driven ranking as Czech: MAP/REP/TRY/KEY tables of the loaded dictionary, missing spaces and a stem scan; nothing Indonesian hard-coded | Indonesian messages for repeated words (offering the hyphenated reduplication `anak-anak` first, then the single word), space before punctuation and double spaces only; no Indonesian-specific grammar rules | existing English fallback, as for `Other`; no Indonesian patterns bundled |
 | Any other | — (no marks) | — | — | the English patterns, as before |
 
@@ -164,8 +169,12 @@ Romanian, Estonian, Latvian, Lithuanian, Slovenian and Icelandic (`crates/doc/sr
 a hand-written per-language alphabet table; full CLDR collation is not used). Table sort and
 table formulas read numbers with the language's decimal and group separators (`1 250,50` in
 Polish, `1.250,50` in German, `1,250.50` in English) and write formula results with its decimal
-separator (`crates/doc/src/locale_number.rs`). Interface lists (styles, fonts) still sort by code
-point.
+separator (`crates/doc/src/locale_number.rs`). Cuban and Peruvian Spanish (`es-CU`, `es-PE`) use
+decimal points (`1,234.50`), matching the existing region settings and CLDR's Latin American
+Spanish parent locale; `cuban_and_peruvian_numbers_use_decimal_points` covers parsing and result
+formatting. Interface lists (styles, fonts) still sort by code point.
+
+Russian (`ru`) sorting keeps ё with е (a secondary diaeresis difference), before ж. Composed and decomposed ё and й have the same keys and index headings; the stored text is unchanged. Tests cover Russian locale aliases, case, representative words and these two canonical pairs. This is a narrow Cyrillic correction, not full Unicode normalization or CLDR collation. Ordering reference: [Unicode CLDR Russian collation chart](https://unicode.org/cldr/charts/42/collation/ru.html).
 
 ## Region conventions (#838)
 
@@ -248,7 +257,9 @@ WordCraft keeps 2,54 cm).
 | 2026-10-11 | minor | Font list shows installed fonts by their names in the interface language (宋体 for SimSun in Chinese, Japanese and Korean names likewise) and finds them by either name; a Chinese, Japanese or Korean font is stored as `w:eastAsia` too (#505) |
 | 2026-10-11 | minor | Chinese/Japanese interface fonts: a test checks every catalog character has a glyph; an installed CJK font follows the embedded faces whenever they miss one; macOS font asset folders searched for PingFang (#486) |
 | 2026-10-10 | minor | Russian interface (#300; 1,524 entries, built-in style names shown translated; covers everything the interface audit finds) |
+| 2026-10-15 | trivial | Slovenian interface catalog (2,614 entries: every key of every other catalog), locale selection, saved preference and font checks |
 | 2026-10-12 | minor | Bulgarian interface catalog (2,419 entries), locale selection, saved preference, audit coverage and font checks |
+| 2026-10-19 | minor | Romanian interface catalog (2,674 entries), `ro-*` system locales, saved preference and font coverage checks; no Romanian proofing |
 | 2026-10-13 | minor | Croatian interface catalog (2,507 entries, built-in style names shown translated), `hr-*` system locales, saved preference and font coverage checks; the template name "Letter" has its own `template` context so the paper size keeps its name; no Croatian proofing |
 | 2026-10-11 | minor | Hungarian interface catalog (2,419 entries, built-in style names shown translated; covers everything the interface audit finds), locale selection, saved preference and font coverage checks |
 | 2026-10-11 | minor | Turkish interface catalog (1,307 entries), locale selection, saved preference, Turkish casing in command search and font coverage checks; catalog sizes re-counted |
