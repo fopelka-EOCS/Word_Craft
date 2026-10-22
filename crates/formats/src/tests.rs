@@ -448,6 +448,34 @@ fn code_blocks_and_rules() {
 }
 
 #[test]
+fn html_many_leading_formatted_breaks() {
+    let source = format!("<p>{}<b>x</b></p>", "<b><br></b><i><br></i>".repeat(10_000));
+    let started = std::time::Instant::now();
+    let doc = import("html", source.as_bytes()).unwrap().unwrap();
+    let elapsed = started.elapsed();
+    assert_eq!(doc.body.len(), 1);
+    let para = doc.body[0].as_para().unwrap();
+    assert_eq!(para.text, "x");
+    assert_eq!(para.runs[0].props.bold, Some(true));
+    eprintln!("HTML leading breaks: {elapsed:?}");
+    assert!(elapsed < std::time::Duration::from_secs(5), "HTML leading breaks: {elapsed:?}");
+}
+
+#[test]
+fn latex_many_leading_formatted_breaks() {
+    let source = format!("{}\\textbf{{x}}", r"{\bfseries \\}{\itshape \\}".repeat(10_000));
+    let started = std::time::Instant::now();
+    let doc = import("tex", source.as_bytes()).unwrap().unwrap();
+    let elapsed = started.elapsed();
+    assert_eq!(doc.body.len(), 1);
+    let para = doc.body[0].as_para().unwrap();
+    assert_eq!(para.text, "x");
+    assert_eq!(para.runs[0].props.bold, Some(true));
+    eprintln!("LaTeX leading breaks: {elapsed:?}");
+    assert!(elapsed < std::time::Duration::from_secs(5), "LaTeX leading breaks: {elapsed:?}");
+}
+
+#[test]
 fn deep_nesting_is_bounded() {
     let html = "<div><table><tr><td>".repeat(5000) + "x";
     let d = import("html", html.as_bytes()).unwrap().unwrap();

@@ -239,15 +239,11 @@ impl Para {
     /// Remove the characters in `start` from the start of the paragraph's text and those in
     /// `end` from its end.
     pub fn trim_with(&mut self, start: &[char], end: &[char]) {
-        while let Some(Inline::Text(t, _)) = self.inlines.first_mut() {
-            let n = t.trim_start_matches(start).len();
-            let cut = t.len() - n;
+        let empty = self.inlines.iter().take_while(|i| matches!(i, Inline::Text(t, _) if t.trim_start_matches(start).is_empty())).count();
+        self.inlines.drain(..empty);
+        if let Some(Inline::Text(t, _)) = self.inlines.first_mut() {
+            let cut = t.len() - t.trim_start_matches(start).len();
             t.replace_range(..cut, "");
-            if t.is_empty() {
-                self.inlines.remove(0);
-            } else {
-                break;
-            }
         }
         while let Some(Inline::Text(t, _)) = self.inlines.last_mut() {
             let n = t.trim_end_matches(end).len();
@@ -1497,6 +1493,24 @@ pub fn parse_color(s: &str) -> Option<Rgb> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn trim_with_keeps_formatting_and_inline_boundaries() {
+        let text = |s: &str| Inline::Text(s.into(), Fmt { bold: true, ..Default::default() });
+        let anchor = Inline::Anchor("bookmark".into());
+        for (inlines, expected) in [
+            (vec![], vec![]),
+            (vec![text(""), text("é \n"), text("\t界")], vec![]),
+            (vec![text("é \n"), text("éx界\t"), text("\t")], vec![text("x")]),
+            (vec![text(" \n"), anchor.clone(), text("éx界\t")], vec![anchor.clone(), text("éx")]),
+            (vec![text("éx界"), anchor.clone(), text("\t")], vec![text("x界"), anchor]),
+            (vec![text(" x ")], vec![text("x ")]),
+        ] {
+            let mut para = Para { inlines, ..Default::default() };
+            para.trim_with(&[' ', '\n', 'é'], &['\t', '界']);
+            assert_eq!(para.inlines, expected);
+        }
+    }
 
     #[test]
     fn percent_decode_requires_hex_digits() {
