@@ -76,7 +76,10 @@ const MAX_IDS: usize = 64;
 /// appears as text is not a reference: the text does not name a part, and treating it as one
 /// lost the part on save.
 fn referenced_ids<'a>(root: &El, document: &'a Rels) -> HashSet<&'a [u8]> {
-    let ids: HashSet<&[u8]> = document.list.iter().map(|r| r.id.as_bytes()).collect();
+    // The ids the loop in `keep_unmodelled` can ask about: the first `MAX_EMBEDDED_RELS`
+    // non-external relationships, and no more, so the set stays bounded however many the file
+    // carries.
+    let ids: HashSet<&[u8]> = document.list.iter().filter(|r| !r.external).take(MAX_EMBEDDED_RELS).map(|r| r.id.as_bytes()).collect();
     let mut found = HashSet::new();
     if ids.is_empty() {
         return found;
@@ -349,7 +352,9 @@ mod tests {
     /// to is not carried over a second time (#12).
     #[test]
     fn a_relationship_the_markup_names_is_not_carried_over_again() {
-        // The markup names the relationship, so the part goes with the element that names it.
+        // The markup names the relationship, so it is not carried over a second time as an
+        // unmodelled part. (The part itself survives only if the writer writes it with the
+        // element that names it; the reader does not carry it on its own.)
         let named = package(
             r#"<w:p><w:r><w:t>before</w:t></w:r></w:p><w:sectPr><w:printerSettings r:id="rIdDoc1"/></w:sectPr>"#,
             &[("rIdDoc1", "keep.bin")],
