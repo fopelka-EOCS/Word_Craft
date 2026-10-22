@@ -125,6 +125,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-22 | trivial | #7: the Format Page Numbers dialog opens from every entry point (the ribbon item, the command search, the keytips), and a call with nothing to apply no longer marks the document as edited (#1443, #3608) |
 | 2026-10-18 | trivial | Explicit New/Open is not interrupted by startup recovery discovery; older copies stay available and Recover follows the interface theme. |
 | 2026-10-21 | trivial | Bullets and Numbering toggle off style-inherited lists at their effective level, including basedOn chains and numbered ListParagraph styles; other paragraphs and list definitions stay unchanged (related to #3459) |
 | 2026-10-21 | trivial | #3172: the ribbon's font name and size boxes, and the dropdown arrows beside them, say what they are to a screen reader |

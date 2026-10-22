@@ -72,6 +72,13 @@ pub fn specs() -> Vec<CommandSpec> {
         }),
         CommandSpec::new("layout.pageNumberFormat", "Format Page Numbers", "Insert › Header & Footer › Page Number", |s, v| {
             let fmt = p::str(v, "format").map(wordcraft_doc::section::NumFormat::from_ooxml);
+            // Nothing to apply: the number format and the start are the Format Page Numbers
+            // dialog's fields (#1113). The interface opens that dialog for a call without them
+            // (see `input_dialog` in the UI); a script gets this error instead of a call that
+            // changed nothing and still marked the document as edited (#1443, #3608).
+            if fmt.is_none() && v.get("start").is_none() {
+                return Err(CmdError::Params("`format` or `start` is required".into()));
+            }
             with_sect(s, |x| {
                 if let Some(f) = fmt {
                     x.page_num_format = f;
@@ -85,7 +92,7 @@ pub fn specs() -> Vec<CommandSpec> {
             })
         })
         .params(
-            r#"{"format"?: "decimal|lowerRoman|upperRoman|lowerLetter|upperLetter", "start"?: n | null} ("start" left out: the numbering keeps its start; null: the pages number on from the section before; a number: numbering starts there)"#,
+            r#"{"format"?: "decimal|lowerRoman|upperRoman|lowerLetter|upperLetter", "start"?: n | null} ("start" left out: the numbering keeps its start; null: the pages number on from the section before; a number: numbering starts there. A call with neither a format nor a start asks for the Format Page Numbers dialog: the interface opens it, a script gets an error)"#,
         ),
         CommandSpec::new("layout.documentGrid", "Document Grid", "Layout › Page Setup › Document Grid", document_grid).params(
             r#"{"type"?: "none|lines|linesAndChars|snapToChars", "linesPerPage"?: n (sets the line pitch from the text height), "charsPerLine"?: n (sets the character pitch from the text width), "linePitch"?: pt, "charSpace"?: n (4096ths of a point added to the default font size: the character pitch)} — left out stays as it is; returns the grid with its lines per page and characters per line"#,
@@ -1199,5 +1206,17 @@ mod tests {
         let back = s.run("layout.pageNumberFormat", &json!({"format": "decimal", "start": 1})).unwrap();
         assert_eq!(back["pageNumFormat"], "decimal");
         assert_eq!(back["pageNumStart"], 1);
+    }
+
+    /// #1443, #3608: a call with neither a format nor a start has nothing to apply. It is
+    /// refused (the interface opens the Format Page Numbers dialog instead) and it leaves the
+    /// document alone, instead of marking it as edited for nothing.
+    #[test]
+    fn page_number_format_without_a_format_or_a_start_is_refused() {
+        let mut s = doc();
+        let before = sect(&s);
+        assert!(s.run("layout.pageNumberFormat", &json!({})).is_err(), "nothing to apply");
+        assert_eq!(sect(&s), before, "the section is untouched");
+        assert!(!s.dirty, "the document is not marked as edited");
     }
 }
