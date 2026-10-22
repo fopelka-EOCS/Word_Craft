@@ -193,7 +193,9 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect]
 /// The pointer while a tool is on: the drawn eraser for the eraser; for the pen a crosshair
 /// (the pen's icon is drawn beside it).
 pub fn cursor(app: &WordApp, ui: &Ui, resp: &egui::Response) {
-    if app.canvas.table_tool.is_some() && (resp.hovered() || app.canvas.table_stroke.is_some()) {
+    // `contains_pointer`, not `hovered`: the button still down after Esc dropped a stroke keeps
+    // the eraser drawn over the page.
+    if app.canvas.table_tool.is_some() && (resp.contains_pointer() || app.canvas.table_stroke.is_some()) {
         if app.canvas.table_tool == Some(TableTool::Erase) {
             ui.ctx().set_cursor_icon(egui::CursorIcon::None);
             if let Some(p) = ui.input(|i| i.pointer.hover_pos()) {
@@ -442,6 +444,8 @@ mod tests {
         h.step();
         assert!(h.state().canvas.table_stroke.is_none(), "Esc drops the drag");
         assert_eq!(h.state().canvas.table_tool, Some(TableTool::Erase), "and leaves the eraser on");
+        let drawn_at_to = |s: &egui::epaint::ClippedShape| matches!(&s.shape, egui::Shape::Path(p) if p.fill == crate::icons::ERASER_PINK && p.points.iter().all(|q| q.distance(to) < 30.0));
+        assert!(h.output().shapes.iter().any(drawn_at_to), "the drawn eraser stays while the button is still down");
         button(&h, to, false);
         steps(&mut h, 2);
         assert_eq!(row_spans(h.state(), 1), [1, 1, 1], "nothing erased");
