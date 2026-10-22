@@ -72,6 +72,9 @@ pub struct CanvasState {
     /// The last primary press on the page (time, screen point, clicks in a row), to count
     /// double- and triple-presses as they go down (egui reports them on release).
     last_press: Option<(f64, Pos2, u8)>,
+    /// The first press of the current run of presses moved header/footer editing into another
+    /// header/footer; the double-click it starts doesn't select a word there.
+    hf_press_switched: bool,
     /// A drag after a double-click, triple-click or Ctrl/⌘+click: the unit it extends by, the
     /// unit first selected, and the last position the pointer hit.
     unit_drag: Option<UnitDrag>,
@@ -93,6 +96,9 @@ pub struct CanvasState {
     pub(crate) widget_id: Option<(egui::Id, u64)>,
     pub render_ms: f64,
     pub ime_preedit: String,
+    /// The chars of `ime_preedit` the input method marks as its cursor or selection, as it reports
+    /// them (unchecked).
+    pub(crate) ime_preedit_range: Option<std::ops::Range<usize>>,
     /// Document faces added to the interface fonts so the input method's composition (#565) and a
     /// file name in the window caption can be drawn.
     pub(crate) ime_faces: Vec<std::sync::Arc<wordcraft_fonts::FontFace>>,
@@ -239,6 +245,7 @@ impl Default for CanvasState {
             dragging: false,
             column_drag: None,
             last_press: None,
+            hf_press_switched: false,
             unit_drag: None,
             last_highlight: "yellow".into(),
             last_font_color: "C00000".into(),
@@ -252,6 +259,7 @@ impl Default for CanvasState {
             widget_id: None,
             render_ms: 0.0,
             ime_preedit: String::new(),
+            ime_preedit_range: None,
             ime_faces: Vec::new(),
             want_focus: true,
             context_issue: None,
@@ -1568,33 +1576,10 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             // The caret contrasts with what lies under it, like Word's inverted caret (#299):
             // worked out only when something is drawn in it.
             let caret_color = |app: &mut WordApp| caret_color_at(app, &layout, c.page, c.x + c.width / 2.0, c.top + c.height / 2.0, view, dim_body);
-            let bar = if c.width > 0.0 {
-                // Turned text (a table cell's text direction): the caret lies across the page.
-                [pos2(x, y0.round() + 0.5), pos2(x + c.width * scale, y0.round() + 0.5)]
-            } else {
-                [pos2(x.round() + 0.5, y0), pos2(x.round() + 0.5, y1)]
-            };
-            // The caret glides and fades like Word's (`caret_glide`).
-            let shown = app.session.sel.is_collapsed() && focused;
-            let look = crate::caret_glide::look(app, ui, content_origin, &geo, bar, shown, since, on);
-            if shown && look.opacity > 0.0 {
-                painter.line_segment(look.bar, Stroke::new(1.5, caret_color(app).gamma_multiply(look.opacity)));
-            }
-            if focused {
-                ui.ctx().request_repaint_after(std::time::Duration::from_millis(530 - (since as u64 % 530)));
-            }
-            // IME candidate window placement.
-            let cr = Rect::from_min_max(pos2(x, y0), pos2(x + 1.0, y1));
-            if focused {
-                ui.ctx().output_mut(|o| {
-                    o.ime = Some(egui::output::IMEOutput {
-                        rect: cr,
-                        cursor_rect: cr,
-                        purpose: Default::default(),
-                        should_interrupt_composition: ime_reset,
-                    });
-                });
-            }
+            // An input method's composition is drawn from the caret, and the caret and the candidate
+            // window move to the input method's cursor inside it.
+            let mut preedit_color = None;
+            let mut ime_dx = 0.0;
             if !app.canvas.ime_preedit.is_empty() {
                 // The composition is interface text, but it may be in a script the interface fonts lack
                 // (Bangla, Thai ...): borrow the document fonts' fallback faces, or it draws as boxes (#565).
@@ -1615,9 +1600,43 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     );
                     ui.ctx().request_repaint();
                 }
-                let caret_color = caret_color(app);
-                let g = painter.text(pos2(x, y1), egui::Align2::LEFT_BOTTOM, &app.canvas.ime_preedit, regular(c.height * scale * 0.8), caret_color);
-                painter.line_segment([pos2(g.min.x, g.max.y), pos2(g.max.x, g.max.y)], Stroke::new(1.0, caret_color));
+                let color = caret_color(app);
+                let g = painter.layout_no_wrap(app.canvas.ime_preedit.clone(), regular(c.height * scale * 0.8), Color32::PLACEHOLDER);
+                let at = preedit_cursor_chars(&app.canvas.ime_preedit, app.canvas.ime_preedit_range.as_ref());
+                ime_dx = g.pos_from_cursor(egui::text::CCursor::new(at)).min.x;
+                let r = Rect::from_min_size(pos2(x, y1 - g.size().y), g.size());
+                painter.galley(r.min, g, color);
+                painter.line_segment([pos2(r.min.x, r.max.y), pos2(r.max.x, r.max.y)], Stroke::new(1.0, color));
+                preedit_color = Some(color);
+            }
+            let x = x + ime_dx;
+            let bar = if c.width > 0.0 {
+                // Turned text (a table cell's text direction): the caret lies across the page.
+                [pos2(x, y0.round() + 0.5), pos2(x + c.width * scale, y0.round() + 0.5)]
+            } else {
+                [pos2(x.round() + 0.5, y0), pos2(x.round() + 0.5, y1)]
+            };
+            // The caret glides and fades like Word's (`caret_glide`).
+            let shown = app.session.sel.is_collapsed() && focused;
+            let look = crate::caret_glide::look(app, ui, content_origin, &geo, bar, shown, since, on);
+            if shown && look.opacity > 0.0 {
+                let color = preedit_color.unwrap_or_else(|| caret_color(app));
+                painter.line_segment(look.bar, Stroke::new(1.5, color.gamma_multiply(look.opacity)));
+            }
+            if focused {
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(530 - (since as u64 % 530)));
+            }
+            // IME candidate window placement.
+            let cr = Rect::from_min_max(pos2(x, y0), pos2(x + 1.0, y1));
+            if focused {
+                ui.ctx().output_mut(|o| {
+                    o.ime = Some(egui::output::IMEOutput {
+                        rect: cr,
+                        cursor_rect: cr,
+                        purpose: Default::default(),
+                        should_interrupt_composition: ime_reset,
+                    });
+                });
             }
         }
         crate::objects::paint(app, &painter, &t, &layout, &rects, geo.scale);
@@ -2484,16 +2503,12 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
     } else {
         None
     };
-    // Entering: from the body, or from another header/footer: the other one of the two
-    // (switching, #1026), or with Different First Page on, page 1's header is not the one being
-    // edited on page 2 (#2826).
-    let hf_enter = hf_zone.is_some_and(|(shown, header)| match part_kind(app, story) {
-        _ if story == StoryRef::Body => true,
-        Some(PartKind::Header) => !header || shown != Some(story),
-        Some(PartKind::Footer) => header || shown != Some(story),
-        _ => false,
-    });
+    let hf_enter = enters_header_footer(app, story, hf_zone);
     if resp.double_clicked() {
+        // Its first press already moved into the header/footer and placed the caret.
+        if app.canvas.hf_press_switched {
+            return;
+        }
         if let Some((_, header)) = hf_zone
             && hf_enter
         {
@@ -2539,8 +2554,11 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
         let clicks = press_count(app.canvas.last_press, now, p, delay, dist);
         app.canvas.last_press = Some((now, p, clicks));
         app.canvas.unit_drag = None;
+        if clicks <= 1 {
+            app.canvas.hf_press_switched = false;
+        }
         // A double-click that enters or leaves a header/footer is handled on release.
-        let hf_switch = hf_enter || (matches!(story, StoryRef::Part(_)) && !in_text_box(app) && hf_zone.is_none());
+        let hf_switch = hf_enter || app.canvas.hf_press_switched || (matches!(story, StoryRef::Part(_)) && !in_text_box(app) && hf_zone.is_none());
         // Clicking into a footnote/endnote or a text box edits it; clicking outside a text box goes
         // back to where it is. While editing a header/footer, only its own text boxes are in reach.
         let story = {
@@ -2558,6 +2576,27 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
                 _ => story,
             }
         };
+        // While editing a header/footer, a press in another one (the footer while editing the
+        // header, or another page's own) edits that one, with the caret at the press. Hit-tested
+        // against the story being edited, the press put the caret back in it, scrolling the view
+        // away from the band that was clicked.
+        if !mods.shift
+            && matches!(part_kind(app, story), Some(PartKind::Header | PartKind::Footer))
+            && let Some((_, header)) = hf_zone
+            && enters_header_footer(app, story, hf_zone)
+        {
+            app.canvas.column_drag = None;
+            app.canvas.hf_press_switched = true;
+            let id = if header { "insert.editHeader" } else { "insert.editFooter" };
+            if app.run(id, json!({ "page": page })).is_ok() {
+                let to = app.session.sel.focus.story;
+                if let Some(pos) = app.session.layout().hit(page, x, y, to) {
+                    app.session.sel = wordcraft_engine::Selection::caret(pos);
+                }
+                app.session.page_hint = page;
+            }
+            return;
+        }
         // A press in the header/footer area from the body leaves the caret where it is, as in
         // Word (#2103): moving it to the nearest body text scrolled the view there, away from the
         // footer the double-click was aiming at.
@@ -3143,6 +3182,18 @@ pub(crate) fn text_box_host(app: &WordApp, layout: &DocLayout) -> Option<StoryRe
     }
 }
 
+/// Whether a press in a page's header/footer area (`zone`, from `header_footer_zone`) goes into
+/// another header/footer than `story`: from the body, the other one of the two (#1026), or with
+/// Different First Page on, page 1's header while editing page 2's (#2826).
+fn enters_header_footer(app: &WordApp, story: StoryRef, zone: Option<(Option<StoryRef>, bool)>) -> bool {
+    zone.is_some_and(|(shown, header)| match part_kind(app, story) {
+        _ if story == StoryRef::Body => true,
+        Some(PartKind::Header) => !header || shown != Some(story),
+        Some(PartKind::Footer) => header || shown != Some(story),
+        _ => false,
+    })
+}
+
 /// Editing a header or footer, or a text box in one.
 pub fn editing_header_footer(app: &WordApp, layout: &DocLayout) -> bool {
     let story = text_box_host(app, layout).unwrap_or(app.session.sel.focus.story);
@@ -3467,6 +3518,13 @@ fn equation_frame(page: Rect, bx: &wordcraft_layout::hit::EquationBox, scale: f3
     let strip = Rect::from_min_max(pos2(x1, top), pos2(x1 + strip_w, bottom));
     let grip = Rect::from_min_size(pos2(x0 - 5.0, top - 3.0), vec2(7.0, 14.0));
     EquationFrame { outline, grip, strip }
+}
+
+/// The input method's cursor in its composition, in chars: the end of the range it reports, or the
+/// end of the composition when it reports none. The range comes from the OS: it is clamped to the text.
+fn preedit_cursor_chars(text: &str, range: Option<&std::ops::Range<usize>>) -> usize {
+    let n = text.chars().count();
+    range.map_or(n, |r| r.end.min(n))
 }
 
 /// The caret colour at page point (`x`, `y`) of page `page`: [`caret_contrast`] of the paper,
@@ -6610,6 +6668,46 @@ mod tests {
             h.step();
         }
         assert_eq!(ime_interrupted(&h), Some(true), "a click still interrupts composition");
+    }
+
+    /// While an input method composes, the caret and the candidate window sit at its cursor inside
+    /// the composition: the end of the range it reports, or the end of the text with no range. The
+    /// range comes from the OS and is clamped, whatever it holds.
+    #[test]
+    fn the_caret_follows_the_input_method_cursor_in_the_composition() {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        app.run("document.setText", json!({"text": "The"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
+            h.step();
+        }
+        let ime_x = |h: &egui_kittest::Harness<'_, WordApp>| h.output().platform_output.ime.as_ref().map(|ime| ime.cursor_rect.min.x);
+        let start = ime_x(&h).expect("the canvas places the candidate window");
+        let mut compose = |range: Option<std::ops::Range<usize>>| {
+            h.event(egui::Event::Ime(egui::ImeEvent::Preedit { text: "にほん".into(), active_range_chars: range }));
+            h.step();
+            h.step();
+            ime_x(&h).expect("the canvas places the candidate window")
+        };
+        let before = compose(Some(0..0));
+        assert_eq!(before, start, "a cursor at the composition's start is the caret before composing");
+        let end = compose(None);
+        let mid = compose(Some(1..1));
+        assert!(end > mid && mid > before, "the cursor moves through the composition: {before} {mid} {end}");
+        assert_eq!(compose(Some(0..99)), end, "a range past the text ends at its end");
+        assert_eq!(compose(Some(std::ops::Range { start: 5, end: 1 })), mid, "a reversed range uses its end");
+        assert_eq!(compose(Some(usize::MAX..usize::MAX)), end);
+        h.event(egui::Event::Ime(egui::ImeEvent::Commit("にほん".into())));
+        h.step();
+        assert_eq!(h.state().canvas.ime_preedit_range, None, "the commit clears the range");
+        assert!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body).contains("にほん"));
     }
 
     fn page_at_index(rects: &[Rect], p: Pos2) -> Option<usize> {
