@@ -22,7 +22,7 @@ paragraph alignment (shown when a complex-script/Thai editing language is enable
 - Writing: both write `thaiDistribute`, so Word shows Thai Distributed for a Khmer Justify
   paragraph. The mark is in namespace `urn:wordcraft:ext` (`wc`), declared on every body part and
   listed in `mc:Ignorable`, so Word skips it.
-- Other formats (RTF, ODT, HTML) write plain justification.
+- RTF writes `\qt` (Thai distributed) for both and reads it back as Thai Distributed. ODT and HTML write plain justification.
 
 What was **not** verified: how Word itself spaces Khmer under Thai Distributed (no Khmer-enabled
 Word was driven). The even distribution is built from the documented effect; compare against Word
@@ -106,7 +106,10 @@ ended by a manual break.
   segmenter (ICU's Khmer dictionary / LSTM model, or a rule-based one) would give true word
   wrapping and make the `Word` tier effective for unspaced text; it needs a data licence decision
   and a size budget for WASM.
-- Thai gaps use cluster boundaries without word segmentation.
+- Thai gaps use cluster boundaries without word segmentation. Checked against Word for Windows
+  on one Thai paragraph (Tahoma 14 pt): same lines, wrapped lines reach the margin, last line not
+  stretched, marks stay on their consonant. Word also gaps after the leading vowels เ แ โ ใ ไ
+  (done here) and between a consonant and SARA AM ำ (not done: it stays in its grapheme cluster).
 - Tune the caps against real Khmer typesetting samples.
 
 ## Tests
