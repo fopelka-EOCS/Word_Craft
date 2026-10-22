@@ -3024,6 +3024,15 @@ impl ParaLayout {
         }
         self.lines.len().saturating_sub(1)
     }
+    /// The wrapped line that ends at `off`, when `off` also starts the line after it: the end
+    /// of the previous line, a caret stop of its own (Word: Left from the next line's start
+    /// first shows the caret after the last character). `None` at a paragraph or hard break.
+    pub fn wrap_end_line(&self, off: usize) -> Option<usize> {
+        let next = self.line_of(off);
+        let prev = next.checked_sub(1)?;
+        let l = self.lines.get(prev)?;
+        (l.end == LineEnd::Wrap && l.stop == off).then_some(prev)
+    }
     /// Caret x on a bidirectional line: the leading edge of the cluster after `off` (the right
     /// edge of right-to-left text), except where `off` leaves an embedded run (the cluster before
     /// it has the higher level), which keeps the caret at that run's trailing edge, so each
@@ -3089,13 +3098,12 @@ impl ParaLayout {
         for k in l.c0..=l.c1 {
             let Some(cx) = l.xs.get(k - l.c0) else { break };
             let off = if k < l.c1 { self.clusters.get(k).map(|c| c.start).unwrap_or(l.stop) } else { l.stop };
-            // Don't place the caret after a line-ending break or wrap-trailing space on a wrapped line.
+            // Don't place the caret after a line-ending break on its own line. A wrapped line's
+            // end is a stop: the caret shows there (after its last character) and at the start
+            // of the next line, the same offset with the other affinity.
             if k == l.c1 && k > l.c0 {
                 let lastc = self.clusters.get(k - 1);
                 if lastc.is_some_and(|c| matches!(c.kind, ClKind::LineBreak | ClKind::PageBreak | ClKind::ColumnBreak)) {
-                    continue;
-                }
-                if l.end == LineEnd::Wrap && self.lines.get(li + 1).is_some() {
                     continue;
                 }
             }
