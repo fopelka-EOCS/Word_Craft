@@ -1050,7 +1050,9 @@ fn polish_covers_every_key_of_every_other_catalog() {
     // pieces of gallery labels. Polish matches every other catalog, including the built-in style
     // names, citation styles and equation gallery. French carries newer strings (paper sizes,
     // bookmarks, printing) the Polish catalog hasn't caught up with yet.
-    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "pl" | "it" | "hu" | "bg" | "vi" | "sv" | "hr" | "fr" | "ro" | "sl" | "sk")) {
+    for other in
+        Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "pl" | "it" | "hu" | "bg" | "vi" | "sv" | "hr" | "fr" | "ro" | "sl" | "sk"))
+    {
         let mut missing: Vec<String> = keys(other.0.source).difference(&polish).cloned().collect();
         missing.sort();
         assert!(missing.is_empty(), "pl lacks {}'s {missing:?}", other.code());
@@ -1657,7 +1659,8 @@ fn romanian_covers_every_key_of_every_other_catalog_and_keeps_placeholders() {
     let (entries, errors) = parse_entries(ro.0.source);
     assert!(errors.is_empty(), "{errors:?}");
     let ro_keys: HashSet<_> = entries.iter().map(|e| (e.context.clone(), e.source.clone())).collect();
-    for other in Lang::all().filter(|l| *l != Lang::EN && l.code() != "ro") {
+    // Slovak also translates strings no other catalog has yet; those are not required of `ro`.
+    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "ro" | "sk")) {
         let (other_entries, other_errors) = parse_entries(other.0.source);
         assert!(other_errors.is_empty(), "{}: {other_errors:?}", other.code());
         let mut missing: Vec<_> = other_entries.into_iter().map(|e| (e.context, e.source)).filter(|k| !ro_keys.contains(k)).collect();
@@ -1715,7 +1718,8 @@ fn slovenian_covers_every_key_of_every_other_catalog() {
     let keys = |source| parse_entries(source).0.into_iter().map(|e| e.source).collect::<HashSet<_>>();
     let slovenian = keys(lang("sl").0.source);
     assert!(parse_entries(lang("sl").0.source).1.is_empty());
-    for other in Lang::all().filter(|l| *l != Lang::EN && l.code() != "sl") {
+    // Slovak also translates strings no other catalog has yet; those are not required of `sl`.
+    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "sl" | "sk")) {
         let mut missing: Vec<String> = keys(other.0.source).difference(&slovenian).cloned().collect();
         missing.sort();
         // Italian and Hungarian still carry "Style: APA", which the interface no longer shows.
@@ -1773,7 +1777,8 @@ fn slovenian_has_no_keys_outside_the_other_catalogs() {
     let keys = |source| parse_entries(source).0.into_iter().map(|e| e.source).collect::<HashSet<_>>();
     let slovenian = keys(lang("sl").0.source);
     let mut union = HashSet::new();
-    for other in Lang::all().filter(|l| *l != Lang::EN && l.code() != "sl") {
+    // Slovak also translates strings no other catalog has yet; those are not required of `sl`.
+    for other in Lang::all().filter(|l| *l != Lang::EN && !matches!(l.code(), "sl" | "sk")) {
         union.extend(keys(other.0.source));
     }
     let mut extra: Vec<String> = slovenian.difference(&union).cloned().collect();
