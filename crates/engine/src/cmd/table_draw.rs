@@ -19,6 +19,9 @@ use crate::{CmdError, CmdResult, CommandSpec, Selection, Session, p};
 pub const MIN_RECT: f32 = 12.0;
 /// How near (points) a click has to be to a border when the command doesn't say (`reach`).
 pub const ERASER_REACH: f32 = 4.0;
+/// The farthest `reach` (points): the app's six screen points at its smallest page scale (0.05
+/// screen points per point, One Page or Multiple Pages in a small window).
+pub const ERASER_MAX_REACH: f32 = 120.0;
 /// A line closer than this (points) to an existing border lands on it.
 const SNAP: f32 = 3.0;
 /// The shortest stroke (points) that counts as a line.
@@ -30,7 +33,7 @@ pub fn specs() -> Vec<CommandSpec> {
             r#"{"page": n, "x0": pt, "y0": pt, "x1": pt, "y1": pt, "story"?: StoryRef} (a pen stroke in page points, 0-based page: a rectangle at least 12 pt each way outside any table inserts a one-cell table of that size at the paragraph under its start; a straight vertical or horizontal line inside a table splits the cells it crosses there. In the app the button turns the pen on.)"#,
         ),
         CommandSpec::new("table.eraser", "Eraser", "Table Layout › Draw", eraser).params(
-            r#"{"page": n, "x": pt, "y": pt} or {"page": n, "x0": pt, "y0": pt, "x1": pt, "y1": pt}, "reach"?: pt (a click erases the border within `reach` (default 4, at most 24) of the point, a border between two cells before the table's outside; a drag erases every border the rectangle from (x0, y0) to (x1, y1) touches, horizontal lines first. Two cells that make one rectangle merge, including cells merged down the same rows; otherwise the border is hidden: along the whole edge for a vertical line, where the two cells meet for a horizontal one, and always on the table's outside. In the app the button turns the eraser on.)"#,
+            r#"{"page": n, "x": pt, "y": pt} or {"page": n, "x0": pt, "y0": pt, "x1": pt, "y1": pt}, "reach"?: pt (a click erases the border within `reach` (default 4, at most 120) of the point, a border between two cells before the table's outside; a drag erases every border the rectangle from (x0, y0) to (x1, y1) touches, horizontal lines first. Two cells that make one rectangle merge, including cells merged down the same rows; otherwise the border is hidden: along the whole edge for a vertical line, where the two cells meet for a horizontal one, and always on the table's outside. In the app the button turns the eraser on.)"#,
         ),
     ]
 }
@@ -228,37 +231,39 @@ fn aligned_rows(t: &Table, a: &Logical, b: &Logical) -> Option<(usize, usize)> {
 /// Hide the border line on both sides along an edge: set no border on every cell beside it.
 /// `vertical`: the line sits left of grid column `line` and the edge covers rows `lo..=hi`;
 /// otherwise it sits above row `line` and covers grid columns `lo..hi`.
-fn hide_edge(t: &mut Table, vertical: bool, line: usize, (lo, hi): (usize, usize)) {
+/// Whether anything was not hidden yet.
+fn hide_edge(t: &mut Table, vertical: bool, line: usize, (lo, hi): (usize, usize)) -> bool {
     let nil = wordcraft_doc::props::Border { style: wordcraft_doc::props::BorderStyle::None, width: 0.0, color: None, space: 0.0 };
     // Only a cell whose edge lies on the line is touched.
     let set_v = |t: &mut Table, r: usize, g: usize, before: bool| {
-        let Some(ci) = t.cell_at_grid(r, g) else { return };
+        let Some(ci) = t.cell_at_grid(r, g) else { return false };
         let start = t.grid_col(r, ci);
-        let Some(cell) = t.rows.get_mut(r).and_then(|row| row.cells.get_mut(ci)) else { return };
+        let Some(cell) = t.rows.get_mut(r).and_then(|row| row.cells.get_mut(ci)) else { return false };
         let end = start + cell.span();
         let b = cell.props.borders.get_or_insert_with(Default::default);
-        if before && end == line {
-            b.right = Some(nil);
+        let side = if before && end == line {
+            &mut b.right
         } else if !before && start == line {
-            b.left = Some(nil);
-        }
+            &mut b.left
+        } else {
+            return false;
+        };
+        side.replace(nil) != Some(nil)
     };
     let set_h = |t: &mut Table, r: usize, g: usize, above: bool| {
-        let Some(ci) = t.cell_at_grid(r, g) else { return };
-        let Some(cell) = t.rows.get_mut(r).and_then(|row| row.cells.get_mut(ci)) else { return };
+        let Some(ci) = t.cell_at_grid(r, g) else { return false };
+        let Some(cell) = t.rows.get_mut(r).and_then(|row| row.cells.get_mut(ci)) else { return false };
         let b = cell.props.borders.get_or_insert_with(Default::default);
-        if above {
-            b.bottom = Some(nil);
-        } else {
-            b.top = Some(nil);
-        }
+        let side = if above { &mut b.bottom } else { &mut b.top };
+        side.replace(nil) != Some(nil)
     };
+    let mut changed = false;
     if vertical {
         for r in lo..=hi.min(t.rows.len().saturating_sub(1)) {
             if let Some(l) = line.checked_sub(1) {
-                set_v(t, r, l, true);
+                changed |= set_v(t, r, l, true);
             }
-            set_v(t, r, line, false);
+            changed |= set_v(t, r, line, false);
         }
     } else {
         let below_cont = |t: &Table, g: usize| {
@@ -269,11 +274,12 @@ fn hide_edge(t: &mut Table, vertical: bool, line: usize, (lo, hi): (usize, usize
                 continue;
             }
             if let Some(above) = line.checked_sub(1) {
-                set_h(t, above, g, true);
+                changed |= set_h(t, above, g, true);
             }
-            set_h(t, line, g, false);
+            changed |= set_h(t, line, g, false);
         }
     }
+    changed
 }
 
 /// A vertical line at page `x`: split each crossed cell into two columns there.
@@ -612,7 +618,8 @@ pub fn erase_targets(doc: &Document, l: &DocLayout, page: usize, from: (f32, f32
 
 /// Erase one stretch of border from `t`: the cells on its two sides merge when they make one
 /// rectangle, else it is hidden on both sides. The (row, grid column) of the cell the caret
-/// goes to; `None` when nothing is there any more (an earlier stretch merged it away).
+/// goes to; `None` when nothing is there any more (an earlier stretch merged it away) or the
+/// stretch was hidden already.
 fn erase(t: &mut Table, edge: Edge) -> Option<(usize, usize)> {
     match edge {
         Edge::Vertical { row, line } => {
@@ -631,13 +638,9 @@ fn erase(t: &mut Table, edge: Edge) -> Option<(usize, usize)> {
                         return Some((top, a.g0));
                     }
                     // Two sides that can't make one rectangle: hidden along the whole edge.
-                    hide_edge(t, true, line, (a.top.min(b.top), a.bot.max(b.bot)));
-                    Some((a.top, a.g0))
+                    hide_edge(t, true, line, (a.top.min(b.top), a.bot.max(b.bot))).then_some((a.top, a.g0))
                 }
-                (Some(c), None) | (None, Some(c)) => {
-                    hide_edge(t, true, line, (c.top, c.bot));
-                    Some((c.top, c.g0))
-                }
+                (Some(c), None) | (None, Some(c)) => hide_edge(t, true, line, (c.top, c.bot)).then_some((c.top, c.g0)),
                 (None, None) => None,
             }
         }
@@ -648,8 +651,7 @@ fn erase(t: &mut Table, edge: Edge) -> Option<(usize, usize)> {
                 // The table's top or bottom: hidden above or below this cell.
                 let (r, c) = above.or(below)?;
                 let lc = logical(t, r, c);
-                hide_edge(t, false, line, (lc.g0, lc.g1));
-                return Some((lc.top, lc.g0));
+                return hide_edge(t, false, line, (lc.g0, lc.g1)).then_some((lc.top, lc.g0));
             };
             let (la, lb) = (logical(t, ra, ca), logical(t, rb, cb));
             if la.top == lb.top {
@@ -657,8 +659,7 @@ fn erase(t: &mut Table, edge: Edge) -> Option<(usize, usize)> {
             }
             // Cells that don't line up: only the stretch they share is hidden, as in Word.
             if la.g0 != lb.g0 || la.g1 != lb.g1 {
-                hide_edge(t, false, line, (g0.max(la.g0).max(lb.g0), g1.min(la.g1).min(lb.g1)));
-                return Some((la.top, la.g0));
+                return hide_edge(t, false, line, (g0.max(la.g0).max(lb.g0), g1.min(la.g1).min(lb.g1))).then_some((la.top, la.g0));
             }
             if let Some(a) = t.rows.get_mut(ra).and_then(|row| row.cells.get_mut(ca))
                 && a.props.vmerge == VMerge::None
@@ -685,9 +686,15 @@ fn erase(t: &mut Table, edge: Edge) -> Option<(usize, usize)> {
     }
 }
 
+/// The reach (points) the eraser works with for a requested `reach`: the command's and the
+/// app's preview's, so what lights up while pressed is what a release erases.
+pub fn eraser_reach(reach: Option<f32>) -> f32 {
+    reach.filter(|r| !r.is_nan()).map_or(ERASER_REACH, |r| r.clamp(0.5, ERASER_MAX_REACH))
+}
+
 fn eraser(s: &mut Session, v: &Value) -> CmdResult {
     let page = page_param(v)?;
-    let reach = p::f32(v, "reach").map_or(ERASER_REACH, |r| r.clamp(0.5, 24.0));
+    let reach = eraser_reach(p::f32(v, "reach"));
     let drag = v.get("x0").is_some();
     let (from, to) = if drag {
         ((p::req_f32(v, "x0")?, p::req_f32(v, "y0")?), (p::req_f32(v, "x1")?, p::req_f32(v, "y1")?))
@@ -977,6 +984,12 @@ mod tests {
             assert_eq!(hidden(&t, r, 0), [false, false, false, true], "row {r}: only the left side");
         }
         s.run("edit.undo", &json!({})).unwrap();
+        // With A1's left hidden already, the drag's caret goes to A2, the first cell that changes.
+        s.run("table.eraser", &json!({"page": 0, "x": a1.x - 1.0, "y": a1.y + a1.h / 2.0})).unwrap();
+        s.run("table.eraser", &json!({"page": 0, "x0": a1.x - 1.0, "y0": a1.y + 2.0, "x1": a1.x + 1.0, "y1": a4.bottom() - 2.0})).unwrap();
+        assert_eq!(s.sel.focus.path.cell().map(|(_, r, c)| (r, c)), Some((1, 0)), "the caret goes to A2");
+        s.run("edit.undo", &json!({})).unwrap();
+        s.run("edit.undo", &json!({})).unwrap();
         let d2 = cell_rect(&mut s, 1, 3);
         let x = d1.x + d1.w / 2.0;
         s.run("table.eraser", &json!({"page": 0, "x0": x, "y0": d1.y - 10.0, "x1": x + 1.0, "y1": d2.y + d2.h / 2.0})).unwrap();
@@ -989,6 +1002,42 @@ mod tests {
         s.run("table.eraser", &json!({"page": 0, "x": a.x + a.w / 2.0, "y": a.y + 1.0})).unwrap();
         s.run("table.eraser", &json!({"page": 0, "x": a.right() + 1.0, "y": a.y + a.h / 2.0})).unwrap();
         assert_eq!(hidden(&first_table(&s), 0, 0), [true, true, false, false]);
+    }
+
+    /// A reach goes as far as `ERASER_MAX_REACH` and no further, whatever the caller asks.
+    #[test]
+    fn the_reach_stops_at_its_limit() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.table", &json!({"rows": 1, "cols": 1})).unwrap();
+        let a = cell_rect(&mut s, 0, 0);
+        let at = |dx: f32| json!({"page": 0, "x": a.right() + dx, "y": a.y + a.h / 2.0, "reach": 1000.0});
+        assert!(s.run("table.eraser", &at(ERASER_MAX_REACH + 1.0)).is_err(), "past the limit");
+        s.run("table.eraser", &at(ERASER_MAX_REACH - 1.0)).unwrap();
+        assert_eq!(hidden(&first_table(&s), 0, 0), [false, true, false, false]);
+        assert_eq!(eraser_reach(None), ERASER_REACH);
+        assert_eq!(eraser_reach(Some(f32::NAN)), ERASER_REACH);
+        assert_eq!(eraser_reach(Some(f32::INFINITY)), ERASER_MAX_REACH);
+        assert_eq!(eraser_reach(Some(0.0)), 0.5);
+    }
+
+    /// A click on the table's outside takes a line between two cells while one is in reach,
+    /// though the outside is nearer; past the reach it hides the outside.
+    #[test]
+    fn a_line_between_cells_in_reach_wins_over_the_nearer_outside() {
+        let mut s = Session::new(wordcraft_doc::Document::new());
+        s.run("insert.table", &json!({"rows": 2, "cols": 2})).unwrap();
+        let b = cell_rect(&mut s, 0, 1);
+        // On the right side, half a row above the line between the rows.
+        let at = |reach: f32| json!({"page": 0, "x": b.right(), "y": b.y + b.h / 2.0, "reach": reach});
+        s.run("table.eraser", &at(b.h / 2.0 + 1.0)).unwrap();
+        let t = first_table(&s);
+        assert_eq!((t.rows[0].cells[1].props.vmerge, t.rows[1].cells[1].props.vmerge), (VMerge::Restart, VMerge::Continue), "B1 and B2 merge");
+        assert_eq!(hidden(&t, 0, 1), [false; 4], "the outside stays");
+        s.run("edit.undo", &json!({})).unwrap();
+        s.run("table.eraser", &at(b.h / 2.0 - 1.0)).unwrap();
+        let t = first_table(&s);
+        assert_eq!(hidden(&t, 0, 1), [false, true, false, false], "the outside hides");
+        assert_eq!(t.rows[0].cells[1].props.vmerge, VMerge::None, "nothing merges");
     }
 
     /// A click near a corner takes the border between two cells before the table's outside
