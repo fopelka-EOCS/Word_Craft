@@ -8227,6 +8227,7 @@ mod tests {
                         shortcut: s.shortcut,
                         params: s.params,
                         mutates: s.mutates,
+                        replaces_document: s.replaces_document,
                         enabled: unavailable,
                         run: s.run,
                     }
