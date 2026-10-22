@@ -509,7 +509,6 @@ impl Writer {
     fn blocks(&mut self, blocks: &[FBlock], intbl: bool, last_end: &str, out: &mut String, depth: usize) {
         let mut counter = model::ListCounter::default();
         let mut cur_list: Option<usize> = None;
-        let mut top_ordered = false;
         let n = blocks.len();
         for (i, b) in blocks.iter().enumerate() {
             let mut end = if i + 1 == n { last_end.to_string() } else { "\\par".to_string() };
@@ -526,12 +525,12 @@ impl Writer {
                     }
                     let ls = match p.list {
                         Some(li) => {
-                            // A top-level item of the other kind starts a new list.
-                            if li.level == 0 && cur_list.is_some() && top_ordered != li.ordered {
+                            // A different kind at any level needs a different definition;
+                            // reusing the old one would change nested items on reopen.
+                            let continue_parent = cur_list.is_some() && li.level > 0;
+                            let level = usize::from(li.level.min(8));
+                            if cur_list.and_then(|id| self.lists.get(id.saturating_sub(1))).is_some_and(|kinds| kinds[level] != li.ordered) {
                                 cur_list = None;
-                            }
-                            if li.level == 0 {
-                                top_ordered = li.ordered;
                             }
                             let id = match cur_list {
                                 Some(id) => id,
@@ -554,7 +553,9 @@ impl Writer {
                                         }
                                     }
                                     self.lists.push(kinds);
-                                    counter.reset();
+                                    if !continue_parent {
+                                        counter.reset();
+                                    }
                                     self.lists.len()
                                 }
                             };
