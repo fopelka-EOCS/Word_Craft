@@ -5193,6 +5193,7 @@ version = "0.9.0"
 name = "wordcraft-doc"
 version = "0.9.0"
 dependencies = [
+ "base64",
  "proptest",
  "serde",
  "serde_json",
@@ -5257,6 +5258,7 @@ dependencies = [
  "regex-automata",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.21",
  "wordcraft-doc",
  "wordcraft-docbin",

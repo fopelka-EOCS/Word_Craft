@@ -1123,7 +1123,15 @@ impl WordApp {
         }
         let go = match choice {
             SaveChoice::Cancel => false,
-            SaveChoice::DontSave => true,
+            // Don't Save gives the changes up: their recovery copy goes too, or it would be
+            // offered as unsaved work at every later start (#586). Not before a restore, which
+            // may be of that very copy.
+            SaveChoice::DontSave => {
+                if then != "file.recover" {
+                    self.session.discard_recovery();
+                }
+                true
+            }
             // A new document or an import-only Word file: ask where through Save As. The command
             // runs once that has saved, on a later frame with the non-blocking dialog (#94).
             SaveChoice::Save if (self.session.path.is_none() || self.legacy_word_path()) && self.services.download.is_none() => {
@@ -1312,15 +1320,25 @@ impl WordApp {
             return false;
         }
         if self.quit_requested {
+            // A saved document's recovery copy is out of date: remove it before exit rather than
+            // on a tick that may not come. One with unsaved changes (an agent's forced quit) stays,
+            // to be offered at the next start.
+            if !self.session.dirty {
+                self.session.discard_recovery();
+            }
             return true;
         }
         // No document open (#1129): nothing to save.
         if !self.has_document() {
+            if !self.session.dirty {
+                self.session.discard_recovery();
+            }
             return true;
         }
         // A comment draft the document refuses is an unsaved change: the prompt can drop it.
         let refused = panes::flush_comment_drafts(self).is_err();
         if !self.session.dirty && !self.save_unconfirmed() && !refused {
+            self.session.discard_recovery();
             return true;
         }
         // `quit`: once the prompt is answered the window closes too, not just the document.
