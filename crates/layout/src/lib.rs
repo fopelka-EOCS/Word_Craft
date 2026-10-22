@@ -29,7 +29,7 @@ use std::sync::Arc;
 
 use wordcraft_doc::numbering::{Counters, Level};
 use wordcraft_doc::para::{Anchor, Float, FloatAlign, InlineObject, Wrap, WrapText};
-use wordcraft_doc::props::{Border, CharProps, HeightRule, Rgb, TableFloat, TextDirection};
+use wordcraft_doc::props::{Border, Borders, CharProps, HeightRule, Rgb, TableFloat, TextDirection};
 use wordcraft_doc::section::{HeaderSet, SectionProps, SectionStart};
 use wordcraft_doc::{Block, Blocks, Document, Paragraph, Path, StoryRef};
 use wordcraft_geom::{Point, Rect, Spin};
@@ -1301,18 +1301,11 @@ fn layout_box(
                     pl = ctx.para_labelled(p, width, table, &rel, label);
                 }
                 // Bordered paragraphs: room for their borders, those of a group joined in one box.
-                let cell = table.map(|t| &t.para);
-                let (above, below) = (joined(ctx.doc, blocks, i, i.checked_sub(1), cell), joined(ctx.doc, blocks, i, Some(i + 1), cell));
-                let mut edges = Edges::own(&pl, 0, pl.lines.len());
-                if above {
-                    edges.top = 0.0;
-                }
-                if below {
-                    edges.bottom = 0.0;
-                }
+                let (above, below) = (joined(ctx.doc, blocks, i, i.checked_sub(1), table), joined(ctx.doc, blocks, i, Some(i + 1), table));
+                let mut edges = Edges::grouped(&pl, above, below);
                 let lead = pl.lines.first().map_or(0.0, |l| l.top.max(0.0)) + edges.top;
                 if above {
-                    edges.up = (y + lead - prev_end).max(0.0);
+                    edges.up = (y + lead - edges.top - prev_end).max(0.0);
                 }
                 prev_end = push_para(&mut items, story, &path, &pl, 0, pl.lines.len(), 0.0, y + lead, width, edges);
                 // Pictures, shapes and text boxes: drawn, their areas and text boxes' text.
@@ -1573,24 +1566,48 @@ fn fit_box(items: Vec<Placed>, height: f32) -> Vec<Placed> {
 
 /// Word joins neighbouring paragraphs with the same borders and indents into one box: the top
 /// border goes above the first of them only, the bottom one below the last, and the shading and
-/// side borders run on through the space between them (`table`: the cell's paragraph properties).
-fn border_group(doc: &Document, a: &Paragraph, b: &Paragraph, table: Option<&wordcraft_doc::props::ParaProps>) -> bool {
-    let (a, b) = (doc.styles.resolve_para_in(&a.props, table), doc.styles.resolve_para_in(&b.props, table));
-    a.borders.is_some() && a.borders == b.borders && a.indent_left == b.indent_left && a.indent_right == b.indent_right
+/// side borders run on through the space between them (`table`: the cell's text properties).
+/// Indents are compared as laid out, list indents included; framed paragraphs stand apart.
+fn border_group(doc: &Document, a: &Paragraph, b: &Paragraph, table: Option<&para::CellText>) -> bool {
+    let a = para::effective_para(doc, a, table);
+    if a.borders.is_none() || a.frame.is_some() {
+        return false;
+    }
+    let b = para::effective_para(doc, b, table);
+    b.frame.is_none() && a.borders == b.borders && a.indent_left == b.indent_left && a.indent_right == b.indent_right
 }
 
-/// Whether paragraph `i` of `blocks` and the one at `j` are of one border group.
-fn joined(doc: &Document, blocks: &Blocks, i: usize, j: Option<usize>, table: Option<&wordcraft_doc::props::ParaProps>) -> bool {
-    match (blocks.get(i).map(|b| &**b), j.and_then(|j| blocks.get(j)).map(|b| &**b)) {
-        (Some(Block::Para(a)), Some(Block::Para(b))) => border_group(doc, a, b, table),
+/// Whether paragraph `i` of `blocks` and the one at `j` are of one border group. A section
+/// break ends a group, and so does a paragraph mark tracked as deleted on either side (a
+/// paragraph deleted whole may be left out, drawing no borders).
+fn joined(doc: &Document, blocks: &Blocks, i: usize, j: Option<usize>, table: Option<&para::CellText>) -> bool {
+    let Some(j) = j else { return false };
+    match (blocks.get(i.min(j)).map(|b| &**b), blocks.get(i.max(j)).map(|b| &**b)) {
+        (Some(Block::Para(a)), Some(Block::Para(b))) if i != j => {
+            a.section.is_none() && a.mark.del.is_none() && b.mark.del.is_none() && border_group(doc, a, b, table)
+        }
         _ => false,
     }
 }
 
-/// The room a paragraph's top or bottom border takes in the text flow: its distance from the
-/// text plus its width (Word).
+/// Most room a border takes from the text, points (distance plus width).
+const MAX_BORDER_ROOM: f32 = 64.0;
+
+/// A border's distance from the text and its width, clamped (hostile values from files and
+/// commands): never negative, together at most [`MAX_BORDER_ROOM`].
+fn border_parts(b: &Border) -> (f32, f32) {
+    let clamp = |v: f32| if v.is_nan() { 0.0 } else { v.clamp(0.0, MAX_BORDER_ROOM) };
+    let width = clamp(b.width);
+    (clamp(b.space).min(MAX_BORDER_ROOM - width), width)
+}
+
+/// The room a paragraph's top, bottom or between border takes in the text flow: its distance
+/// from the text plus its width (Word).
 fn border_room(b: Option<Border>) -> f32 {
-    b.filter(Border::is_visible).map_or(0.0, |b| b.space + b.width)
+    b.filter(Border::is_visible).map_or(0.0, |b| {
+        let (space, width) = border_parts(&b);
+        space + width
+    })
 }
 
 /// How a piece of a paragraph meets the paragraphs around it: the room taken by its top and
@@ -1602,14 +1619,74 @@ struct Edges {
     top: f32,
     bottom: f32,
     up: f32,
+    /// The top edge is the group's between border (ISO 29500 §17.3.1.5), not the top border.
+    between: bool,
 }
 
 impl Edges {
     /// A paragraph on its own: its top and bottom borders at its ends.
     fn own(pl: &ParaLayout, l0: usize, l1: usize) -> Edges {
         let b = pl.rp.borders.unwrap_or_default();
-        Edges { top: if l0 == 0 { border_room(b.top) } else { 0.0 }, bottom: if l1 >= pl.lines.len() { border_room(b.bottom) } else { 0.0 }, up: 0.0 }
+        Edges {
+            top: if l0 == 0 { border_room(b.top) } else { 0.0 },
+            bottom: if l1 >= pl.lines.len() { border_room(b.bottom) } else { 0.0 },
+            ..Edges::default()
+        }
     }
+    /// A whole paragraph in its border group: joined to the paragraph `above` it, the between
+    /// border takes the top border's place (taking room like it; not verified against Word: no
+    /// public reference uses `w:between`), and joined to the one below, no bottom border.
+    fn grouped(pl: &ParaLayout, above: bool, below: bool) -> Edges {
+        let mut e = Edges::own(pl, 0, pl.lines.len());
+        if above {
+            e.top = border_room(pl.rp.borders.and_then(|b| b.between));
+            e.between = true;
+        }
+        if below {
+            e.bottom = 0.0;
+        }
+        e
+    }
+}
+
+/// The x of a bordered paragraph's left and right side borders.
+fn side_x(pl: &ParaLayout, b: &Borders, x: f32, width: f32) -> (f32, f32) {
+    // Indents are logical: a right-to-left paragraph's start indent (and hanging indent) is on the right.
+    let start = pl.rp.indent_left.min(pl.rp.indent_left + pl.rp.indent_first);
+    let (li, ri) = if pl.rp.bidi { (pl.rp.indent_right, start) } else { (start, pl.rp.indent_right) };
+    let sp = |o: &Option<Border>| o.map_or(0.0, |b| border_parts(&b).0);
+    (x + li - sp(&b.left), x + width - ri + sp(&b.right))
+}
+
+/// The x of a paragraph's shading and its width: out to the left border's distance on both
+/// sides (4 pt without a left border), none past the indents without borders.
+fn shading_x(pl: &ParaLayout, x: f32, width: f32) -> (f32, f32) {
+    let (left, right) = side_x(pl, &Borders::default(), x, width);
+    let pad = pl.rp.borders.as_ref().map(|b| b.left.map_or(4.0, |l| border_parts(&l).0)).unwrap_or(0.0);
+    (left - pad, right - left + pad * 2.0)
+}
+
+/// The end of a border group below member `pl` (its text ending at `end`), should the next
+/// member start another page or column: the bottom rule, the sides (and the shading) reaching
+/// down to it. shortcut: the rule's room (its distance plus width, up to [`MAX_BORDER_ROOM`]) isn't
+/// reserved against the body bottom, so it may reach into the bottom margin; reserve it once a
+/// Word comparison shows Word does.
+fn group_end(pl: &ParaLayout, x: f32, width: f32, end: f32) -> Vec<Placed> {
+    let Some(b) = pl.rp.borders else { return Vec::new() };
+    let Some(t) = b.bottom.filter(Border::is_visible) else { return Vec::new() };
+    let (lx, rx) = side_x(pl, &b, x, width);
+    let (space, w) = border_parts(&t);
+    let cy = end + space + w / 2.0;
+    let mut close = Vec::new();
+    if let Some(c) = pl.rp.shading {
+        let (fx, fw) = shading_x(pl, x, width);
+        close.push(Placed::Fill { rect: Rect::new(fx, end, fw, space + w), color: c });
+    }
+    close.push(Placed::Rule { x0: lx, y0: cy, x1: rx, y1: cy, border: t });
+    for (sx, side) in [(lx, b.left), (rx, b.right)] {
+        close.extend(side.filter(Border::is_visible).map(|t| Placed::Rule { x0: sx, y0: end, x1: sx, y1: cy, border: t }));
+    }
+    close
 }
 
 /// Paragraph lines plus their shading and borders; returns the bottom of the lines. The
@@ -1631,27 +1708,25 @@ fn push_para(
         return y;
     };
     let h = last.top + last.height - first.top;
-    // Indents are logical: a right-to-left paragraph's start indent (and hanging indent) is on the right.
-    let start = pl.rp.indent_left.min(pl.rp.indent_left + pl.rp.indent_first);
-    let (li, ri) = if pl.rp.bidi { (pl.rp.indent_right, start) } else { (start, pl.rp.indent_right) };
-    let left = x + li;
-    let right = x + width - ri;
     let (top, bottom) = (y - e.top - e.up, y + h + e.bottom);
     if let Some(c) = pl.rp.shading {
-        let pad = pl.rp.borders.as_ref().map(|b| b.left.map(|l| l.space).unwrap_or(4.0)).unwrap_or(0.0);
-        items.push(Placed::Fill { rect: Rect::new(left - pad, top, right - left + pad * 2.0, bottom - top), color: c });
+        let (fx, fw) = shading_x(pl, x, width);
+        items.push(Placed::Fill { rect: Rect::new(fx, top, fw, bottom - top), color: c });
     }
     items.push(Placed::Lines { story, path: Path(path.to_vec()), para: pl.clone(), l0, l1, x, y, turn: TextDirection::Horizontal });
     if let Some(b) = &pl.rp.borders {
-        let sp = |o: &Option<Border>| o.map(|b| b.space).unwrap_or(0.0);
-        let (lx, rx) = (left - sp(&b.left), right + sp(&b.right));
-        // The top and bottom lines lie beyond their distance from the text.
-        if let Some(t) = b.top.filter(|t| e.top > 0.0 && t.is_visible()) {
-            let ty = y - t.space - t.width / 2.0;
+        let (lx, rx) = side_x(pl, b, x, width);
+        // The top (or between) and bottom lines lie beyond their distance from the text.
+        let beyond = |t: &Border| {
+            let (space, width) = border_parts(t);
+            space + width / 2.0
+        };
+        if let Some(t) = if e.between { b.between } else { b.top }.filter(|t| e.top > 0.0 && t.is_visible()) {
+            let ty = y - beyond(&t);
             items.push(Placed::Rule { x0: lx, y0: ty, x1: rx, y1: ty, border: t });
         }
         if let Some(t) = b.bottom.filter(|t| e.bottom > 0.0 && t.is_visible()) {
-            let by = y + h + t.space + t.width / 2.0;
+            let by = y + h + beyond(&t);
             items.push(Placed::Rule { x0: lx, y0: by, x1: rx, y1: by, border: t });
         }
         if let Some(t) = b.left.filter(Border::is_visible) {
@@ -1714,6 +1789,10 @@ struct PageBuilder<'a> {
     seps: NoteSeps,
     /// Where the last paragraph's lines ended: page count, column and y.
     para_end: Option<(usize, usize, f32)>,
+    /// The end of a border group whose member placed last ends this page or column so far
+    /// ([`group_end`]): put on the page as it is left, the next member then starting the next
+    /// page or column with a top border of its own (Word ends a group there).
+    group_close: Vec<Placed>,
     /// Per page: how many items were inserted at the front of its list (behind the text), so a
     /// [`Snap`] can take them out again.
     behind: Vec<usize>,
@@ -1734,6 +1813,14 @@ struct PageBuilder<'a> {
     /// Top of the footer of the pages being started: a footer reaching above the bottom margin
     /// pushes the body up (`f32::MAX`: no footer).
     foot_top: f32,
+    /// Top of the even pages' footer under Different Odd & Even Pages (`f32::MAX`: none, or not
+    /// set for the page being started). shortcut: pages take the default footer's room even where
+    /// they show the even one; only the leading's hang keeps clear of the even one on even pages,
+    /// until each page measures its own footer.
+    even_foot_top: f32,
+    /// The current page's footer top (`foot_top` as the page started: the first page's footer
+    /// may differ from the next pages'), or its bottom edge without a footer.
+    page_foot_top: f32,
     /// The wrap areas pages start with ([`EarlyFloats`]) ...
     early: &'a EarlyFloats,
     /// ... and how many of the current page's `excl` they are (its first ones).
@@ -2130,6 +2217,7 @@ impl PageBuilder<'_> {
         true
     }
     fn new_page(&mut self, first_block: usize, body_top: f32) {
+        self.close_group();
         self.apply_valign();
         self.flush_notes();
         self.beneath = self.sect_beneath;
@@ -2175,6 +2263,9 @@ impl PageBuilder<'_> {
         self.top = body_top;
         self.bottom = if self.web { f32::MAX / 8.0 } else { bottom };
         self.orig_bottom = self.bottom;
+        // An even page shows the even footer (when there is one); an odd page, the default.
+        let foot_top = if self.number.is_multiple_of(2) { self.foot_top.min(self.even_foot_top) } else { self.foot_top };
+        self.page_foot_top = foot_top.min(h);
         self.y = self.top;
         // Notes continued from the page before come first in this page's note area.
         // (`cap_columns` below keeps the columns above them.)
@@ -2194,6 +2285,17 @@ impl PageBuilder<'_> {
         {
             self.bottom = self.bottom.min(self.top + h);
         }
+    }
+    /// How far a last line's leading may hang below the body: into the bottom margin, not into a
+    /// footer reaching above it (that footer already pushed the body up) nor past the page edge.
+    /// None in balanced columns shorter than the page: a pass fits only when every line's whole
+    /// box does. Columns as tall as the page (the last pass) keep it, as the unbalanced layout
+    /// did: else a page full only thanks to the hang spills, and the text after it is lost.
+    fn hang_room(&self) -> f32 {
+        if self.balance.is_some_and(|(page, h)| page + 1 == self.pages.len() && self.top + h < self.uncapped_bottom() - 0.01) {
+            return 0.0;
+        }
+        (self.page_foot_top - self.orig_bottom).max(0.0)
     }
     /// The bottom of the columns without balancing: above the footnotes.
     fn uncapped_bottom(&self) -> f32 {
@@ -2215,12 +2317,24 @@ impl PageBuilder<'_> {
     /// Move to the next column or page.
     fn advance(&mut self, block: usize, body_top: f32) {
         if self.col + 1 < self.cols.len() {
+            self.close_group();
             self.max_y = self.max_y.max(self.y);
             self.col += 1;
             self.y = self.top;
         } else {
             self.new_page(block, body_top);
         }
+    }
+    /// Ends a border group left open on the page or column being left (see `group_close`).
+    fn close_group(&mut self) {
+        let close = std::mem::take(&mut self.group_close);
+        let behind = self.behind.last().copied().unwrap_or(0);
+        let Some(pg) = self.pages.last_mut() else { return };
+        let (end, n) = (pg.items.len().saturating_sub(behind), close.len());
+        pg.items.extend(close);
+        // A block that moved on whole left its mark at the end: it stays there, not a gap for
+        // justified vertical alignment.
+        self.block_marks.iter_mut().filter(|m| **m == end).for_each(|m| *m = m.saturating_add(n));
     }
     fn page(&mut self) -> Option<&mut Page> {
         self.pages.last_mut()
@@ -2408,6 +2522,7 @@ fn layout_pass(
         page_valign: wordcraft_doc::section::PageVAlign::Top,
         seps: NoteSeps::default(),
         para_end: None,
+        group_close: Vec::new(),
         behind: Vec::new(),
         max_y: 0.0,
         content_bottom: 0.0,
@@ -2416,6 +2531,8 @@ fn layout_pass(
         sect_beneath: false,
         beneath: false,
         foot_top: f32::MAX,
+        even_foot_top: f32::MAX,
+        page_foot_top: f32::MAX,
         early,
         seeded: 0,
         settle: !may_rewrap && !reflow,
@@ -2485,6 +2602,11 @@ fn layout_pass(
         } else {
             with_pct_base(&mut ctx, fb(feet.first), |c| foot_top_for(c, sect, feet.first))
         };
+        let even_foot = if reflow || turn.is_turned() || !doc.settings.even_odd_headers {
+            f32::MAX
+        } else {
+            with_pct_base(&mut ctx, fb(feet.even), |c| foot_top_for(c, sect, feet.even))
+        };
         ctx.grid = para::Grid::of(doc, sect);
         let restart = sect.page_num_start;
         if sect.line_numbers.as_ref().is_some_and(|l| l.restart == wordcraft_doc::section::LineNumberRestart::Section) {
@@ -2518,6 +2640,7 @@ fn layout_pass(
                 pb.restart_at = restart;
             }
             pb.foot_top = first_foot;
+            pb.even_foot_top = if sect.title_page { f32::MAX } else { even_foot };
             pb.new_page(block, first_top);
             pb.foot_top = foot_top;
         } else {
@@ -2530,6 +2653,7 @@ fn layout_pass(
         }
         prev_turn = turn;
         pb.foot_top = foot_top;
+        pb.even_foot_top = even_foot;
         let last = (*end).min(doc.body.len().saturating_sub(1));
         // Newspaper columns are balanced on the section's last page when the next section starts
         // on the same page (a continuous break), as in Word. That page is laid out again from the
@@ -2577,6 +2701,7 @@ fn layout_pass(
     // The rest of the endnotes after the last paragraph.
     let rest: Vec<u32> = endnotes.into_iter().map(|(id, _)| id).collect();
     place_endnotes(&mut ctx, &mut pb, rest, block);
+    pb.close_group();
     pb.apply_valign();
     pb.flush_notes();
     // Footnotes still continuing after the last page get pages of their own. Each page takes at
@@ -2806,6 +2931,8 @@ fn balance_columns<'a>(ctx: &mut Ctx, pb: &mut PageBuilder<'a>, blocks: (usize, 
         thrown = discard(ctx);
         if !pass(ctx, pb, hi) && hi < full {
             thrown = discard(ctx);
+            // May report failure when a line hangs its leading past `top + full` (content_bottom),
+            // but its layout is kept: nothing may act on that `false`.
             pass(ctx, pb, full);
         }
     }
@@ -3594,6 +3721,27 @@ fn place_objects(
     (behind, front)
 }
 
+/// How far line `k` of `pl` may hang its leading below the body (`room`: as far as the page
+/// lets it, see [`PageBuilder::hang_room`]): the line fits when its text does (Word). Not with
+/// a footnote (`noted`: the notes need the whole line), nor under shading or side borders,
+/// which run down the line's whole box, nor on a last line with a bottom border, which has to
+/// be on the page (also when it closes its group at the page end).
+fn line_hang(pl: &ParaLayout, k: usize, noted: bool, room: f32) -> f32 {
+    let Some(l) = pl.lines.get(k) else { return 0.0 };
+    let b = pl.rp.borders.unwrap_or_default();
+    let shown = |e: Option<Border>| e.is_some_and(|e| e.is_visible());
+    if noted || pl.rp.shading.is_some() || shown(b.left) || shown(b.right) || (k + 1 >= pl.lines.len() && shown(b.bottom)) {
+        return 0.0;
+    }
+    l.hang.min(room).max(0.0)
+}
+
+/// Whether `notes` ([`para_notes`]) reference a footnote before cluster `c1`: the line loop lets
+/// no leading hang below such lines.
+fn footnote_before(doc: &Document, notes: &[(usize, u32)], c1: usize) -> bool {
+    notes.iter().any(|(ci, id)| *ci < c1 && doc.parts.get(id).is_some_and(|q| q.kind == wordcraft_doc::PartKind::Footnote))
+}
+
 /// Footnotes referenced in a paragraph laid out as `pl`: in its text, and inside its text boxes
 /// (on the box's cluster), as (cluster, note id).
 fn para_notes(doc: &Document, p: &Paragraph, pl: &ParaLayout) -> Vec<(usize, u32)> {
@@ -3782,20 +3930,37 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     // Bordered paragraphs: room for their top and bottom borders, those of a group joined in one box.
     let above = joined(ctx.doc, &ctx.doc.body, block, block.checked_sub(1), None);
     let below = joined(ctx.doc, &ctx.doc.body, block, Some(block + 1), None);
-    let own = Edges::own(&pl, 0, pl.lines.len());
-    let (top_room, bottom_room) = (if above { 0.0 } else { own.top }, if below { 0.0 } else { own.bottom });
+    let group = Edges::grouped(&pl, above, below);
+    let bottom_room = group.bottom;
+    // A group ends with its page or column (Word): a member starting one has its own top border.
+    let lone = Edges::grouped(&pl, false, below);
+    let mut head = if above && pb.para_end.is_some_and(|(page, col, _)| (page, col) == spot(pb)) { group } else { lone };
     // Keep lines together: if it doesn't fit but would on an empty column, move it. Keep with
     // next alone moves a paragraph only when it would fit here by itself (Word for Windows): one
     // that doesn't breaks as usual, its last lines going over with the next paragraph.
-    let height = pl.height + top_room + bottom_room;
-    if pl.rp.keep_lines || (pl.rp.keep_next && pb.y + height <= pb.bottom + 0.01) {
-        let need = height + if pl.rp.keep_next { next_first_line(ctx, block, width, 0, &mut ctx.counters.clone()) } else { 0.0 };
-        // (Against the whole column: balanced columns grow to hold it.)
-        // With the 0.01 pt of slack the other fit checks take.
-        if pb.y + need > pb.bottom + 0.01 && !pb.at_top() && need <= pb.uncapped_bottom() - pb.top {
-            pb.advance(block, body_top);
-            pb.y += pl.rp.space_before.min(0.0);
-            applied_before = pl.rp.space_before.min(0.0);
+    // (Its last line's text has to fit, not the leading below it, as in the line loop below.
+    // Nor, as there, with a note on the page; with a footnote in the paragraph, no paragraph
+    // kept with it may hang either.)
+    let height = pl.height + head.top + bottom_room;
+    if pl.rp.keep_lines || pl.rp.keep_next {
+        let noted = pl.lines.last().is_some_and(|l| footnote_before(ctx.doc, &para_notes(ctx.doc, p, &pl), l.c1));
+        let room = if pb.notes.is_empty() && !noted { pb.hang_room() } else { 0.0 };
+        let hang = line_hang(&pl, pl.lines.len().saturating_sub(1), false, room);
+        if pl.rp.keep_lines || pb.y + height - hang <= pb.bottom + 0.01 {
+            let need = if pl.rp.keep_next {
+                let after = space_after_kept(ctx, block, &pl.rp, label.is_some());
+                height + next_first_line(ctx, block, width, after, room, 0, &mut ctx.counters.clone())
+            } else {
+                height - hang
+            };
+            // (Against the whole column: balanced columns grow to hold it.)
+            // With the 0.01 pt of slack the other fit checks take.
+            if pb.y + need > pb.bottom + 0.01 && !pb.at_top() && need <= pb.uncapped_bottom() - pb.top {
+                pb.advance(block, body_top);
+                head = lone;
+                pb.y += pl.rp.space_before.min(0.0);
+                applied_before = pl.rp.space_before.min(0.0);
+            }
         }
     }
     // A different top only matters when there is something to wrap around.
@@ -3870,7 +4035,7 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
         // How many lines fit?
         let Some(first) = pl.lines.get(l0) else { break };
         // A paragraph's first line may start below its top (pushed down by a floating object).
-        let lead = if l0 == 0 { first.top.max(0.0) + top_room } else { 0.0 };
+        let lead = if l0 == 0 { first.top.max(0.0) + head.top } else { 0.0 };
         let mut l1 = l0;
         let mut forced_break = None;
         // A page break followed only by the paragraph mark: the mark's (empty) line stays on this
@@ -3902,7 +4067,9 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
                 - new_notes.iter().map(|n| n.h).sum::<f32>()
                 - if pb.notes.is_empty() && !new_notes.is_empty() { pb.seps.sep_h(false) } else { 0.0 }
                 - extra;
-            let bottom = pb.y + lead + (l.top + l.height - first.top);
+            // The paragraph's last line takes its bottom border's room along.
+            let band = if l1 + 1 == n { bottom_room } else { 0.0 };
+            let bottom = pb.y + lead + (l.top + l.height - first.top) + band;
             // On a page with footnotes the paragraph's last line keeps its space after clear of
             // the separator (Word): if the space doesn't fit, the line goes to the next page (and,
             // with widow control, one more with it). Without notes the space after may run past
@@ -3913,7 +4080,10 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
             } else {
                 0.0
             };
-            let over = bottom + tail > limit + 0.01;
+            // The line fits when its text does: the extra leading of multiple spacing may hang
+            // into the bottom margin (Word; see `line_hang`).
+            let hang = line_hang(&pl, l1, has_notes, pb.hang_room());
+            let over = bottom + tail - hang > limit + 0.01;
             // Notes too long for the rest of the page continue on the next one: the line still
             // fits if the notes before its last one, and that one's first line, fit below it.
             // The notes then take the rest of the page.
@@ -3975,6 +4145,7 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
             } else {
                 pb.advance(block, body_top);
                 if l0 == 0 {
+                    head = lone;
                     let y0 = pb.y;
                     (float_rects, pl, rel) = again(ctx, eq_start, |ctx| anchor_floats(ctx, pb, p, block, y0, 0.0, excl_mark, &label, true));
                     (laid_page, laid_width) = (pb.number, pb.col_w());
@@ -4010,17 +4181,18 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
             pb.bottom = pb.body_floor().max(placed_bottom).min(pb.orig_bottom);
         }
         let mut items = Vec::new();
-        let mut edges = Edges { top: if l0 == 0 { top_room } else { 0.0 }, bottom: if l1 >= n { bottom_room } else { 0.0 }, up: 0.0 };
+        let mut edges = Edges { top: if l0 == 0 { head.top } else { 0.0 }, bottom: if l1 >= n { bottom_room } else { 0.0 }, ..head };
         if l0 == 0
             && above
             && let Some((page, col, end)) = pb.para_end
             && page == pb.pages.len()
             && col == pb.col
         {
-            edges.up = (y - end).max(0.0);
+            edges.up = (y - edges.top - end).max(0.0);
         }
         let end = push_para(&mut items, StoryRef::Body, &[block as u32], &pl, l0, l1, x, y, width, edges);
         pb.para_end = Some((pb.pages.len(), pb.col, end));
+        pb.group_close = if l1 >= n && below { group_end(&pl, x, width, end) } else { Vec::new() };
         // Pictures, shapes and text boxes in these lines (web view: floats placed by this piece).
         let at = ObjFrame {
             page: Some(PageFrame { sect: pb.sect, origin: (0.0, 0.0), number: pb.number, mirror: ctx.mirror }),
@@ -4233,13 +4405,18 @@ fn space_after_kept(ctx: &Ctx, block: usize, rp: &wordcraft_doc::resolve::Resolv
 /// of it under keep lines together — or all of it and what it keeps with in turn when it is
 /// kept with the next too (a chain moves together in Word). Word carries a kept heading over
 /// when the paragraph after it cannot start on the page (#966).
-fn next_first_line(ctx: &mut Ctx, block: usize, width: f32, depth: usize, counters: &mut Counters) -> f32 {
+/// `after`: the space after paragraph `block` left below it ([`space_after_kept`]), which comes
+/// between the two as in the line loop (the larger of it and the next one's space before,
+/// unless paragraph spacing adds up). `hang_room`: how far a line's leading may hang below the
+/// body on this page (see [`PageBuilder::hang_room`]; none with footnotes).
+fn next_first_line(ctx: &mut Ctx, block: usize, width: f32, after: f32, hang_room: f32, depth: usize, counters: &mut Counters) -> f32 {
     match ctx.doc.body.get(block + 1).map(|b| &**b) {
         Some(Block::Para(p)) => {
             // Keep list indents and label metrics without consuming the document counters.
             let rp = ctx.doc.styles.resolve_para(&p.props);
             let label =
                 p.props.numbering.or(rp.numbering).filter(|n| n.num != 0).and_then(|n| counters.next_label(&ctx.doc.numbering, n.num, n.level));
+            let listed = label.is_some();
             let env = para::ParaEnv {
                 doc: ctx.doc,
                 width,
@@ -4261,22 +4438,37 @@ fn next_first_line(ctx: &mut Ctx, block: usize, width: f32, depth: usize, counte
             };
             let pl = para::layout_para(p, &env);
             // Its border room, unless it joins the paragraph before (or after) in one box.
-            let own = Edges::own(&pl, 0, pl.lines.len());
-            let top = if joined(ctx.doc, &ctx.doc.body, block + 1, Some(block), None) { 0.0 } else { own.top };
+            let body = &ctx.doc.body;
+            let Edges { top, bottom, .. } =
+                Edges::grouped(&pl, joined(ctx.doc, body, block + 1, Some(block), None), joined(ctx.doc, body, block + 1, Some(block + 2), None));
+            let notes = para_notes(ctx.doc, p, &pl);
+            let before = pl.rp.space_before;
+            let between = if ctx.doc.settings.sum_paragraph_spacing { after + before } else { after.max(before) };
             if pl.rp.keep_next && depth < 8 {
-                let bottom = if joined(ctx.doc, &ctx.doc.body, block + 1, Some(block + 2), None) { 0.0 } else { own.bottom };
-                pl.rp.space_before + top + pl.height + bottom + pl.rp.space_after + next_first_line(ctx, block + 1, width, depth + 1, counters)
+                // Its footnotes go on the page with it: nothing after them hangs there.
+                let room = if footnote_before(ctx.doc, &notes, usize::MAX) { 0.0 } else { hang_room };
+                let after = space_after_kept(ctx, block + 1, &pl.rp, listed);
+                between + top + pl.height + bottom + next_first_line(ctx, block + 1, width, after, room, depth + 1, counters)
             } else {
                 // The room this one needs to start on the page with the kept paragraph before
-                // it (#966).
+                // it (#966). The last line it needs there has to fit with its text only (the
+                // leading below may hang into the bottom margin as the line loop lets it, see
+                // `line_hang`), and with the bottom border's room when that line ends the
+                // paragraph.
+                let doc = ctx.doc;
+                let fit = |h: f32, k: usize| match pl.lines.get(k) {
+                    Some(_) if k + 1 >= pl.lines.len() && bottom > 0.0 => h + bottom,
+                    Some(l) => h - line_hang(&pl, k, footnote_before(doc, &notes, l.c1), hang_room),
+                    None => h,
+                };
                 let to = |k: usize| match (pl.lines.first(), pl.lines.get(k)) {
-                    (Some(first), Some(last)) => last.top + last.height - first.top,
+                    (Some(first), Some(last)) => fit(last.top + last.height - first.top, k),
                     _ => 0.0,
                 };
-                pl.rp.space_before
+                between
                     + top
                     + if pl.rp.keep_lines {
-                        pl.height
+                        fit(pl.height, pl.lines.len().saturating_sub(1))
                     } else if pl.rp.widow_control && pl.lines.len() >= 2 {
                         to(1)
                     } else {
@@ -4284,7 +4476,8 @@ fn next_first_line(ctx: &mut Ctx, block: usize, width: f32, depth: usize, counte
                     }
             }
         }
-        Some(Block::Table(_)) => 24.0,
+        // A table starts below the kept paragraph's space after (tables have no space before).
+        Some(Block::Table(_)) => after + 24.0,
         None => 0.0,
     }
 }
