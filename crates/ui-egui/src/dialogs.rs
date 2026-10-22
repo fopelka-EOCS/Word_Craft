@@ -4460,7 +4460,7 @@ mod tests {
     fn paragraph_dialog_offers_thai_distributed_and_khmer_justify() {
         use egui_kittest::kittest::{NodeT, Queryable};
         for (label, want) in [("Thai Distributed", Align::ThaiDistribute), ("Khmer Justify", Align::KhmerJustify)] {
-            let mut app = app_with("ខ្មែរ");
+            let mut app = app_with("Text");
             app.dialog = Dialog::open("paragraph", &mut app);
             let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
                 |ui, app: &mut WordApp| {
