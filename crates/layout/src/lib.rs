@@ -3803,7 +3803,9 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     // that doesn't breaks as usual, its last lines going over with the next paragraph.
     let height = pl.height + top_room + bottom_room;
     if pl.rp.keep_lines || (pl.rp.keep_next && pb.y + height <= pb.bottom + 0.01) {
-        let need = height + if pl.rp.keep_next { next_first_line(ctx, block, width, 0, &mut ctx.counters.clone()) } else { 0.0 };
+        // A table starts below the paragraph's space after.
+        let gap = if matches!(ctx.doc.body.get(block + 1).map(|b| &**b), Some(Block::Table(_))) { pl.rp.space_after } else { 0.0 };
+        let need = height + if pl.rp.keep_next { gap + next_first_line(ctx, block, width, 0, &mut ctx.counters.clone()) } else { 0.0 };
         // (Against the whole column: balanced columns grow to hold it.)
         // With the 0.01 pt of slack the other fit checks take.
         if pb.y + need > pb.bottom + 0.01 && !pb.at_top() && need <= pb.uncapped_bottom() - pb.top {
