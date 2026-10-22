@@ -8,7 +8,8 @@
 //!   file WordCraft would otherwise download: Save, Save As and the exports. The parent stores
 //!   it and reports failures itself.
 //! - `wordcraft:dirty` (to the parent): `{ dirty }` whenever unsaved changes appear or go away.
-//! - `wordcraft:failed` (to the parent): `{ error }` when the app couldn't start.
+//! - `wordcraft:failed` (to the parent): `{ error }` when the app couldn't start, or when an
+//!   opened document is over [`MAX_OPEN_BYTES`] (it is not opened).
 //!
 //! Only the parent window on the page's own origin is heard or answered. In host mode the page
 //! starts on a blank document instead of File › Home, and the parent guards leaving the page.
@@ -24,6 +25,15 @@ use wordcraft_ui_egui::{Inbox, Services, WordApp};
 
 /// The longest user name taken from `?author=`.
 const MAX_AUTHOR_CHARS: usize = 200;
+/// Most bytes one `wordcraft:open` document may carry; larger ones are refused before they are
+/// copied into the inbox. The same 256 MiB the page's other reads hold in memory at once
+/// (picked fonts, system fonts).
+const MAX_OPEN_BYTES: usize = 256 << 20;
+
+/// Why an opened document of `len` bytes is refused, if it is.
+fn oversize(len: usize) -> Option<String> {
+    (len > MAX_OPEN_BYTES).then(|| format!("the document is {len} bytes, over the {} MiB limit for opening", MAX_OPEN_BYTES >> 20))
+}
 
 #[derive(Clone)]
 pub struct Bridge {
@@ -99,6 +109,7 @@ impl Bridge {
     fn listen(&self, inbox: Inbox, ctx: egui::Context) {
         let parent = self.parent.clone();
         let origin = self.origin.clone();
+        let bridge = self.clone();
         let on_message = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |event: web_sys::MessageEvent| {
             if event.origin() != origin || !event.source().is_some_and(|s| js_sys::Object::is(&s, &parent)) {
                 return;
@@ -108,7 +119,12 @@ impl Bridge {
                 return;
             }
             let name = string(&data, "name").filter(|n| !n.trim().is_empty()).unwrap_or_else(|| "Document.docx".to_string());
-            let Some(bytes) = bytes(&data) else { return };
+            let Some(array) = byte_array(&data) else { return };
+            if let Some(reason) = oversize(array.byte_length() as usize) {
+                bridge.post_failed(&format!("couldn't open {name}: {reason}"));
+                return;
+            }
+            let bytes = array.to_vec();
             inbox.lock().unwrap_or_else(|e| e.into_inner()).push((name, bytes));
             ctx.request_repaint();
         });
@@ -136,13 +152,13 @@ fn string(data: &JsValue, key: &str) -> Option<String> {
     js_sys::Reflect::get(data, &JsValue::from_str(key)).ok()?.as_string()
 }
 
-/// `bytes` as an `ArrayBuffer` or `Uint8Array`.
-fn bytes(data: &JsValue) -> Option<Vec<u8>> {
+/// `bytes` (an `ArrayBuffer` or `Uint8Array`) as a view, not yet copied.
+fn byte_array(data: &JsValue) -> Option<js_sys::Uint8Array> {
     let bytes = js_sys::Reflect::get(data, &JsValue::from_str("bytes")).ok()?;
     if let Some(array) = bytes.dyn_ref::<js_sys::Uint8Array>() {
-        Some(array.to_vec())
+        Some(array.clone())
     } else if bytes.is_instance_of::<js_sys::ArrayBuffer>() {
-        Some(js_sys::Uint8Array::new(&bytes).to_vec())
+        Some(js_sys::Uint8Array::new(&bytes))
     } else {
         None
     }
