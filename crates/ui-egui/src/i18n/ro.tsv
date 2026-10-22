@@ -2762,3 +2762,10 @@ template	Letter	Scrisoare
 	cm	cm
 	mm	mm
 	pi	pi
+	WordCraft {version} is available.	WordCraft {version} este disponibil.
+	Download	Descarcă
+	Open the release page in your browser	Deschide pagina versiunii în browser
+	Skip this version	Omite această versiune
+	Dismiss	Închide
+	Check for updates	Caută actualizări
+	Once a day, ask GitHub whether a newer WordCraft release is out and show a notice. Nothing else is sent.	O dată pe zi, întreabă GitHub dacă a apărut o versiune WordCraft mai nouă și afișează o notificare. Nu se trimite nimic altceva.

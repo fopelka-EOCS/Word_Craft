@@ -2763,3 +2763,10 @@ preview	Title	Naslov
 	{names} and {n} more	{names} and {n} more
 	{name} options	{name} options
 	{width} × {height} pixels	{width} × {height} pixels
+	WordCraft {version} is available.	WordCraft {version} je na voljo.
+	Download	Prenesi
+	Open the release page in your browser	Odpri stran izdaje v brskalniku
+	Skip this version	Preskoči to različico
+	Dismiss	Zapri
+	Check for updates	Preveri posodobitve
+	Once a day, ask GitHub whether a newer WordCraft release is out and show a notice. Nothing else is sent.	Enkrat na dan vprašaj GitHub, ali je izšla novejša različica WordCraft, in prikaži obvestilo. Nič drugega se ne pošlje.
