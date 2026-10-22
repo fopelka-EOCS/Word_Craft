@@ -22,11 +22,16 @@ fn para_layout(l: &DocLayout) -> &ParaLayout {
 }
 
 /// `text` in a bundled font that draws fi and ffi as ligatures, so the tests don't depend on the
-/// installed fonts (Liberation Sans, the usual Linux stand-in for the default font, draws none).
+/// installed fonts (Liberation Sans, the usual Linux stand-in for the default font, draws none),
+/// with standard ligatures turned on (`w14:ligatures="standard"`): like Word, WordCraft draws none
+/// unless the document asks.
 fn doc(text: &str) -> Document {
     let mut d = Document::from_text(text);
     let end = d.body.first().and_then(|b| b.as_para()).map_or(0, |p| p.text.len());
-    let _ = d.format_range(&Pos::body(0, 0), &Pos::body(0, end), &|c| c.font = Some(LIGATURE_FONT.into()));
+    let _ = d.format_range(&Pos::body(0, 0), &Pos::body(0, end), &|c| {
+        c.font = Some(LIGATURE_FONT.into());
+        c.ligatures = wordcraft_doc::props::Ligatures::from_ooxml("standard");
+    });
     d
 }
 

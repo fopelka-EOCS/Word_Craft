@@ -1058,18 +1058,14 @@ impl<'a> Builder<'a> {
                 }
             };
             // The shaper kerns by default; Word kerns only when Kerning for fonts covers the size.
-            // Without `w14:ligatures` the shaper's default (standard and contextual) stays.
+            // The shaper also draws standard and contextual ligatures by default, but Word draws
+            // none unless `w14:ligatures` asks (Font › Advanced › Ligatures defaults to None), so
+            // every ligature feature is set explicitly, off when the document says nothing.
             let [kern_off] = no_kern;
-            let all = match rc.ligatures {
-                Some(l) => {
-                    let [a, b, c, d] = ligature_features(l);
-                    [kern_off, a, b, c, d]
-                }
-                None => [kern_off; 5],
-            };
+            let [liga, clig, hlig, dlig] = ligature_features(rc.ligatures.unwrap_or_default());
+            let all = [kern_off, liga, clig, hlig, dlig];
             let from = usize::from(rc.kerned());
-            let to = if rc.ligatures.is_some() { all.len() } else { 1 };
-            let features: &[wordcraft_fonts::Feature] = all.get(from..to).unwrap_or_default();
+            let features: &[wordcraft_fonts::Feature] = all.get(from..).unwrap_or_default();
             let shaped = if use_levels {
                 wordcraft_fonts::shape_run(&st.face, shape_text, features, map, key.rtl)
             } else {
