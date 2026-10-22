@@ -313,22 +313,28 @@ fn dictionaries(app: &mut WordApp, ui: &mut Ui) {
     // The dictionary each language found, looked up again after the folder changes.
     let found_id = egui::Id::new("options_dictionaries_found");
     let generation = wordcraft_engine::proof::dictionary_generation();
-    let cached = ui.data(|d| d.get_temp::<(u64, Vec<(String, Option<String>)>)>(found_id)).filter(|(g, _)| *g == generation);
+    let cached = ui.data(|d| d.get_temp::<(u64, Vec<(String, Option<String>, Option<String>)>)>(found_id)).filter(|(g, _)| *g == generation);
     let found = match cached {
         Some((_, f)) => f,
         None => {
-            let f: Vec<(String, Option<String>)> = wordcraft_engine::proof::installed_dictionaries()
+            let f: Vec<(String, Option<String>, Option<String>)> = wordcraft_engine::proof::installed_dictionaries()
                 .into_iter()
-                .map(|(lang, dic)| (language_name(lang).to_string(), dic.map(|d| d.to_string_lossy().into_owned())))
+                .map(|(lang, dic)| {
+                    let error = wordcraft_engine::proof::dictionary_load_error(lang);
+                    (language_name(lang).to_string(), dic.map(|d| d.to_string_lossy().into_owned()), error)
+                })
                 .collect();
             ui.data_mut(|d| d.insert_temp(found_id, (generation, f.clone())));
             f
         }
     };
-    for (language, file) in found {
-        let line = match file {
-            Some(f) => crate::i18n::fmt(tl!("{language}: {file}"), &[("language", &language), ("file", &f)]),
-            None => crate::i18n::fmt(tl!("{language}: no dictionary found"), &[("language", &language)]),
+    for (language, file, error) in found {
+        let line = match (file, error) {
+            (Some(f), Some(e)) => {
+                crate::i18n::fmt(tl!("{language}: {file} (unreadable: {reason})"), &[("language", &language), ("file", &f), ("reason", &e)])
+            }
+            (Some(f), None) => crate::i18n::fmt(tl!("{language}: {file}"), &[("language", &language), ("file", &f)]),
+            (None, _) => crate::i18n::fmt(tl!("{language}: no dictionary found"), &[("language", &language)]),
         };
         ui.add(egui::Label::new(RichText::new(line).small()).truncate());
     }
@@ -345,8 +351,9 @@ fn language_name(lang: wordcraft_engine::proof::ProofLang) -> &'static str {
         ProofLang::Tr => tl!("Turkish"),
         ProofLang::Ru => tl!("Russian"),
         ProofLang::Cs => tl!("Czech"),
+        ProofLang::Id => tl!("Indonesian"),
         // English uses its bundled word list; Bulgarian has no dictionary yet.
-        ProofLang::En | ProofLang::Bg | ProofLang::Other => "",
+        ProofLang::En | ProofLang::EnGb | ProofLang::EnCa | ProofLang::Bg | ProofLang::Other => "",
     }
 }
 
@@ -423,7 +430,9 @@ fn language(app: &mut WordApp, ui: &mut Ui) {
     // #414 (detect the document's language) goes here.
     ui.add_space(8.0);
     section(ui, "Proofing language");
-    note(ui, "Spelling and grammar are checked in English (United States).");
+    // The document's default language (Review › Language › Set As Default changes it).
+    let tag = app.session.doc.styles.default_chr.lang.clone();
+    note(ui, &crate::ribbon::language_name(tag.as_deref()));
 }
 
 fn accessibility(app: &mut WordApp, ui: &mut Ui) {
@@ -522,6 +531,12 @@ fn advanced(app: &mut WordApp, ui: &mut Ui) {
     {
         let _ = app.run("ui.caretAnimation", json!({"value": caret}));
     }
+    // The web app has no folders to name.
+    if !cfg!(target_arch = "wasm32") {
+        ui.add_space(8.0);
+        section(ui, "File locations");
+        templates_folder(app, ui);
+    }
     ui.add_space(8.0);
     section(ui, "Customize");
     ui.horizontal(|ui| {
@@ -536,6 +551,36 @@ fn advanced(app: &mut WordApp, ui: &mut Ui) {
             let _ = app.run("tools.customizeRibbon", json!({}));
         }
     });
+}
+
+/// The user templates folder (#2852): where File › New finds personal templates and Save as Word
+/// Template starts. Empty is the app's own folder, shown as the hint.
+fn templates_folder(app: &mut WordApp, ui: &mut Ui) {
+    let saved = app.session.prefs.user_templates_folder.clone().unwrap_or_default();
+    let id = egui::Id::new("options_user_templates_folder");
+    let mut folder = ui.data(|d| d.get_temp::<String>(id)).unwrap_or_else(|| saved.clone());
+    let default = app.services.templates_dir.as_ref().map(|d| d.to_string_lossy().into_owned());
+    ui.label(tl!("User templates:"));
+    ui.horizontal(|ui| {
+        let hint = default.clone().unwrap_or_else(|| tl!("Not set").to_string());
+        let r = ui.add(egui::TextEdit::singleline(&mut folder).desired_width(320.0).hint_text(hint));
+        let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        let changed = folder.trim() != saved;
+        if ui.add_enabled(changed, egui::Button::new(tl!("Apply"))).clicked() || (enter && changed) {
+            let value = if folder.trim().is_empty() { "auto" } else { folder.trim() };
+            match app.run("file.options", json!({"userTemplatesFolder": value})) {
+                Ok(_) => folder = app.session.prefs.user_templates_folder.clone().unwrap_or_default(),
+                Err(e) => app.status(e),
+            }
+        }
+        if ui.add_enabled(!saved.is_empty(), egui::Button::new(tl!("Clear"))).clicked()
+            && app.run("file.options", json!({"userTemplatesFolder": "auto"})).is_ok()
+        {
+            folder.clear();
+        }
+    });
+    ui.data_mut(|d| d.insert_temp(id, folder));
+    note(ui, "File › New lists the .dotx and .dotm templates here under Personal; Save as Word Template starts here.");
 }
 
 fn agents(ui: &mut Ui) {
@@ -787,8 +832,8 @@ mod tests {
                         let bounds = text.visual_bounding_rect();
                         assert!(row.contains_rect(bounds.intersect(clip)), "{language} {percent}% {selected}: {label} paints outside {row:?}");
                         if language == "ru" && id == "accessibility" {
-                            assert_eq!(label, "Специальные возможности");
-                            assert!(bounds.right() > row.right(), "exercise a label wider than the row");
+                            assert_eq!(label, "Доступность");
+                            assert!(clip.contains_rect(bounds), "{language} {percent}% {selected}: {label} must fit its row");
                         }
                         if language == "en" && ["general", "display", "save"].contains(&id) {
                             assert!(clip.contains_rect(bounds), "short labels must remain fully visible");

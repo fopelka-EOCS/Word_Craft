@@ -168,13 +168,15 @@ pub(crate) fn symbol_items(pl: &Arc<ParaLayout>, x: f32, y: f32, level: u8, chil
     let disc = |r: f32| Placed::Shape {
         rect: Rect::new(cx - r, cy - r, r * 2.0, r * 2.0),
         kind: ShapeKind::Ellipse,
-        fill: Some(SYMBOL_GREY),
+        fill: Some(wordcraft_doc::fill::Fill::solid(SYMBOL_GREY)),
         stroke: None,
         stroke_width: 0.0,
         freeform: None,
         effects: Default::default(),
         spin: Default::default(),
         extra: Default::default(),
+        // A heading's symbol, not an object of its own: never left out of a page.
+        object: None,
     };
     let white = Border { style: BorderStyle::Single, width: 1.1, color: Some(Rgb(0xFF, 0xFF, 0xFF)), space: 0.0 };
     if level >= BODY {

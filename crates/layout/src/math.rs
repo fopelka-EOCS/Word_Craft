@@ -658,6 +658,18 @@ impl Ctx {
         b
     }
 
+    /// `c` in the math font, or in a fallback font when the math font lacks it (an n-ary
+    /// operator, delimiter or accent the font doesn't cover would otherwise draw as a missing
+    /// glyph box, #1273).
+    fn char_glyphs(&self, c: char, size: f32, level: u8) -> Bx {
+        let face = if self.face.covers(c) {
+            self.face
+        } else {
+            FontDb::global().fallback_for(c, self.face.id()).map(|f| FaceRef::of(&f)).unwrap_or(self.face)
+        };
+        self.glyphs(face, &c.to_string(), size, level, self.color, (false, false))
+    }
+
     /// A single glyph by id (size variants, assembly parts).
     fn glyph_id(&self, gid: u32, size: f32, color: Rgb) -> Bx {
         let face = self.face;
@@ -804,7 +816,11 @@ impl Ctx {
                 if *grow {
                     target = target.max(e.a + e.d);
                 }
-                let op = if *grow && target > 0.0 && self.t.is_some() {
+                let op = if base_gid == 0 {
+                    // The math font lacks the operator: a fallback font's glyph, display-sized.
+                    let s = if st.display { size * 1.4 } else { size };
+                    self.char_glyphs(*chr, s, 0)
+                } else if *grow && target > 0.0 && self.t.is_some() {
                     self.stretch_v(base_gid, target, size).unwrap_or_else(|| self.glyph_id(base_gid, size, self.color))
                 } else if target > 0.0 && self.t.is_some() {
                     // Word sets display operators about 1.2 em tall: the size variant nearest that.
@@ -820,11 +836,8 @@ impl Ctx {
                     let f = if adv > 0.0 { (want / adv).clamp(0.6, 1.5) } else { 1.0 };
                     let f = if (0.9..=1.1).contains(&f) { 1.0 } else { f };
                     self.glyph_id(g, size * f, self.color)
-                } else if base_gid != 0 {
-                    self.glyph_id(base_gid, size, self.color)
                 } else {
-                    let s = if st.display { size * 1.4 } else { size };
-                    self.glyphs(self.face, &chr.to_string(), s, 0, self.color, (false, false))
+                    self.glyph_id(base_gid, size, self.color)
                 };
                 // Centre the operator on the math axis.
                 let dy = self.axis(st) - (op.a - op.d) / 2.0;
@@ -1037,7 +1050,7 @@ impl Ctx {
     fn delimiter(&self, c: char, a: f32, d: f32, st: St, grow: bool, exact: bool) -> Bx {
         let size = self.size(st);
         let axis = self.axis(st);
-        let mut glyph = self.glyphs(self.face, &c.to_string(), size, 0, self.color, (false, false));
+        let mut glyph = self.char_glyphs(c, size, 0);
         glyph.glyph = None;
         if !grow {
             return glyph;
@@ -1210,8 +1223,7 @@ impl Ctx {
                 let b = self.sub(0, e, st, d);
                 let size = self.size(st);
                 let gid = self.face.glyph_for(*chr);
-                let g =
-                    self.stretch_h(gid, b.w, size).unwrap_or_else(|| self.glyphs(self.face, &chr.to_string(), size, 0, self.color, (false, false)));
+                let g = self.stretch_h(gid, b.w, size).unwrap_or_else(|| self.char_glyphs(*chr, size, 0));
                 let w = b.w.max(g.w);
                 let (ba, bd, bw) = (b.a, b.d, b.w);
                 let (ga, gd, gw) = (g.a, g.d, g.w);
@@ -1396,7 +1408,7 @@ impl Ctx {
         } else if gid != 0 {
             self.glyph_id(gid, size, color)
         } else {
-            self.glyphs(self.face, &chr.to_string(), size, 0, color, (false, false))
+            self.char_glyphs(chr, size, 0)
         };
         acc.glyph = None;
         // Horizontal: the base's attachment point under the accent's.
@@ -1497,38 +1509,37 @@ impl Ctx {
             segs_rows.push(segs.into_iter().map(hcat).collect());
         }
         let ncols = segs_rows.iter().map(|r| r.len()).max().unwrap_or(1);
+        // Rows without `&` are centred below, so they don't widen the aligned columns.
         let mut col_w = vec![0.0f32; ncols];
+        let mut lone_w = 0.0f32;
         for r in &segs_rows {
+            if let [b] = r.as_slice() {
+                lone_w = lone_w.max(b.w);
+                continue;
+            }
             for (i, b) in r.iter().enumerate() {
                 if let Some(c) = col_w.get_mut(i) {
                     *c = c.max(b.w);
                 }
             }
         }
-        let total: f32 = col_w.iter().sum();
+        let cols: f32 = col_w.iter().sum();
+        let total = cols.max(lone_w);
         let mut placed = Vec::new();
         for (r, path) in segs_rows.into_iter().zip(row_paths) {
             let mut row = Bx::default();
             let mut x = 0.0f32;
-            let single = r.len() == 1 && ncols > 1;
+            // A row without `&` is centred in the array, as Word does (#2617).
+            let single = r.len() == 1;
             for (i, b) in r.into_iter().enumerate() {
                 let cw = col_w.get(i).copied().unwrap_or(0.0);
                 let bw = b.w;
-                let dx = if ncols == 1 {
-                    0.0
-                } else if single {
-                    // A row without `&` aligns with the first column's right edge.
-                    cw - bw
-                } else if i % 2 == 0 {
-                    cw - bw
-                } else {
-                    0.0
-                };
+                let dx = if single || i % 2 == 1 { 0.0 } else { cw - bw };
                 row.put(b, x + dx, 0.0);
-                x += cw;
+                x += if single { bw } else { cw };
                 row.w = row.w.max(x);
             }
-            let rx = if ncols == 1 { (total - row.w) / 2.0 } else { 0.0 };
+            let rx = (total - if single { row.w } else { cols }) / 2.0;
             finalize(&mut row, &path, em);
             placed.push((row, rx.max(0.0)));
         }
@@ -1995,6 +2006,36 @@ mod tests {
     }
 
     #[test]
+    fn eq_array_rows_without_ampersand_are_centred() {
+        // Word centres a row with no `&` in the array (#2617: a case row "a, n odd" above
+        // "|a|, &n even"), whether or not the other rows have one.
+        use wordcraft_doc::math::*;
+        let run = |s: &str| vec![MNode::Run(MRun::new(s))];
+        let w_a = lay("a", true).width;
+        for other in ["bbbbbb&c", "bbbbbbc"] {
+            let math = Math { nodes: vec![MNode::EqArr { rows: vec![run("a"), run(other)] }], ..Default::default() };
+            let m = lay_in(&math, "", true, 400.0, &MathProps::default());
+            let ls = lines(&m);
+            let xa = ls.first().and_then(|l| l.1.first()).map(|g| g.0).unwrap_or(f32::NAN);
+            let x0 = ls.get(1).and_then(|l| l.1.first()).map(|g| g.0).unwrap_or(f32::NAN);
+            let want = x0 + (m.width - x0 - w_a) / 2.0;
+            assert!((xa - want).abs() < 1.0, "{other}: a at {xa}, want {want} ({ls:?}, width {})", m.width);
+            // The lone row doesn't widen the aligned columns.
+            assert!(x0.abs() < 0.5 && m.width < lay("bbbbbbc", true).width + 1.0, "{other}: {ls:?}, width {}", m.width);
+        }
+        // A lone row wider than the aligned columns sets the array's width; the aligned
+        // rows are centred under it as one block.
+        let math = Math { nodes: vec![MNode::EqArr { rows: vec![run("bbbbbbbbbb"), run("a&c")] }], ..Default::default() };
+        let m = lay_in(&math, "", true, 400.0, &MathProps::default());
+        let ls = lines(&m);
+        let xw = ls.first().and_then(|l| l.1.first()).map(|g| g.0).unwrap_or(f32::NAN);
+        let x0 = ls.get(1).and_then(|l| l.1.first()).map(|g| g.0).unwrap_or(f32::NAN);
+        assert!(xw.abs() < 0.5 && (m.width - lay("bbbbbbbbbb", true).width).abs() < 1.0, "wide lone row: {ls:?}, width {}", m.width);
+        let want = (m.width - w_a - lay("c", true).width) / 2.0;
+        assert!(want > 1.0 && (x0 - want).abs() < 1.0, "aligned row at {x0}, want {want} ({ls:?})");
+    }
+
+    #[test]
     fn long_display_equations_wrap_before_operators_and_indent() {
         let sum = "y=a+b+c+d+e+f+g+h+i+j+k+l+m+n+o+p+q+r+s+t+u+v+w";
         let mp = MathProps::default();
@@ -2139,6 +2180,36 @@ mod tests {
             for it in &m.items {
                 if let MItem::Glyphs { glyphs, .. } = it {
                     assert!(glyphs.iter().all(|g| g.1.is_finite() && g.2.is_finite()));
+                }
+            }
+        }
+    }
+
+    /// #1273: an n-ary operator, delimiter, accent or group character the math font lacks is
+    /// drawn from a fallback font, not as a missing-glyph box.
+    #[test]
+    fn characters_the_math_font_lacks_fall_back() {
+        let (face, _) = wordcraft_fonts::math::resolve_math("Cambria Math");
+        let Some(c) =
+            ['⨌', '⫿', '⟅', 'ア', '中', '가'].into_iter().find(|c| !face.covers(*c) && FontDb::global().fallback_for(*c, face.id()).is_some())
+        else {
+            return; // Every candidate is in the math font, or no fallback font is installed.
+        };
+        let x = || vec![MNode::Run(MRun::new("x"))];
+        let nodes = [
+            MNode::Nary { chr: c, lim_loc: None, grow: false, sub_hide: true, sup_hide: true, sub: vec![], sup: vec![], e: x() },
+            MNode::Delim { beg: Some(c), end: Some(c), sep: None, grow: true, shp_match: false, elems: vec![x()] },
+            MNode::Acc { chr: c, e: x() },
+            MNode::GroupChr { chr: c, top: true, e: x() },
+        ];
+        for display in [false, true] {
+            for n in &nodes {
+                let m =
+                    layout_equation(&Math { nodes: vec![n.clone()], ..Default::default() }, "", &rc(), display, 400.0, &MathProps::default(), &mut 0);
+                for it in &m.items {
+                    if let MItem::Glyphs { glyphs, .. } = it {
+                        assert!(glyphs.iter().all(|g| g.0 != 0), "{c:?} drew a missing glyph in {n:?}");
+                    }
                 }
             }
         }

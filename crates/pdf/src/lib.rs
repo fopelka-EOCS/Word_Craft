@@ -47,8 +47,9 @@ use wordcraft_doc::para::{InlineObject, ShapeKind};
 use wordcraft_doc::{Document, Path as DocPath, Rgb, StoryRef};
 use wordcraft_fonts::FaceRef;
 use wordcraft_geom::Rect;
+use wordcraft_layout::display::Paint;
 use wordcraft_layout::display::{DisplayOptions, Draw, Stroke as LineStyle, page_display};
-use wordcraft_layout::wordart::ArtPaint;
+use wordcraft_layout::para::{ClKind, LineEnd};
 use wordcraft_layout::{DocLayout, LayoutCache, LayoutOptions, Page, Placed, layout};
 use wordcraft_metafile::{Picture, PlacedItem};
 
@@ -90,11 +91,15 @@ pub struct PdfOptions {
     pub comments: bool,
     /// Compress content streams.
     pub compress: bool,
+    /// Print on this paper (width, height in points) instead of each page's own size: the page
+    /// is scaled to fit and centred, the paper turned to the page's orientation (Scale to paper
+    /// size, #2108). `None` keeps the document's page sizes.
+    pub paper: Option<(f32, f32)>,
 }
 
 impl Default for PdfOptions {
     fn default() -> Self {
-        PdfOptions { pages: None, title: None, author: None, tagged: true, include_markup: false, comments: false, compress: true }
+        PdfOptions { pages: None, title: None, author: None, tagged: true, include_markup: false, comments: false, compress: true, paper: None }
     }
 }
 
@@ -178,19 +183,19 @@ fn write_attempt(doc: &Document, lay: &DocLayout, opts: &PdfOptions, pages: &[us
     }
     for &pi in pages {
         let Some(page) = lay.pages.get(pi) else { return Err(PdfError::BadPage(pi.saturating_add(1))) };
-        let fit = Fit::of(page);
-        let (w, h) = (clamp_side(fit.paper_w), clamp_side(page.h));
-        let size = Size::from_wh(w, h).ok_or(PdfError::NoPages)?;
+        let fit = Fit::of(page, opts.paper);
+        let size = Size::from_wh(clamp_side(fit.paper_w), clamp_side(fit.paper_h)).ok_or(PdfError::NoPages)?;
         let mut kp = pdf.start_page_with(PageSettings::new(size));
         let mut s = kp.surface();
         ex.links.clear();
-        // A page with a markup area is scaled down to fit its paper with the area beside it.
-        let scaled = fit.k < 1.0;
+        // A page with a markup area is scaled down to fit its paper with the area beside it; a
+        // print on other paper is scaled to it and centred.
+        let scaled = fit.k != 1.0 || fit.dx != 0.0 || fit.dy != 0.0;
         if scaled {
-            s.push_transform(&Transform::from_row(fit.k, 0.0, 0.0, fit.k, 0.0, fit.dy));
+            s.push_transform(&Transform::from_row(fit.k, 0.0, 0.0, fit.k, fit.dx, fit.dy));
         }
-        // `w` is the document page's width: the page colour and watermark stay off the markup area.
-        ex.page(&mut s, page, w, h);
+        // `page_w` is the document page's width: the page colour and watermark stay off the markup area.
+        ex.page(&mut s, page, clamp_side(fit.page_w), clamp_side(page.h));
         if scaled {
             s.pop();
         }
@@ -223,28 +228,38 @@ fn write_attempt(doc: &Document, lay: &DocLayout, opts: &PdfOptions, pages: &[us
 }
 
 /// How a layout page maps onto its PDF page: a page with a markup area (Print Markup) is scaled
-/// by `k` to its paper width and centred vertically (`dy`); any other page is drawn as it is.
+/// by `k` to its paper width and centred vertically (`dy`). With [`PdfOptions::paper`] that
+/// sheet is then scaled to the chosen paper and centred on it (`dx`, `dy`). Any other page is
+/// drawn as it is.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Fit {
+    /// The PDF page.
     paper_w: f32,
+    paper_h: f32,
+    /// The document page's width in layout points (without the markup area).
+    page_w: f32,
     k: f32,
+    dx: f32,
     dy: f32,
 }
 
 impl Fit {
-    fn of(page: &Page) -> Fit {
+    fn of(page: &Page, paper: Option<(f32, f32)>) -> Fit {
         let paper_w = page.w - page.markup;
-        if page.markup > 0.0 && ok(page.markup) && ok(page.w) && paper_w > 1.0 {
+        let own = if page.markup > 0.0 && ok(page.markup) && ok(page.w) && paper_w > 1.0 {
             let k = paper_w / page.w;
-            Fit { paper_w, k, dy: page.h * (1.0 - k) / 2.0 }
+            Fit { paper_w, paper_h: page.h, page_w: paper_w, k, dx: 0.0, dy: page.h * (1.0 - k) / 2.0 }
         } else {
-            Fit { paper_w: page.w, k: 1.0, dy: 0.0 }
-        }
+            Fit { paper_w: page.w, paper_h: page.h, page_w: page.w, k: 1.0, dx: 0.0, dy: 0.0 }
+        };
+        let Some((w, h)) = paper else { return own };
+        let f = wordcraft_geom::fit_to_paper(own.paper_w, own.paper_h, w, h);
+        Fit { paper_w: f.paper_w, paper_h: f.paper_h, page_w: own.page_w, k: own.k * f.k, dx: f.dx, dy: own.dy * f.k + f.dy }
     }
 
     /// A layout point on the PDF page.
     fn point(self, x: f32, y: f32) -> (f32, f32) {
-        (x * self.k, y * self.k + self.dy)
+        (x * self.k + self.dx, y * self.k + self.dy)
     }
 }
 
@@ -414,6 +429,7 @@ type Civil = (i64, u8, u8, u8, u8, u8);
 
 /// `YYYY-MM-DD[THH:MM[:SS]]…` → civil time.
 fn parse_iso(s: &str) -> Option<Civil> {
+    let s = s.trim();
     let n = |a: usize, b: usize| s.get(a..b).and_then(|x| x.parse::<i64>().ok());
     let (y, mo, d) = (n(0, 4)?, n(5, 7)?, n(8, 10)?);
     if !(1..=12).contains(&mo) || !(1..=31).contains(&d) {
@@ -442,19 +458,26 @@ fn now_unix() -> Option<i64> {
 }
 
 /// Unix seconds (UTC) → civil time (proleptic Gregorian).
+///
+/// The year is returned unclamped (the caller clamps it to the PDF `DateTime` range 0..=9999);
+/// month, day and time of day always come through correctly. Past chrono's ±262143-year range the
+/// Gregorian 400-year cycle (146_097 days) keeps the result exact — chrono converts the day within
+/// one cycle and whole cycles go back into the year (an `i128` so the extremes can't overflow) —
+/// rather than falling back to the epoch, so the date never changes for a value the old
+/// hand-rolled converter accepted. 1970-01-01 is `num_days_from_ce` 719_163.
 fn civil(t: i64) -> Civil {
-    let days = t.div_euclid(86_400);
-    let secs = t.rem_euclid(86_400);
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    (year, month as u8, day as u8, (secs / 3600) as u8, (secs / 60 % 60) as u8, (secs % 60) as u8)
+    use chrono::Datelike;
+    let (days, secs) = (t.div_euclid(86_400), t.rem_euclid(86_400));
+    let (cycles, rest) = (days.div_euclid(146_097), days.rem_euclid(146_097));
+    // `rest + 719_163` is 719_163..865_259, always a valid CE day.
+    let (y, m, d) = match i32::try_from(rest + 719_163).ok().and_then(chrono::NaiveDate::from_num_days_from_ce_opt) {
+        Some(date) => {
+            let y = i128::from(date.year()) + i128::from(cycles) * 400;
+            (i64::try_from(y).unwrap_or(if y < 0 { i64::MIN } else { i64::MAX }), date.month() as u8, date.day() as u8)
+        }
+        None => (1970, 1, 1), // unreachable
+    };
+    (y, m, d, (secs / 3600) as u8, (secs / 60 % 60) as u8, (secs % 60) as u8)
 }
 
 fn norm(v: f32) -> NormalizedF32 {
@@ -463,6 +486,44 @@ fn norm(v: f32) -> NormalizedF32 {
 
 fn fill(c: Rgb, alpha: f32) -> Fill {
     Fill { paint: rgb::Color::new(c.0, c.1, c.2).into(), opacity: norm(alpha), rule: FillRule::NonZero }
+}
+
+/// A fill in paint `p`: a colour with its opacity, or a gradient whose stops carry theirs.
+fn paint_fill(p: &Paint) -> Fill {
+    let stops = |stops: &[(f32, Rgb, f32)]| -> Vec<krilla::paint::Stop> {
+        stops
+            .iter()
+            .map(|(o, c, a)| krilla::paint::Stop { offset: norm(*o), color: rgb::Color::new(c.0, c.1, c.2).into(), opacity: norm(*a) })
+            .collect()
+    };
+    let paint: krilla::paint::Paint = match p {
+        Paint::Solid(c, a) => return fill(*c, *a),
+        Paint::Linear { p0, p1, stops: st } => krilla::paint::LinearGradient {
+            x1: p0.0,
+            y1: p0.1,
+            x2: p1.0,
+            y2: p1.1,
+            transform: Transform::default(),
+            spread_method: krilla::paint::SpreadMethod::Pad,
+            stops: stops(st),
+            anti_alias: true,
+        }
+        .into(),
+        Paint::Radial { c, r, stops: st } => krilla::paint::RadialGradient {
+            fx: c.0,
+            fy: c.1,
+            fr: 0.0,
+            cx: c.0,
+            cy: c.1,
+            cr: *r,
+            transform: Transform::default(),
+            spread_method: krilla::paint::SpreadMethod::Pad,
+            stops: stops(st),
+            anti_alias: true,
+        }
+        .into(),
+    };
+    Fill { paint, opacity: NormalizedF32::ONE, rule: FillRule::NonZero }
 }
 
 fn ok(v: f32) -> bool {
@@ -942,15 +1003,16 @@ impl Exporter<'_> {
             }
             Draw::Line { x0, y0, x1, y1, width, color, stroke, alpha, .. } => self.line(s, (*x0, *y0, *x1, *y1), *width, *color, *stroke, *alpha),
             Draw::Image { rect, media, crop, alpha, .. } => self.picture(s, rect, media, crop, *alpha),
-            Draw::Path { segs, fill: f, stroke, stroke_width } => {
+            Draw::Path { segs, fill: f, stroke, stroke_width, dash } => {
                 let mut pb = PathBuilder::new();
                 append_path(&mut pb, &wordcraft_layout::display::seg_path(segs));
                 let Some(p) = pb.finish() else { return };
-                s.set_fill(f.map(|c| fill(c, 1.0)));
+                s.set_fill(f.as_ref().map(paint_fill));
                 s.set_stroke(stroke.map(|c| Stroke {
                     paint: rgb::Color::new(c.0, c.1, c.2).into(),
                     // Width 0 (or none) is a hairline.
                     width: if stroke_width.is_finite() && *stroke_width > 0.0 { stroke_width.clamp(0.25, 200.0) } else { 0.75 },
+                    dash: (!dash.is_empty()).then(|| StrokeDash { array: dash.clone(), offset: 0.0 }),
                     ..Default::default()
                 }));
                 if f.is_some() || stroke.is_some() {
@@ -989,7 +1051,7 @@ impl Exporter<'_> {
                 s.draw_path(&p);
                 s.set_stroke(None);
             }
-            Draw::Shape { rect, kind, fill: f, stroke, stroke_width, effects, corner } => {
+            Draw::Shape { rect, kind, fill: f, stroke, stroke_width, effects, corner, dash } => {
                 let Some(p) = shape_path(*kind, rect, *corner) else { return };
                 let can_fill = *kind != ShapeKind::Line;
                 let fx = effects.sanitized();
@@ -997,22 +1059,23 @@ impl Exporter<'_> {
                     shape_effects(s, *kind, *corner, rect, &fx, f.is_some() && can_fill, stroke.is_some(), *stroke_width);
                 }
                 // Soft edges: the fill fades out toward the outline (which fades with it).
-                if let (Some(rad), Some(c), true) = (fx.soft_edge, f, can_fill) {
+                if let (Some(rad), Some(c), true) = (fx.soft_edge, f.as_ref(), can_fill) {
                     let rad = rad.min(rect.w.min(rect.h) / 2.0).max(0.0);
                     s.set_stroke(None);
                     for (g, a) in wordcraft_doc::effects::bands(-rad, 0.0, 1.0) {
                         if let Some(p) = shape_path(*kind, &grown(rect, g, 0.0, 0.0), *corner) {
-                            s.set_fill(Some(fill(*c, a)));
+                            s.set_fill(Some(paint_fill(&c.faded(a))));
                             s.draw_path(&p);
                         }
                     }
                     s.set_fill(None);
                     return;
                 }
-                s.set_fill(f.filter(|_| can_fill).map(|c| fill(c, 1.0)));
+                s.set_fill(f.as_ref().filter(|_| can_fill).map(paint_fill));
                 s.set_stroke(stroke.map(|c| Stroke {
                     paint: rgb::Color::new(c.0, c.1, c.2).into(),
                     width: if stroke_width.is_finite() { stroke_width.clamp(0.25, 200.0) } else { 0.75 },
+                    dash: (!dash.is_empty()).then(|| StrokeDash { array: dash.clone(), offset: 0.0 }),
                     ..Default::default()
                 }));
                 if f.is_some() && can_fill || stroke.is_some() {
@@ -1021,49 +1084,26 @@ impl Exporter<'_> {
                 s.set_fill(None);
                 s.set_stroke(None);
             }
-            Draw::Art { path, fx, color, alpha } => {
+            Draw::Art { path, fx, color, alpha, .. } => {
                 for l in wordcraft_layout::wordart::art_layers(path, fx, *color, *alpha) {
                     let mut pb = PathBuilder::new();
                     append_path(&mut pb, &l.path);
                     let Some(p) = pb.finish() else { continue };
-                    let (paint, opacity): (krilla::paint::Paint, f32) = match &l.paint {
-                        ArtPaint::Solid(c, a) => (rgb::Color::new(c.0, c.1, c.2).into(), *a),
-                        ArtPaint::Linear { p0, p1, stops } => {
-                            let stops = stops
-                                .iter()
-                                .map(|(o, c, a)| krilla::paint::Stop {
-                                    offset: norm(*o),
-                                    color: rgb::Color::new(c.0, c.1, c.2).into(),
-                                    opacity: norm(*a),
-                                })
-                                .collect();
-                            let g = krilla::paint::LinearGradient {
-                                x1: p0.0,
-                                y1: p0.1,
-                                x2: p1.0,
-                                y2: p1.1,
-                                transform: Transform::default(),
-                                spread_method: krilla::paint::SpreadMethod::Pad,
-                                stops,
-                                anti_alias: true,
-                            };
-                            (g.into(), 1.0)
-                        }
-                    };
+                    let Fill { paint, opacity, .. } = paint_fill(&l.paint);
                     match l.stroke {
                         Some(w) => {
                             s.set_fill(None);
                             s.set_stroke(Some(Stroke {
                                 paint,
                                 width: w.clamp(0.1, 400.0),
-                                opacity: norm(opacity),
+                                opacity,
                                 line_join: LineJoin::Round,
                                 ..Default::default()
                             }));
                         }
                         None => {
                             s.set_stroke(None);
-                            s.set_fill(Some(Fill { paint, opacity: norm(opacity), rule: FillRule::NonZero }));
+                            s.set_fill(Some(Fill { paint, opacity, rule: FillRule::NonZero }));
                         }
                     }
                     s.draw_path(&p);
@@ -1150,23 +1190,44 @@ impl Exporter<'_> {
                 seg(s, nx, ny);
                 seg(s, -nx, -ny);
             }
+            LineStyle::Triple => {
+                // Three thin lines, spaced as a double's, across the line's direction.
+                let (dx, dy) = (x1 - x0, y1 - y0);
+                let len = (dx * dx + dy * dy).sqrt().max(1e-3);
+                let (nx, ny) = (-dy / len * w * 1.8, dx / len * w * 1.8);
+                s.set_stroke(Some(stroke(w * 0.6, None, LineCap::Butt)));
+                seg(s, nx, ny);
+                seg(s, 0.0, 0.0);
+                seg(s, -nx, -ny);
+            }
             LineStyle::Wave => {
-                let (a, b) = (x0.min(x1), x0.max(x1));
                 let amp = (w * 1.2).max(0.8);
                 let step = amp * 2.0;
-                let mut pb = PathBuilder::new();
-                pb.move_to(a, y0);
-                let mut x = a;
-                let mut up = true;
-                while x < b && x - a < 20_000.0 {
-                    let nx = (x + step).min(b);
-                    pb.quad_to((x + nx) / 2.0, if up { y0 - amp } else { y0 + amp }, nx, y0);
-                    x = nx;
-                    up = !up;
-                }
-                s.set_stroke(Some(stroke(w * 0.8, None, LineCap::Round)));
-                if let Some(p) = pb.finish() {
-                    s.draw_path(&p);
+                let (dx, dy) = (x1 - x0, y1 - y0);
+                let len = (dx * dx + dy * dy).sqrt();
+                if len >= 1e-3 {
+                    let (ux, uy) = (dx / len, dy / len);
+                    let (nx, ny) = (-uy, ux);
+                    let mut pb = PathBuilder::new();
+                    pb.move_to(x0, y0);
+                    let mut t = 0.0;
+                    let mut up = true;
+                    while t < len && t < 20_000.0 {
+                        let nt = (t + step).min(len);
+                        let mid_t = (t + nt) / 2.0;
+                        let sign = if up { -1.0 } else { 1.0 };
+                        let cx = x0 + ux * mid_t + nx * amp * sign;
+                        let cy = y0 + uy * mid_t + ny * amp * sign;
+                        let ex = x0 + ux * nt;
+                        let ey = y0 + uy * nt;
+                        pb.quad_to(cx, cy, ex, ey);
+                        t = nt;
+                        up = !up;
+                    }
+                    s.set_stroke(Some(stroke(w * 0.8, None, LineCap::Round)));
+                    if let Some(p) = pb.finish() {
+                        s.draw_path(&p);
+                    }
                 }
             }
         }
@@ -1416,7 +1477,7 @@ impl Exporter<'_> {
             }
             m
         });
-        let pos = marks.get(name)?.clone();
+        let pos = marks.get(name).or_else(|| marks.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v))?.clone();
         if let Some(c) = self.lay.caret(&pos)
             && let Some(out) = self.out_index.get(&c.page)
         {
@@ -1433,7 +1494,8 @@ impl Exporter<'_> {
                     _ => None,
                 })
                 .unwrap_or(c.x);
-            return Some((*out, x, c.top));
+            let (x, y) = self.lay.pages.get(c.page).map(|p| Fit::of(p, self.opts.paper).point(x, c.top)).unwrap_or((x, c.top));
+            return Some((*out, x, y));
         }
         self.locate(pos.story, &pos.path)
     }
@@ -1445,7 +1507,7 @@ impl Exporter<'_> {
             let Some(out) = self.out_index.get(pi) else { continue };
             let Some(page) = self.lay.pages.get(*pi) else { continue };
             let (x, y) = match page.items.get(*ii) {
-                Some(Placed::Lines { x, y, .. }) => Fit::of(page).point(*x, *y),
+                Some(Placed::Lines { x, y, .. }) => Fit::of(page, self.opts.paper).point(*x, *y),
                 _ => (0.0, 0.0),
             };
             return Some((*out, x, y));
@@ -1481,14 +1543,31 @@ impl Exporter<'_> {
         for (out, pi) in pages.iter().enumerate() {
             let Some(page) = self.lay.pages.get(*pi) else { continue };
             for it in &page.items {
-                let Placed::Lines { story: StoryRef::Body, path, para, l0: 0, x, y, .. } = it else { continue };
+                let Placed::Lines { story: StoryRef::Body, path, para, l0, l1, x, y, .. } = it else { continue };
                 let Some(p) = self.doc.para(StoryRef::Body, path) else { continue };
                 let Some(level) = self.doc.styles.resolve_para(&p.props).outline_level else { continue };
+                // A leading page break can be placed on the previous page without the heading.
+                let first = para
+                    .lines
+                    .iter()
+                    .take_while(|line| {
+                        line.end == LineEnd::PageBreak
+                            && para
+                                .clusters
+                                .get(line.c0..line.c1)
+                                .is_some_and(|cs| cs.iter().all(|c| matches!(c.kind, ClKind::PageBreak | ClKind::Marker)))
+                    })
+                    .count();
+                if !(*l0..*l1).contains(&first) {
+                    continue;
+                }
+                let Some(line) = para.lines.get(first) else { continue };
+                let Some(piece) = para.lines.get(*l0) else { continue };
                 let title: String = self.title_text(p, para).split_whitespace().collect::<Vec<_>>().join(" ").chars().take(200).collect();
                 if title.is_empty() {
                     continue;
                 }
-                let (x, y) = Fit::of(page).point(*x, *y);
+                let (x, y) = Fit::of(page, self.opts.paper).point(*x, *y + line.top - piece.top);
                 flat.push((level.min(8), title, out, x, y));
             }
         }
@@ -1678,10 +1757,18 @@ fn path_from(b: &kurbo::BezPath) -> Option<Path> {
 /// Decode a picture for embedding (validated with the `image` crate first, so a broken file
 /// can't fail the whole export).
 fn load_image(data: &Arc<Vec<u8>>) -> Option<Image> {
+    load_image_within(data, wordcraft_geom::MAX_DECODED_BYTES)
+}
+
+/// [`load_image`] with an explicit RGBA byte budget (a small one in tests).
+fn load_image_within(data: &Arc<Vec<u8>>, budget: u64) -> Option<Image> {
     let fmt = image::guess_format(data).ok()?;
-    // The side check below used to run only after a full decode; applying it as a decode limit
-    // rejects a small file that declares a huge image at header time instead. The default
-    // allocation cap (512 MB, what `load_from_memory_with_format` applied) stays in force.
+    // Header-only size check before anything is allocated (decode buffer + RGBA conversion are
+    // charged); the side limits and the default 512 MB allocation cap stay as a second guard.
+    let (hw, hh) = image::ImageReader::new(std::io::Cursor::new(data.as_slice())).with_guessed_format().ok()?.into_dimensions().ok()?;
+    if !wordcraft_geom::decode_fits(hw, hh, budget) {
+        return None;
+    }
     let mut reader = image::ImageReader::new(std::io::Cursor::new(data.as_slice())).with_guessed_format().ok()?;
     let mut limits = image::Limits::default();
     limits.max_image_width = Some(MAX_IMAGE_SIDE);
@@ -1695,7 +1782,7 @@ fn load_image(data: &Arc<Vec<u8>>) -> Option<Image> {
     if fmt == image::ImageFormat::Jpeg && matches!(dec.color(), image::ColorType::L8 | image::ColorType::Rgb8) {
         return Image::from_jpeg(data.clone().into(), true).ok();
     }
-    Some(Image::from_rgba8(dec.to_rgba8().into_raw(), w, h))
+    Some(Image::from_rgba8(dec.into_rgba8().into_raw(), w, h))
 }
 
 #[cfg(test)]

@@ -172,7 +172,10 @@ pub fn open_bytes_in(name: &str, bytes: &[u8], password: Option<&str>, region: &
 /// installed then lays out and exports with it instead of a fallback. Faces already available
 /// stay as they are.
 fn load_embedded_fonts(doc: &Document) {
-    let files: Vec<Vec<u8>> = wordcraft_docx::embedded_fonts(doc).iter().filter_map(|f| wordcraft_fonts::decode_font_file(f).ok()).collect();
+    let files: Vec<(Vec<u8>, String)> = wordcraft_docx::embedded_fonts(doc)
+        .into_iter()
+        .filter_map(|f| wordcraft_fonts::decode_font_file(&f.data).ok().map(|data| (data, f.name)))
+        .collect();
     if !files.is_empty() {
         wordcraft_fonts::FontDb::global().add_document_fonts(files);
     }
@@ -191,7 +194,7 @@ fn read_bytes(name: &str, bytes: &[u8], password: Option<&str>, page: &wordcraft
     let mut doc = match ext.as_str() {
         "doc" | "dot" => {
             let (mut doc, encrypted) = open_binary_doc(bytes, password)?;
-            doc.ensure_nonempty();
+            opened(&mut doc);
             return Ok((doc, encrypted));
         }
         // Plain text goes through the formats importer: BOMs, unmarked UTF-16, Windows-1252.
@@ -249,31 +252,75 @@ pub(crate) fn fit_pictures(doc: &mut Document) {
 
 /// Does the file hold a different document format than its Word or RTF extension says? An RTF
 /// file saved as `.doc` (as accounting systems and report generators often save their
-/// documents), a `.docx` package renamed `.doc` or a Word 97-2003 file renamed `.docx`: Word opens
+/// documents), a `.docx` package renamed `.doc`, a Word 97-2003 file renamed `.docx`, a Word XML
+/// Document (2003 or Flat OPC) or a web page saved as `.doc` (#2853): Word opens
 /// each by what it holds, so they go through [`open_by_content`] instead of failing.
 fn signature_contradicts(ext: &str, bytes: &[u8]) -> bool {
-    let held = if bytes.starts_with(ZIP_SIG) {
-        "zip"
-    } else if bytes.starts_with(OLE_SIG) {
-        "ole"
-    } else if bytes.starts_with(b"{\\rtf") {
-        "rtf"
-    } else {
-        return false;
-    };
     let expected = match ext {
         "docx" | "docm" | "dotx" | "dotm" => "zip",
         "doc" | "dot" => "ole",
         "rtf" => "rtf",
         _ => return false,
     };
+    let held = if bytes.starts_with(ZIP_SIG) {
+        "zip"
+    } else if bytes.starts_with(OLE_SIG) {
+        "ole"
+    } else if bytes.starts_with(b"{\\rtf") {
+        "rtf"
+    } else if is_word_xml(bytes) {
+        "xml"
+    } else if looks_like_web_page(bytes) {
+        "html"
+    } else {
+        return false;
+    };
     held != expected
 }
 
+/// The bytes after a UTF-8 byte-order mark and leading white space.
+fn after_bom(bytes: &[u8]) -> &[u8] {
+    let b = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF][..]).unwrap_or(bytes);
+    let start = b.iter().position(|c| !c.is_ascii_whitespace()).unwrap_or(b.len());
+    b.get(start..).unwrap_or_default()
+}
+
+/// Is this a Word XML Document: Word 2003 XML (`w:wordDocument`) or Flat OPC (`pkg:package`)?
+/// Only text that starts with markup is parsed (UTF-16 has its byte-order mark).
+fn is_word_xml(bytes: &[u8]) -> bool {
+    let utf16 = bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]);
+    (utf16 || after_bom(bytes).starts_with(b"<")) && !matches!(wordcraft_docx::sniff_xml(bytes), wordcraft_docx::XmlKind::Other)
+}
+
+/// Does the file start like a web page (`<!DOCTYPE html …>` or `<html …>`, after an XML
+/// declaration and comments)? Word's Save as Web Page and many report generators write HTML
+/// under a `.doc` name, and Word opens it as a web page.
+fn looks_like_web_page(bytes: &[u8]) -> bool {
+    let head = wordcraft_formats::txt::decode(bytes.get(..bytes.len().min(4096)).unwrap_or(bytes)).to_ascii_lowercase();
+    let mut t = head.trim_start_matches(['\u{FEFF}', ' ', '\t', '\r', '\n']);
+    for _ in 0..64 {
+        let skip = if t.starts_with("<!--") {
+            t.find("-->").map(|i| i + 3)
+        } else if t.starts_with("<?") {
+            t.find("?>").map(|i| i + 2)
+        } else {
+            break;
+        };
+        let Some(rest) = skip.and_then(|i| t.get(i..)) else { return false };
+        t = rest.trim_start();
+    }
+    // The tag name ends there: `<htmlish>` is some other XML, not a web page.
+    let tag = |name: &str| {
+        t.strip_prefix(name).is_some_and(|rest| rest.is_empty() || rest.starts_with(|c: char| c.is_ascii_whitespace() || c == '>' || c == '/'))
+    };
+    tag("<!doctype html") || tag("<html")
+}
+
 /// A file whose extension names no format WordCraft knows (`.m3u`, `.log`, `.ini`, none…),
-/// opened by what it holds, as Word does: a Word document or RTF file by its signature, any
-/// other text through the plain-text import with encoding detection (#569). Anything else is
-/// refused with a clear error rather than shown as garbage.
+/// opened by what it holds, as Word does: a Word document or RTF file by its signature, a Word
+/// XML Document by its root element, a web page under a Word or RTF name as one
+/// (#2853), any other text through the plain-text import with encoding detection (#569).
+/// Anything else is refused with a clear error rather than shown as garbage.
 fn open_by_content(
     name: &str,
     ext: &str,
@@ -290,6 +337,11 @@ fn open_by_content(
             .map_err(|e| if needs_password(&e) || wrong_password(&e) { e } else { format!("{name}: not a document WordCraft can open ({e})") })?
     } else if bytes.starts_with(b"{\\rtf") {
         (wordcraft_formats::rtf::import(bytes)?, false)
+    } else if is_word_xml(bytes) {
+        (wordcraft_docx::read_xml(bytes).map_err(|e| format!("{name}: {e}"))?, false)
+    } else if matches!(ext, "doc" | "dot" | "docx" | "docm" | "dotx" | "dotm" | "rtf") && looks_like_web_page(bytes) {
+        let opened = crate::io_ext::open("html", bytes, page).unwrap_or_else(|| Err(format!("{name}: can't open web pages")));
+        (opened?, false)
     } else if wordcraft_formats::txt::is_text(bytes) {
         (wordcraft_formats::txt::import_on(bytes, page), false)
     } else if ext.is_empty() {
@@ -507,6 +559,59 @@ pub fn read_file_head(path: &str, max: u64) -> Result<Vec<u8>, String> {
     let mut head = Vec::new();
     f.take(max).read_to_end(&mut head).map_err(|e| format!("{path}: {e}"))?;
     Ok(head)
+}
+
+/// An entry of [`list_dir`]: a file or folder (links followed).
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Debug)]
+pub struct DirEntry {
+    pub name: String,
+    pub path: std::path::PathBuf,
+    pub dir: bool,
+    /// The file's size in bytes (0 for a folder).
+    pub len: u64,
+    /// When it last changed, in seconds since the Unix epoch, if the system says.
+    pub modified: Option<u64>,
+}
+
+/// The files and folders in the folder at `path`, inside the automation read root (entries
+/// leading outside it, and ones that can't be read, are left out); at most `max` entries are
+/// looked at, and `true` says the listing was cut short there.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn list_dir(path: &std::path::Path, max: usize) -> Result<(Vec<DirEntry>, bool), String> {
+    crate::file_access::check_read(&path.to_string_lossy())?;
+    let read = std::fs::read_dir(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut out = Vec::new();
+    for (seen, entry) in read.enumerate() {
+        if seen >= max {
+            return Ok((out, true));
+        }
+        let Ok(entry) = entry else { continue };
+        let path = entry.path();
+        if crate::file_access::check_read(&path.to_string_lossy()).is_err() {
+            continue;
+        }
+        let Ok(meta) = std::fs::metadata(&path) else { continue };
+        if !meta.is_dir() && !meta.is_file() {
+            continue;
+        }
+        let modified = meta.modified().ok().and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs());
+        let name = entry.file_name().to_string_lossy().into_owned();
+        out.push(DirEntry { name, path, dir: meta.is_dir(), len: if meta.is_file() { meta.len() } else { 0 }, modified });
+    }
+    Ok((out, false))
+}
+
+/// The title in the core properties of the Word package at `path` (a file of at most `max_file`
+/// bytes; at most `max_part` bytes of the part are read), inside the automation read root.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn package_title(path: &std::path::Path, max_file: u64, max_part: u64) -> Option<String> {
+    crate::file_access::check_read(&path.to_string_lossy()).ok()?;
+    let file = std::fs::File::open(path).ok()?;
+    if file.metadata().ok()?.len() > max_file {
+        return None;
+    }
+    wordcraft_docx::package_title(std::io::BufReader::new(file), max_part)
 }
 
 /// Rename without replacing another file, respecting both automation access roots.

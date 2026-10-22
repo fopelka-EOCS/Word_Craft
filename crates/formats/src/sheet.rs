@@ -46,6 +46,10 @@ pub const MAX_COLS: usize = 1_000;
 pub const MAX_CELLS: usize = 2_000_000;
 /// Longest cell text in characters (a spreadsheet cell's own limit).
 pub const MAX_CELL_CHARS: usize = 32_767;
+/// Most bytes of cell text kept from one sheet: a shared string (or a repeated cell) is stored
+/// once in the file but copied into every cell that uses it, so a small file could otherwise
+/// ask for many gigabytes. Cells past the budget are ignored.
+pub const MAX_TEXT_BYTES: usize = 64 << 20;
 /// Most shared strings kept.
 const MAX_SHARED: usize = 2_000_000;
 /// Most cell formats kept.
@@ -305,17 +309,35 @@ fn push_capped(s: &mut String, t: &str) {
     }
 }
 
-/// Rows collected under the caps: blank rows are dropped, rows past [`MAX_ROWS`] and cells past
-/// [`MAX_CELLS`] are ignored.
+/// Running total of the cell text kept, against [`MAX_TEXT_BYTES`].
+#[derive(Default, Clone, Copy)]
+struct TextBudget(usize);
+
+impl TextBudget {
+    /// Spend `bytes`; false (and nothing spent) when they don't fit.
+    fn take(&mut self, bytes: usize) -> bool {
+        match self.0.checked_add(bytes) {
+            Some(t) if t <= MAX_TEXT_BYTES => {
+                self.0 = t;
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
+/// Rows collected under the caps: blank rows are dropped, rows past [`MAX_ROWS`], cells past
+/// [`MAX_CELLS`] and rows past [`MAX_TEXT_BYTES`] of text are ignored.
 #[derive(Default)]
 struct Grid {
     rows: Vec<Vec<String>>,
     cells: usize,
+    text: TextBudget,
 }
 
 impl Grid {
     fn full(&self) -> bool {
-        self.rows.len() >= MAX_ROWS || self.cells >= MAX_CELLS
+        self.rows.len() >= MAX_ROWS || self.cells >= MAX_CELLS || self.text.0 >= MAX_TEXT_BYTES
     }
 
     /// Keep `row` (trailing blanks trimmed) `times` times, as far as the caps allow.
@@ -331,6 +353,9 @@ impl Grid {
             let room = MAX_CELLS.saturating_sub(self.cells);
             let mut r = row.clone();
             r.truncate(room);
+            if !self.text.take(r.iter().map(String::len).sum()) {
+                return;
+            }
             self.cells = self.cells.saturating_add(r.len());
             self.rows.push(r);
             left -= 1;
@@ -593,6 +618,7 @@ fn xlsx_rows(pkg: &mut Package<'_>, path: &str) -> Result<Vec<Vec<String>>, Stri
     // Rows by number, so out-of-order rows still come out in order.
     let mut rows: BTreeMap<u64, Vec<String>> = BTreeMap::new();
     let mut cells = 0usize;
+    let mut budget = TextBudget::default();
     let (mut in_data, mut row_no, mut next_col) = (false, 0u64, 0usize);
     let mut cell: Option<XCell> = None;
     let (mut in_v, mut in_is_t, mut phonetic) = (false, false, 0usize);
@@ -639,6 +665,9 @@ fn xlsx_rows(pkg: &mut Package<'_>, path: &str) -> Result<Vec<Vec<String>>, Stri
                     return;
                 }
                 if !rows.contains_key(&row_no) && rows.len() >= MAX_ROWS {
+                    return;
+                }
+                if !budget.take(text.len()) {
                     return;
                 }
                 let row = rows.entry(row_no).or_default();
@@ -728,17 +757,22 @@ fn serial_date(serial: f64, date1904: bool, kind: DateKind) -> Option<String> {
 }
 
 /// Days since 1970-01-01 to a proleptic Gregorian (year, month, day).
-fn civil(z: i64) -> (i64, i64, i64) {
-    let z = z + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + i64::from(m <= 2);
-    (y, m, d)
+///
+/// The caller's serial guard keeps `z` inside chrono's range, but the Gregorian calendar repeats
+/// every 400 years (146_097 days), so this stays exact for any `z` without hand-rolled calendar
+/// math: chrono converts the day within its cycle and whole cycles go back into the year (an
+/// i128 so the extremes can't overflow). 1970-01-01 is `num_days_from_ce` 719_163.
+pub(crate) fn civil(z: i64) -> (i64, i64, i64) {
+    use chrono::Datelike;
+    let (cycles, rest) = (z.div_euclid(146_097), z.rem_euclid(146_097));
+    match i32::try_from(rest + 719_163).ok().and_then(chrono::NaiveDate::from_num_days_from_ce_opt) {
+        Some(d) => {
+            let y = i128::from(d.year()) + i128::from(cycles) * 400;
+            (i64::try_from(y).unwrap_or(if y < 0 { i64::MIN } else { i64::MAX }), i64::from(d.month()), i64::from(d.day()))
+        }
+        // Unreachable: `rest + 719_163` is always a valid CE day.
+        None => (1970, 1, 1),
+    }
 }
 
 /// An ISO 8601 date or date-time (`2024-03-05`, `2024-03-05T13:45:00.000`) as `yyyy-mm-dd`,
@@ -748,12 +782,15 @@ fn iso_datetime(v: &str) -> Option<String> {
     let mut it = date.splitn(3, '-');
     let y: i64 = it.next()?.parse().ok()?;
     let m: u32 = it.next()?.parse().ok()?;
-    let d: u32 = it.next()?.get(..2)?.parse().ok()?;
+    let d_part = it.next()?;
+    let d_digits: String = d_part.chars().take_while(|c| c.is_ascii_digit()).collect();
+    let d: u32 = d_digits.parse().ok()?;
     if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
         return None;
     }
     let mut out = format!("{y:04}-{m:02}-{d:02}");
-    let hms: Vec<u32> = time.split(['Z', '+', '.']).next().unwrap_or("").split(':').filter_map(|p| p.parse().ok()).collect();
+    let time_clean = time.split(['Z', '+', '-', '.']).next().unwrap_or("");
+    let hms: Vec<u32> = time_clean.split(':').filter_map(|p| p.parse().ok()).collect();
     if let [h, mi, rest @ ..] = hms.as_slice() {
         let s = rest.first().copied().unwrap_or(0);
         if (*h, *mi, s) != (0, 0, 0) {
@@ -978,6 +1015,31 @@ mod tests {
         ])
     }
 
+    /// #1287: one long shared string in thousands of cells stays under the text budget.
+    #[test]
+    fn xlsx_shared_strings_cannot_blow_up_memory() {
+        let wb = r#"<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>"#;
+        let wb_rels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/></Relationships>"#;
+        let sst =
+            format!(r#"<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><si><t>{}</t></si></sst>"#, "x".repeat(MAX_CELL_CHARS));
+        let mut sheet = String::from("<worksheet><sheetData>");
+        for r in 1..=4_000 {
+            sheet.push_str(&format!(r#"<row r="{r}"><c r="A{r}" t="s"><v>0</v></c></row>"#));
+        }
+        sheet.push_str("</sheetData></worksheet>");
+        let book = zip(&[
+            ("_rels/.rels", RELS),
+            ("xl/workbook.xml", wb),
+            ("xl/_rels/workbook.xml.rels", wb_rels),
+            ("xl/sharedStrings.xml", &sst),
+            ("xl/worksheets/sheet1.xml", &sheet),
+        ]);
+        let (_, rows) = read_rows(&book, Pick::Index(0)).unwrap();
+        let total: usize = rows.iter().flatten().map(String::len).sum();
+        assert!(total <= MAX_TEXT_BYTES, "{total} bytes of cell text");
+        assert!(rows.len() > 1_000, "the budget still keeps a real list: {}", rows.len());
+    }
+
     #[test]
     fn xlsx_shared_strings_dates_numbers_and_gaps() {
         let sheet = r#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>
@@ -1065,5 +1127,22 @@ mod tests {
         assert_eq!(serial_date(-1.0, false, DateKind::Date), None);
         assert_eq!(number(1234567.0), "1234567");
         assert_eq!(number(0.1 + 0.2), "0.3");
+        assert_eq!(iso_datetime("2024-03-05T13:45:30-05:00").as_deref(), Some("2024-03-05 13:45:30"));
+        assert_eq!(iso_datetime("2024-03-5T13:45:00").as_deref(), Some("2024-03-05 13:45"));
+        assert_eq!(iso_datetime("2024-3-1").as_deref(), Some("2024-03-01"));
+        assert_eq!(iso_datetime("2024-03-05Z").as_deref(), Some("2024-03-05"));
+    }
+
+    #[test]
+    fn civil_is_exact_beyond_chronos_range() {
+        assert_eq!(civil(0), (1970, 1, 1));
+        // Past `NaiveDate`'s ±262143 the 400-year cycles carry the year, exactly, both sides of
+        // the epoch; values from the pre-chrono proleptic Gregorian formula.
+        assert_eq!(civil(95_026_602), (262_144, 1, 1));
+        assert_eq!(civil(99_000_000), (273_022, 10, 18));
+        assert_eq!(civil(-96_465_964), (-262_145, 3, 1));
+        assert_eq!(civil(-99_000_000), (-269_083, 3, 17));
+        // The extremes must not overflow or panic (i128 intermediates).
+        let _ = (civil(i64::MAX), civil(i64::MIN));
     }
 }

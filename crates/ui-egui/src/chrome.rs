@@ -7,9 +7,15 @@ use wordcraft_doc::StoryRef;
 use crate::theme::{Tokens, TypeRung, medium, paint_text, regular, semibold, text_width};
 use crate::{WordApp, icons};
 
+/// The Quick Access Toolbar's button for command `id`.
+pub(crate) fn qat_button_id(id: &str) -> egui::Id {
+    egui::Id::new(("qat_button", id))
+}
+
 fn qat_button(ui: &mut Ui, app: &mut WordApp, icon: &str, tip: &str, id: &str, enabled: bool) -> egui::Response {
     let t = Tokens::get(ui.ctx());
-    let (r, resp) = ui.allocate_exact_size(vec2(26.0, 24.0), Sense::click());
+    let (r, _) = ui.allocate_exact_size(vec2(26.0, 24.0), Sense::hover());
+    let resp = ui.interact(r, qat_button_id(id), Sense::click());
     if resp.hovered() && enabled {
         ui.painter().rect_filled(r, 4.0, t.hover);
     }
@@ -86,6 +92,11 @@ fn undo_list_row_id(i: usize) -> egui::Id {
     undo_list_button_id().with(("row", i))
 }
 
+/// The footer Cancel row's id (#1903).
+pub(crate) fn undo_list_cancel_id() -> egui::Id {
+    undo_list_button_id().with("cancel")
+}
+
 /// The Undo list's rows, newest first: each step named as the Undo button's tooltip names it.
 pub(crate) fn undo_list_rows(app: &WordApp) -> Vec<String> {
     app.session.undo_history().into_iter().map(|l| tl!(l).to_string()).collect()
@@ -147,10 +158,23 @@ fn undo_list(ui: &mut Ui, app: &mut WordApp) {
         }
     });
     ui.separator();
-    let footer = undo_list_footer(hovered.map_or(0, |h| h + 1));
-    ui.vertical_centered(|ui| ui.label(egui::RichText::new(footer).font(regular(12.0)).color(t.text)));
+    let n = hovered.map_or(0, |h| h + 1);
+    if n == 0 {
+        // Cancel is a real row: it closes the popup without undoing anything (#1903).
+        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), ROW), Sense::hover());
+        let resp = ui.interact(r, undo_list_cancel_id(), Sense::click());
+        if resp.hovered() {
+            ui.painter().rect_filled(r, 0.0, t.selection);
+        }
+        ui.painter().text(pos2(r.min.x + 6.0, r.center().y), Align2::LEFT_CENTER, undo_list_footer(0), regular(12.0), t.text);
+        if resp.clicked() {
+            ui.close();
+        }
+    } else {
+        ui.vertical_centered(|ui| ui.label(egui::RichText::new(undo_list_footer(n)).font(regular(12.0)).color(t.text)));
+    }
     if let Some(i) = clicked {
-        let _ = app.run("edit.undoTo", json!({"count": i + 1}));
+        crate::widgets::run_from_ribbon(app, "edit.undoTo", json!({"count": i + 1}));
         ui.close();
     }
 }
@@ -177,6 +201,12 @@ pub(crate) fn qat_menu(ui: &mut Ui, app: &mut WordApp) {
     ui.separator();
     if ui.button(tl!("More Commands…")).clicked() {
         crate::dialogs_ribbon::open(app, crate::dialogs_ribbon::Page::QuickAccess);
+        ui.close();
+    }
+    ui.separator();
+    // Last, as in Word (#1945); the ribbon's right-click menu brings the toolbar back.
+    if ui.button(tl!("Hide Quick Access Toolbar")).clicked() {
+        let _ = app.run("ui.quickAccessToolbar", json!({"value": false}));
         ui.close();
     }
 }
@@ -280,7 +310,10 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                     }
                 }
                 ui.add_space(8.0);
-                quick_access(ui, app);
+                // Hidden (#1945): neither the buttons nor the … menu; the title centres as before.
+                if app.ui.quick_access_toolbar {
+                    quick_access(ui, app);
+                }
                 qat_end = ui.min_rect().max.x;
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Account / community.
@@ -309,38 +342,7 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                         }
                         ui.add_space(8.0);
                     }
-                    // Search ("Tell me").
-                    let (r, resp) = ui.allocate_exact_size(vec2(260.0, control_h), Sense::click());
-                    ui.painter().rect(r, 6.0, if resp.hovered() { t.input } else { t.ribbon }, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
-                    icons::paint(
-                        ui.painter(),
-                        Rect::from_center_size(pos2(r.min.x + 16.0, r.center().y), vec2(16.0, 16.0)),
-                        "search",
-                        t.text_dim,
-                        t.accent,
-                    );
-                    let ph = tl!("Search commands and help");
-                    let pfont = TypeRung::Control.regular();
-                    let ptrack = TypeRung::Control.tracking();
-                    paint_text(
-                        ui.painter(),
-                        pos2(r.min.x + 30.0, r.center().y - TypeRung::Control.line_height() / 2.0),
-                        Align2::LEFT_TOP,
-                        ph,
-                        &pfont,
-                        ptrack,
-                        t.text_dim,
-                    );
-                    if app.ui.keytips == crate::keytips::Phase::Tabs {
-                        app.keytip_rects.push((r, crate::keytips::SEARCH_LETTER.to_string()));
-                    }
-                    let tip = match crate::widgets::shortcut_text(app, "tools.search") {
-                        k if k.is_empty() => tl!("Search").to_string(),
-                        k => format!("{} ({k})", tl!("Search")),
-                    };
-                    if resp.on_hover_text(tip).clicked() {
-                        let _ = app.run("tools.search", json!({}));
-                    }
+                    search_box(app, ui, control_h);
                     right_start = ui.min_rect().min.x;
                 });
             });
@@ -392,6 +394,118 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                 );
             }
         });
+}
+
+/// Search ("Tell me"): a box that opens command search. In the title bar, and in the Commands bar
+/// of Full Screen (#1678).
+fn search_box(app: &mut WordApp, ui: &mut Ui, control_h: f32) {
+    let t = Tokens::get(ui.ctx());
+    let (r, resp) = ui.allocate_exact_size(vec2(260.0, control_h), Sense::click());
+    let ph = tl!("Search commands and help");
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, ph));
+    ui.painter().rect(r, 6.0, if resp.hovered() { t.input } else { t.ribbon }, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
+    icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 16.0, r.center().y), vec2(16.0, 16.0)), "search", t.text_dim, t.accent);
+    let pfont = TypeRung::Control.regular();
+    let ptrack = TypeRung::Control.tracking();
+    paint_text(
+        ui.painter(),
+        pos2(r.min.x + 30.0, r.center().y - TypeRung::Control.line_height() / 2.0),
+        Align2::LEFT_TOP,
+        ph,
+        &pfont,
+        ptrack,
+        t.text_dim,
+    );
+    if app.ui.keytips == crate::keytips::Phase::Tabs {
+        app.keytip_rects.push((r, crate::keytips::SEARCH_LETTER.to_string()));
+    }
+    let tip = match crate::widgets::shortcut_text(app, "tools.search") {
+        k if k.is_empty() => tl!("Search").to_string(),
+        k => format!("{} ({k})", tl!("Search")),
+    };
+    if resp.on_hover_text(tip).clicked() {
+        let _ = app.run("tools.search", json!({}));
+    }
+}
+
+/// What fills the screen (#1678): the usual window, Focus (the document on black, a slim bar to
+/// drop the ribbon down) or Full Screen (the pages alone, a slim bar with Search). Both of the
+/// latter take the whole screen and hide the title bar, ribbon, status bar, panes and rulers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Screen {
+    Normal,
+    Focus,
+    FullScreen,
+}
+
+impl Screen {
+    pub fn of(v: &wordcraft_engine::ViewState) -> Self {
+        if v.focus_mode {
+            Screen::Focus
+        } else if v.full_screen_view {
+            Screen::FullScreen
+        } else {
+            Screen::Normal
+        }
+    }
+
+    /// The command that leaves this screen, if it isn't the usual window.
+    pub fn exit_command(self) -> Option<&'static str> {
+        match self {
+            Screen::Normal => None,
+            Screen::Focus => Some("view.focus"),
+            Screen::FullScreen => Some("view.fullScreenView"),
+        }
+    }
+}
+
+/// Focus's background around the page, in both themes (our own value, #1678).
+pub const FOCUS_CANVAS: egui::Color32 = egui::Color32::BLACK;
+
+/// Height of the slim bar Focus and Full Screen View show in place of the chrome (#1678).
+pub const SCREEN_BAR_HEIGHT: f32 = 30.0;
+
+/// The slim bar across the top in Focus ("⋯" drops the ribbon down over the page) and Full
+/// Screen View (Search, which finds and runs any command).
+pub fn screen_bar(app: &mut WordApp, ui: &mut Ui, screen: Screen) {
+    let t = Tokens::get(ui.ctx());
+    let fill = if screen == Screen::Focus { FOCUS_CANVAS } else { t.title_bar };
+    egui::Panel::top("screen_bar").exact_size(SCREEN_BAR_HEIGHT).show_separator_line(false).frame(egui::Frame::NONE.fill(fill)).show(ui, |ui| {
+        let full = ui.max_rect();
+        if screen == Screen::Focus {
+            let r = Rect::from_center_size(full.center(), vec2(40.0, 20.0));
+            let resp = ui.allocate_rect(r, Sense::click());
+            let shade = if resp.hovered() || app.focus_ribbon { egui::Color32::from_gray(70) } else { egui::Color32::from_gray(40) };
+            ui.painter().rect_filled(r, 4.0, shade);
+            icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(14.0, 14.0)), "more", egui::Color32::from_gray(220), t.accent);
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Show the ribbon")));
+            if resp.on_hover_text(tl!("Show the ribbon")).clicked() {
+                let _ = app.run("ui.focusRibbon", json!({}));
+            }
+        } else {
+            ui.scope_builder(egui::UiBuilder::new().max_rect(Rect::from_center_size(full.center(), vec2(260.0, 22.0))), |ui| {
+                search_box(app, ui, 22.0);
+            });
+        }
+    });
+}
+
+/// Focus: the ribbon dropped down from the bar, drawn over the page so the page doesn't move. A
+/// click on the page puts it away; Focus stays on.
+pub fn focus_ribbon(app: &mut WordApp, ctx: &egui::Context) {
+    let width = ctx.content_rect().width();
+    egui::Area::new(egui::Id::new("focus_ribbon")).fixed_pos(pos2(0.0, SCREEN_BAR_HEIGHT)).order(egui::Order::Middle).show(ctx, |ui| {
+        ui.set_width(width);
+        ui.set_max_width(width);
+        crate::ribbon::show(app, ui);
+    });
+    let click = ctx.input(|i| if i.pointer.any_click() { i.pointer.interact_pos() } else { None });
+    if let Some(pos) = click
+        && app.canvas.viewport.is_some_and(|v| v.contains(pos))
+        && ctx.layer_id_at(pos).is_none_or(|l| l.order == egui::Order::Background)
+    {
+        let _ = app.run("ui.focusRibbon", json!({"value": false}));
+    }
 }
 
 pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
@@ -449,13 +563,24 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                 // The language at the caret; a click sets the proofing language (Review › Language).
                 let lang = crate::ribbon::caret_language(app);
                 let missing = crate::ribbon::caret_missing_dictionary(app);
-                let shown = if missing.is_some() { crate::i18n::fmt(tl!("{language} (no dictionary)"), &[("language", &lang)]) } else { lang.clone() };
-                let tip = match missing {
-                    Some(name) => crate::i18n::fmt(
+                let unreadable = crate::ribbon::caret_unreadable_dictionary(app);
+                let shown = if unreadable.is_some() {
+                    crate::i18n::fmt(tl!("{language} (dictionary unreadable)"), &[("language", &lang)])
+                } else if missing.is_some() {
+                    crate::i18n::fmt(tl!("{language} (no dictionary)"), &[("language", &lang)])
+                } else {
+                    lang.clone()
+                };
+                let tip = match (&unreadable, missing) {
+                    (Some((file, reason)), _) => crate::i18n::fmt(
+                        tl!("The spelling dictionary for {language} couldn't be read, so it isn't checked. File: {file}. Reason: {reason}"),
+                        &[("language", &lang), ("file", &file.to_string_lossy()), ("reason", reason)],
+                    ),
+                    (None, Some(name)) => crate::i18n::fmt(
                         tl!("No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations."),
                         &[("language", &lang), ("name", name)],
                     ),
-                    None => tl!("Language").to_string(),
+                    (None, None) => tl!("Language").to_string(),
                 };
                 let resp = st(ui, &shown).on_hover_text(tip);
                 egui::Popup::menu(&resp).show(|ui| {
@@ -484,8 +609,11 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                     let zfont = TypeRung::Caption.regular();
                     let ztrack = TypeRung::Caption.tracking();
                     let zw = text_width(ui.painter(), &ztxt, &zfont, ztrack, t.text_dim);
-                    let (zr, zresp) = ui.allocate_exact_size(vec2(zw + 1.0, TypeRung::Caption.line_height()), Sense::click());
-                    paint_text(ui.painter(), pos2(zr.min.x, zr.min.y), Align2::LEFT_TOP, &ztxt, &zfont, ztrack, t.text_dim);
+                    // A fixed width for three digits plus a small reserve, so the controls to the
+                    // left don't shift as the percentage gains or loses digits (#1975).
+                    let zslot = text_width(ui.painter(), "000%", &zfont, ztrack, t.text_dim) + 4.0;
+                    let (zr, zresp) = ui.allocate_exact_size(vec2(zw.max(zslot) + 1.0, TypeRung::Caption.line_height()), Sense::click());
+                    paint_text(ui.painter(), pos2(zr.max.x - 1.0, zr.min.y), Align2::RIGHT_TOP, &ztxt, &zfont, ztrack, t.text_dim);
                     if zresp.clicked() && !reading {
                         let _ = app.run("ui.dialog", json!({ "name": "zoom" }));
                     }
@@ -642,6 +770,64 @@ mod tests {
         assert!(!egui::Popup::is_id_open(&ctx, popup), "the list closes");
     }
 
+    /// #1975: the zoom percentage gains and loses digits (9% → 100% → 500%); the controls to its
+    /// left must not shift with it.
+    #[test]
+    fn status_bar_controls_hold_still_across_zoom_levels() {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        let ctx = ctx();
+        ctx.enable_accesskit();
+        let names = ["Focus", "Print Layout", "Web Layout"];
+        let mut seen: Vec<(f32, Vec<f64>)> = Vec::new();
+        for (n, zoom) in [10.0_f32, 9.0, 100.0, 500.0].into_iter().enumerate() {
+            a.canvas.scale = zoom / 100.0 * crate::canvas::PX_PER_PT;
+            let input = egui::RawInput {
+                time: Some(n as f64 / 60.0),
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1200.0, 800.0))),
+                ..Default::default()
+            };
+            let mut out = ctx.run_ui(input, |ui| status_bar(&mut a, ui));
+            out.textures_delta.clear();
+            let update = out.platform_output.accesskit_update.take().unwrap();
+            let xs: Vec<f64> = names
+                .iter()
+                .map(|name| {
+                    let node =
+                        update.nodes.iter().find(|(_, node)| node.label() == Some(*name)).unwrap_or_else(|| panic!("{name} is drawn")).1.clone();
+                    node.bounds().unwrap().x0
+                })
+                .collect();
+            seen.push((zoom, xs));
+        }
+        let first = &seen[0].1;
+        for (zoom, xs) in &seen {
+            assert_eq!(xs, first, "status bar controls moved at {zoom}% zoom");
+        }
+    }
+
+    /// #1903: the footer's Cancel row closes the Undo list without undoing anything.
+    #[test]
+    fn undo_list_cancel_closes_without_undoing() {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        a.run("text.insert", json!({"text": "Hello"})).unwrap();
+        let before: Vec<String> = a.session.undo_history().into_iter().map(str::to_string).collect();
+        assert!(!before.is_empty());
+
+        let (ctx, mut n) = (ctx(), 0);
+        frame(&ctx, &mut n, vec![], &mut a);
+        let arrow = ctx.read_response(undo_list_button_id()).unwrap();
+        let popup = egui::Popup::default_response_id(&arrow);
+        click(&ctx, &mut n, arrow.rect.center(), &mut a);
+        assert!(egui::Popup::is_id_open(&ctx, popup), "the arrow opens the Undo list");
+        frame(&ctx, &mut n, vec![], &mut a);
+        let cancel = ctx.read_response(undo_list_cancel_id()).expect("Cancel is drawn");
+        click(&ctx, &mut n, cancel.rect.center(), &mut a);
+        let after: Vec<String> = a.session.undo_history().into_iter().map(str::to_string).collect();
+        assert_eq!(after, before, "nothing undone");
+        frame(&ctx, &mut n, vec![], &mut a);
+        assert!(!egui::Popup::is_id_open(&ctx, popup), "Cancel closes the list");
+    }
+
     #[test]
     fn mac_title_bar_centres_and_clears_the_traffic_lights() {
         // The lights are centred in the bar, and content keeps the same gap after them.
@@ -663,5 +849,75 @@ mod tests {
         assert_eq!(bar.content_left, 89.0);
         // Never tighter than the standard layout.
         assert_eq!(MacTitleBar::around_lights(40.0, 10.0, 12.0), MacTitleBar::default());
+    }
+
+    /// #1945: Hide Quick Access Toolbar, the last item of the toolbar's menu, takes the toolbar's
+    /// buttons and its … button out of the title bar, which keeps its title; the command brings
+    /// them back.
+    #[test]
+    fn hide_quick_access_toolbar_takes_the_toolbar_out_of_the_title_bar() {
+        use egui_kittest::kittest::Queryable;
+        let a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                // The fonts `logic` installs take effect on the next frame, as `WordApp::ui` waits.
+                if app.fonts_frames < 2 {
+                    app.fonts_frames += 1;
+                    return;
+                }
+                title_bar(app, ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        let drawn = |h: &egui_kittest::Harness<'static, WordApp>, id: &str| h.ctx.read_response(qat_button_id(id)).is_some();
+        for id in ["file.save", "edit.undo", "edit.redo"] {
+            assert!(drawn(&h, id), "{id} is on the toolbar");
+        }
+        let at = h.ctx.read_response(qat_menu_button_id()).expect("the … button").rect.center();
+        h.event(egui::Event::PointerMoved(at));
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() });
+        }
+        h.run_steps(2);
+        h.get_by_label("Hide Quick Access Toolbar").click();
+        // `read_response` also reads the frame before last, so run two frames past the change.
+        h.run_steps(3);
+        assert!(!h.state().ui.quick_access_toolbar, "the menu's last item hides the toolbar");
+        assert!(h.query_by_label("Hide Quick Access Toolbar").is_none(), "and closes the menu");
+        for id in ["file.save", "edit.undo", "edit.redo"] {
+            assert!(!drawn(&h, id), "{id} is gone");
+        }
+        assert!(h.ctx.read_response(qat_menu_button_id()).is_none(), "so is the … button");
+        assert!(h.query_by_label_contains("Not saved").is_some(), "the title is still drawn");
+        h.state_mut().run("ui.quickAccessToolbar", json!({"value": true})).unwrap();
+        h.run_steps(2);
+        for id in ["file.save", "edit.undo", "edit.redo"] {
+            assert!(drawn(&h, id), "{id} is back");
+        }
+        assert!(h.ctx.read_response(qat_menu_button_id()).is_some());
+    }
+
+    /// #3040: clicking a row in the Undo list hands the keyboard back to the document.
+    #[test]
+    fn undo_list_row_returns_focus_to_the_document() {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        a.run("text.insert", json!({"text": "Hello"})).unwrap();
+        assert_eq!(a.session.undo_history().len(), 1);
+
+        let (ctx, mut n) = (ctx(), 0);
+        frame(&ctx, &mut n, vec![], &mut a);
+        let arrow = ctx.read_response(undo_list_button_id()).unwrap();
+        let popup = egui::Popup::default_response_id(&arrow);
+        click(&ctx, &mut n, arrow.rect.center(), &mut a);
+        assert!(egui::Popup::is_id_open(&ctx, popup), "the arrow opens the Undo list");
+        frame(&ctx, &mut n, vec![], &mut a);
+        let row = ctx.read_response(undo_list_row_id(0)).unwrap();
+        a.canvas.want_focus = false;
+        click(&ctx, &mut n, row.rect.center(), &mut a);
+        assert!(a.canvas.want_focus, "the row click returns focus to the document");
+        assert!(a.session.undo_history().is_empty(), "the step was undone");
     }
 }
