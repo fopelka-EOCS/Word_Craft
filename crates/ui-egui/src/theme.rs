@@ -317,7 +317,7 @@ impl Tokens {
             icon: Color32::from_rgb(0x42, 0x42, 0x42),
             hover: Color32::from_rgb(0xF3, 0xF2, 0xF1),
             pressed: Color32::from_rgb(0xED, 0xEB, 0xE9),
-            checked: Color32::from_rgb(0xEB, 0xF3, 0xFC),
+            checked: Color32::from_rgb(0xE2, 0xE2, 0xE2),
             accent: APP_COLOR,
             nav: APP_COLOR,
             accent_text: APP_INK,

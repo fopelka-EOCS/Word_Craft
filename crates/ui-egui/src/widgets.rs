@@ -190,6 +190,8 @@ pub fn enabled(app: &WordApp, id: &str) -> bool {
 pub(crate) fn bg(ui: &Ui, r: Rect, resp: &Response, checked: bool, t: &Tokens) {
     let fill = if resp.is_pointer_button_down_on() {
         t.pressed
+    } else if checked && resp.hovered() {
+        t.pressed
     } else if checked {
         t.checked
     } else if resp.hovered() {
@@ -197,10 +199,7 @@ pub(crate) fn bg(ui: &Ui, r: Rect, resp: &Response, checked: bool, t: &Tokens) {
     } else {
         return;
     };
-    ui.painter().rect_filled(r, CornerRadius::same(4), fill);
-    if checked {
-        ui.painter().rect_stroke(r, CornerRadius::same(4), Stroke::new(1.0, t.accent.linear_multiply(0.5)), egui::StrokeKind::Inside);
-    }
+    ui.painter().rect_filled(r, CornerRadius::same(3), fill);
 }
 
 /// Runs a ribbon button's command, then hands keyboard focus back to the document so typing

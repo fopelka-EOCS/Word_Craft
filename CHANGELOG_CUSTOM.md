@@ -111,11 +111,17 @@ Serve come riferimento permanente affinché, in caso di aggiornamenti dal reposi
   - Switch AutoSave: sagomato a pillola (`38x18px`) con indicatore circolare e testo `On` / `Off` integrato.
   - Barra di ricerca centrale: sagomata a pillola continua con raggio completo.
 
-### 2.8 Icone Vettoriali in Stile Word
+### 2.8 Icone Vettoriali e Stati Attivi in Stile Word
+- `crates/ui-egui/src/widgets.rs` e `crates/ui-egui/src/theme.rs`:
+  - Rimossa l'evidenziazione pesante a bordo blu attorno ai pulsanti attivi/selezionati (come allineamento, elenchi o grassetto). Ora lo stato attivo applica uno sfondo grigio morbido (`#E2E2E2`) identico a Word, senza bordi al neon.
 - `crates/ui-egui/src/icons.rs`:
-  - `paste` (Incolla): cartellina porta-blocco in tonalità legno/oro (`#D99B26`), foglio bianco con righe e fermaglio metallico.
-  - `painter` (Copia formato): pennello con setole e manico nei toni dorati.
-  - `bullets` ed `numbering` (Elenchi): punti elenco e numerazioni disegnati nel blu coordinato `#0F6CBD`.
+  - `painter` (Copia formato): ridisegnato come vero **pennello** inclinato con setole dorate, ghiera d'argento e manico in legno (sostituito il vecchio rullo).
+  - `shading` (Sfondo paragrafo): ridisegnato come **secchiello** inclinato che versa una goccia (sostituito il vecchio rombo).
+  - `borders` (Bordi): ridisegnato con la classica **finestra a 4 quadranti** (sostituita la griglia di puntini).
+  - `copy` (Copia): fogli sovrapposti con contorno grigio standard (rimosso il bordo blu superfluo).
+  - `indent` e `outdent` (Rientri): frecce in grigio scuro coerente (rimosse le frecce blu piene).
+  - `charborder`, `enclose`, `subscript`, `superscript`: caratteri e indici in grigio scuro neutro.
+  - `effects` (Effetti testo): lettera 'A' sagomata sobria senza bagliori blu invasivi.
 
 ---
 
