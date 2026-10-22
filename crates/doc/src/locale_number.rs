@@ -22,10 +22,29 @@ pub fn decimal_separator(lang: Option<&str>) -> char {
 
 const SPACES: &[char] = &[' ', '\u{a0}', '\u{202f}', '\u{2009}'];
 const CURRENCY: &[char] = &['$', '€', '£', '¥', '¢', '₽', '₴', '₺', '₹', '₩', '₪', '₫', '฿', '₱', '₸', '₼', '₾'];
+/// Currency signs spelled with more than one character: the Panamanian balboa (`B/.`).
+const CURRENCY_SYMBOLS: &[&str] = &["B/."];
 
-/// Strip a currency symbol or a short currency word (`zł`, `kr`, `PLN`) from either end.
+/// Trim spaces and single-character currency signs from either end.
+fn trim_currency(s: &str) -> &str {
+    s.trim_matches(|c: char| c.is_whitespace() || CURRENCY.contains(&c))
+}
+
+/// Strip a currency symbol or a short currency word (`zł`, `kr`, `PLN`, `B/.`) from either end.
+/// As Word does, a multi-character sign is a word of its own (`B/. 1,250.50`, `1,250.50 B/.`);
+/// `B/.1,250.50` and `B/ 1,250.50` are not numbers.
 fn strip_currency(s: &str) -> &str {
-    let mut s = s.trim_matches(|c: char| c.is_whitespace() || CURRENCY.contains(&c));
+    let mut s = trim_currency(s);
+    if let Some(rest) =
+        CURRENCY_SYMBOLS.iter().find_map(|sym| s.strip_prefix(sym).filter(|rest| rest.chars().next().is_some_and(char::is_whitespace)))
+    {
+        s = trim_currency(rest);
+    }
+    if let Some(rest) =
+        CURRENCY_SYMBOLS.iter().find_map(|sym| s.strip_suffix(sym).filter(|rest| rest.chars().next_back().is_some_and(char::is_whitespace)))
+    {
+        s = trim_currency(rest);
+    }
     if let Some((head, word)) = s.rsplit_once(SPACES)
         && (1..=3).contains(&word.chars().count())
         && word.chars().all(|c| c.is_alphabetic() || c == '.')
@@ -134,6 +153,7 @@ mod tests {
         assert_eq!(parse_number("1.5", pl), Some(1.5));
         assert_eq!(parse_number("-2,25", pl), Some(-2.25));
         assert_eq!(parse_number("PLN 12", pl), Some(12.0));
+        assert_eq!(parse_number("-B/. 1 250,50", pl), Some(-1250.5));
         assert_eq!(parse_number("abc", pl), None);
         assert_eq!(parse_number("1,2,3", pl), None);
         // From review: ordinals, a leading zero, percentages and an en dash minus.
@@ -156,6 +176,14 @@ mod tests {
         let en = Some("en-US");
         assert_eq!(parse_number("1,250.50", en), Some(1250.5));
         assert_eq!(parse_number("$1,250", en), Some(1250.0));
+        assert_eq!(parse_number("B/. 1,250.50", en), Some(1250.5), "the Panamanian balboa");
+        assert_eq!(parse_number("B/.\u{a0}1,250.50", en), Some(1250.5), "a no-break space after the sign");
+        assert_eq!(parse_number("1,250.50 B/.", en), Some(1250.5));
+        assert_eq!(parse_number("B/. 1,250.50 B/.", en), Some(1250.5));
+        assert_eq!(parse_number("B/.1,250.50", en), None, "Word needs a space after the sign");
+        assert_eq!(parse_number("B/ 1,250.50", en), None, "the balboa is B/. in Word");
+        assert_eq!(parse_number("PAB 1,250.50", en), Some(1250.5), "the ISO code");
+        assert_eq!(parse_number("B/.", en), None);
         assert_eq!(parse_number("1.5", en), Some(1.5));
         assert_eq!(parse_number("12", None), Some(12.0));
         assert_eq!(parse_number(".5", None), Some(0.5));

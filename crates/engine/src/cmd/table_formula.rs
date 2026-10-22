@@ -843,6 +843,11 @@ mod tests {
     #[test]
     fn numbers_read_currency_and_separators_but_not_letters() {
         assert_eq!(parse_number("$1,200", None), Some(1200.0));
+        assert_eq!(parse_number("B/. 1,200.00", None), Some(1200.0), "the Panamanian balboa");
+        assert_eq!(parse_number("1,200.00 B/.", Some("es-PA")), Some(1200.0));
+        assert_eq!(parse_number("B/.1,200.00", None), None, "Word needs a space after the sign");
+        let balboa = table(&[&["B/. 1,250.50"], &[""]]);
+        assert_eq!(ev(&balboa, 1, 0, "=SUM(ABOVE)"), Ok(1250.5), "a balboa cell sums");
         assert_eq!(parse_number(" 12% ", None), Some(12.0));
         assert_eq!(parse_number("(5)", None), Some(-5.0));
         assert_eq!(parse_number("x9", None), None);
