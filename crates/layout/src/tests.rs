@@ -1,6 +1,7 @@
 use super::*;
 use wordcraft_doc::para::InlineObject;
 use wordcraft_doc::props::{Align, Border, BorderStyle, Borders, CombineBrackets, EastAsianLayout, ParaProps, TextDirection};
+use wordcraft_doc::section::{DocGrid, DocGridType};
 use wordcraft_doc::{Pos, Table};
 
 fn lay(doc: &Document) -> DocLayout {
@@ -9598,4 +9599,47 @@ fn combine_keeps_the_run_text_in_order_in_the_display_list() {
     assert_eq!((glyphs, ranges.len()), (7, 7), "the letters and the two brackets");
     let extracted: String = ranges.iter().map(|r| text[r.clone()].to_string()).collect();
     assert_eq!(extracted, "abcde", "copy and PDF extraction keep the run's order: {ranges:?}");
+}
+
+#[test]
+fn combine_with_one_grapheme_keeps_the_character() {
+    // A one-grapheme run has no split point: it is all upper sub-line, the lower one empty. It
+    // must still be laid out (it used to be dropped from the paragraph entirely).
+    let l = lay(&warichu_doc("あ", 20.0, Some(CombineBrackets::Round)));
+    let c = only_para(&l);
+    assert_eq!(c.clusters.len(), 1, "{:?}", c.clusters.iter().map(|c| (c.start, c.end, c.adv)).collect::<Vec<_>>());
+    let w = &c.clusters[0];
+    assert!(w.warichu, "the run is one combined cluster");
+    assert!(w.adv > 0.0, "the character still takes room: {}", w.adv);
+    assert_eq!((w.start, w.end), (0, "あ".len()));
+    // The character and both brackets are drawn, and its text extracts in order.
+    assert_eq!(c.glyphs.len(), 3, "{:?}", c.glyphs.iter().map(|g| (g.gid, g.dx, g.dy)).collect::<Vec<_>>());
+    let (_, shown, ranges) = c.shown.first().expect("the 割注 text is recorded for display");
+    assert_eq!(shown, "あ");
+    let extracted: String = ranges.iter().map(|r| shown[r.clone()].to_string()).collect();
+    assert_eq!(extracted, "あ", "{ranges:?}");
+    assert_eq!(c.line_offsets(0), vec![0, "あ".len()], "no caret stop inside the notation");
+}
+
+#[test]
+fn combine_on_a_character_grid_takes_cells_from_its_combined_advance() {
+    // The 割注 cluster's style is half size, so sizing its cells by style would shorten a long
+    // notation under the text after it; whole cells come from the cluster's combined advance.
+    let text = "日本語の割注文書です";
+    let mut d = warichu_doc(text, 20.0, Some(CombineBrackets::Round));
+    d.last_section.doc_grid = Some(DocGrid { kind: DocGridType::Lines, line_pitch: 18.0, char_space: 0 });
+    let size = para::Grid::of(&d, &d.last_section).font_size;
+    let plain = lay(&d);
+    let natural = only_para(&plain).clusters[0].adv;
+    d.last_section.doc_grid =
+        Some(DocGrid { kind: DocGridType::LinesAndChars, line_pitch: 18.0, char_space: DocGrid::char_space_for(size + 2.5, size) });
+    let pitch = d.last_section.grid_char_pitch(size).expect("a character grid");
+    let l = lay(&d);
+    let c = only_para(&l);
+    let w = &c.clusters[0];
+    assert!(w.warichu, "the run is one combined cluster");
+    assert!(natural > pitch * 1.5, "the notation is wider than one cell: {natural} against {pitch}");
+    assert!(w.adv >= natural - 0.01, "the grid keeps the notation's whole width: {} against {natural}", w.adv);
+    let cells = w.adv / pitch;
+    assert!((cells - cells.round()).abs() < 1e-3, "the notation takes whole cells: {cells}");
 }
