@@ -2031,6 +2031,7 @@ impl Body<'_> {
             "note"
             | "annotation"
             | "text-box"
+            | "ruby-text"
             | "sequence-decls"
             | "forms"
             | "variable-decls"
@@ -2076,6 +2077,8 @@ impl Body<'_> {
             }
             "tab" => self.push_text("\t"),
             "line-break" => self.push_text("\n"),
+            // ODF ruby: the base text is read, the annotation (`ruby-text`) is skipped with the notes.
+            "ruby" | "ruby-base" => {}
             "bookmark" | "bookmark-start" => {
                 if let Some(n) = get(a, "text:name") {
                     if self.para.is_none() {
@@ -3579,6 +3582,14 @@ mod tests {
         assert_eq!(back.settings.track_changes, doc.settings.track_changes);
         // The inserted paragraph mark survives: "added¶" is part of the insertion.
         assert_eq!(rev_runs(&doc)[2].1, Some(wordcraft_doc::RevisionKind::Insert));
+    }
+
+    #[test]
+    fn ruby_reads_as_its_base_text() {
+        let body = "<text:p>a<text:ruby><text:ruby-base>漢字</text:ruby-base><text:ruby-text>かんじ</text:ruby-text></text:ruby>b</text:p>";
+        let doc = import(&tracked("", body)).unwrap();
+        let text: String = rev_runs(&doc).iter().flat_map(|(r, _)| r.iter().map(|(t, _)| t.clone())).collect();
+        assert_eq!(text, "a漢字b");
     }
 
     #[test]
