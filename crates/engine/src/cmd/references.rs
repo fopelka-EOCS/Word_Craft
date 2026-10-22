@@ -607,7 +607,7 @@ fn regenerate_toc(s: &mut Session, leader: Option<TabLeader>, tabs: &[(String, V
         // Pass 1 lays out with the entries in place, so headings below the TOC sit `entries.len()`
         // blocks further down and their pages account for the TOC's own length.
         s.touch();
-        let l = s.layout();
+        let pages = super::PageNumbers::new(s);
         if pass == 1 {
             // Replace the page numbers now that the entries exist.
             for _ in 0..entries.len() {
@@ -622,8 +622,7 @@ fn regenerate_toc(s: &mut Session, leader: Option<TabLeader>, tabs: &[(String, V
             {
                 *top = top.saturating_add(u32::try_from(shift).unwrap_or(u32::MAX));
             }
-            let page =
-                l.caret(&Pos { story: StoryRef::Body, path: target, off: e.lead }).and_then(|c| l.pages.get(c.page)).map(|pg| pg.number).unwrap_or(1);
+            let page = pages.text(&Pos { story: StoryRef::Body, path: target, off: e.lead });
             let show_page = no_pages.is_none_or(|(a, b)| !(a..=b).contains(&(e.level + 1)));
             let text = if show_page { format!("{}{sep}{page}", e.text) } else { e.text.clone() };
             let props = CharProps { link: links.get(k).cloned().flatten(), ..Default::default() };
@@ -954,19 +953,13 @@ pub fn update_fields_in(s: &mut Session, all: bool) -> Result<(), CmdError> {
         update_seq(s)?;
     }
     let mut pages: std::collections::HashMap<String, (u32, NumFormat)> = Default::default();
-    let formats: Vec<NumFormat> = s.doc.sections().into_iter().map(|(_, sec)| sec.page_num_format).collect();
     let marks = s.doc.bookmarks();
-    for (name, pos) in marks {
-        let l = s.layout();
-        let page_info = l
-            .caret(&pos)
-            .and_then(|c| l.pages.get(c.page))
-            .map(|p| {
-                let format = formats.get(p.section).copied().unwrap_or_default();
-                (p.number, format)
-            })
-            .unwrap_or((1, NumFormat::Decimal));
-        pages.entry(name).or_insert(page_info);
+    // No layout when there's nothing to look up.
+    if !marks.is_empty() {
+        let numbers = super::PageNumbers::new(s);
+        for (name, pos) in marks {
+            pages.entry(name).or_insert_with(|| numbers.at(&pos));
+        }
     }
     let stories: Vec<StoryRef> =
         if all { std::iter::once(StoryRef::Body).chain(s.doc.parts.keys().map(|k| StoryRef::Part(*k))).collect() } else { vec![caret_story] };

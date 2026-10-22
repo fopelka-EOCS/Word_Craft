@@ -501,6 +501,42 @@ pub fn default_lang(s: &Session) -> Option<String> {
     doc_lang(&s.doc).or_else(|| s.editing_lang.clone())
 }
 
+/// Page numbers as the pages show them, from one layout: the number of the page a position is
+/// on in its section's number format (`ii` in front matter numbered in lower-case roman
+/// numerals). What a table of contents, an index or a page reference writes, as in Word.
+pub(crate) struct PageNumbers {
+    layout: std::sync::Arc<wordcraft_layout::DocLayout>,
+    formats: Vec<wordcraft_doc::section::NumFormat>,
+}
+
+impl PageNumbers {
+    pub(crate) fn new(s: &mut Session) -> Self {
+        let formats = s.doc.sections().into_iter().map(|(_, sec)| sec.page_num_format).collect();
+        PageNumbers { layout: s.layout(), formats }
+    }
+
+    /// The page's number and its section's number format; page 1 in decimal where `pos` isn't
+    /// laid out.
+    pub(crate) fn at(&self, pos: &Pos) -> (u32, wordcraft_doc::section::NumFormat) {
+        let l = &self.layout;
+        l.caret(pos)
+            .and_then(|c| l.pages.get(c.page))
+            .map(|pg| (pg.number, self.formats.get(pg.section).copied().unwrap_or_default()))
+            .unwrap_or((1, wordcraft_doc::section::NumFormat::Decimal))
+    }
+
+    pub(crate) fn text(&self, pos: &Pos) -> String {
+        let (n, format) = self.at(pos);
+        format.format(n)
+    }
+
+    /// Where the page `pos` is on comes in the document: page numbers can restart in a new
+    /// section, so a later page may have a smaller number.
+    pub(crate) fn index(&self, pos: &Pos) -> Option<usize> {
+        self.layout.caret(pos).map(|c| c.page)
+    }
+}
+
 #[cfg(test)]
 mod iso_tests {
     use super::{civil_from_days, iso_from_unix_secs};
