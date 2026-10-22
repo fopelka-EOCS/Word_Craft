@@ -1564,7 +1564,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             }
         }
         if !math_caret
-            && let Some(c) = layout.caret_on(&app.session.sel.focus, app.session.page_hint)
+            && let Some(c) =
+                layout.caret_on_affinity(&app.session.sel.focus, app.session.page_hint, app.session.caret_upstream && app.session.sel.is_collapsed())
             && let Some(pr) = rects.get(c.page)
         {
             let scale = layout.pages.get(c.page).map_or(geo.scale, |page| page_screen_scale(*pr, page, geo.scale));
@@ -1725,8 +1726,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         let at = wordcraft_geom::Point::new(x, y);
         let on_cells =
             wordcraft_engine::cmd::table_mouse::cell_rects(&layout, &app.session.doc, range).iter().any(|(pi, r)| *pi == page && r.contains(at));
-        if !on_cells && let Some(pos) = layout.hit(page, x, y, app.session.sel.focus.story) {
+        if !on_cells && let Some((pos, upstream)) = layout.hit_affinity(page, x, y, app.session.sel.focus.story) {
             app.session.sel = wordcraft_engine::Selection::caret(pos);
+            app.session.caret_upstream = upstream;
         }
     }
     // Right-click: move the caret there (unless inside the selection), then the context menu.
@@ -1755,10 +1757,11 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         if crate::objects::select_at(app, &layout, &rects, geo.scale, p) {
             app.canvas.context_issue = None;
             app.canvas.context_synonyms = None;
-        } else if let Some(pos) = layout.hit(page, x, y, app.session.sel.focus.story) {
+        } else if let Some((pos, upstream)) = layout.hit_affinity(page, x, y, app.session.sel.focus.story) {
             let (a, b) = app.session.sel.ordered();
             if !(a <= pos && pos <= b) || app.session.sel.is_collapsed() {
                 app.session.sel = wordcraft_engine::Selection::caret(pos);
+                app.session.caret_upstream = upstream;
             }
             context_suggestions(app);
         }
@@ -2652,7 +2655,7 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
             app.canvas.dragging = true;
             return;
         }
-        let Some(pos) = layout.hit(page, x, y, story) else { return };
+        let Some((pos, upstream)) = layout.hit_affinity(page, x, y, story) else { return };
         // Ctrl/⌘+click follows a hyperlink.
         if mods.command
             && let Some(link) = link_under(app, layout, page, x, y, &pos)
@@ -2679,7 +2682,7 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
             return;
         }
         app.canvas.column_drag = None;
-        let _ = app.run("caret.set", json!({"pos": pj, "extend": mods.shift}));
+        let _ = app.run("caret.set", json!({"pos": pj, "extend": mods.shift, "upstream": upstream}));
         // Double-click selects a word, triple-click a paragraph, Ctrl/⌘+click a sentence; holding
         // the button and dragging then extends by whole units (Word, #549).
         let unit = match clicks {
@@ -2731,11 +2734,11 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
     } else if app.canvas.dragging && ui.input(|i| i.pointer.primary_down()) {
         // Through the command, so from one table cell into another the drag takes whole cells
         // (Word); straight to the session, as the app's `run` would scroll on every frame.
-        if let Some(pos) = layout.hit(page, x, y, story)
+        if let Some((pos, upstream)) = layout.hit_affinity(page, x, y, story)
             && pos != app.session.sel_ends().focus
         {
             let pj = serde_json::to_value(&pos).unwrap_or_default();
-            let _ = app.session.run("caret.set", &json!({"pos": pj, "extend": true}));
+            let _ = app.session.run("caret.set", &json!({"pos": pj, "extend": true, "upstream": upstream}));
             app.session.page_hint = page;
             app.canvas.caret_visible_since = crate::now_ms();
         }
@@ -3219,7 +3222,8 @@ fn context_suggestions(app: &mut WordApp) {
 /// Caret position on screen.
 pub fn caret_screen(app: &mut WordApp) -> Option<(Pos2, f32)> {
     let l = app.session.layout();
-    let c = l.caret_on(&app.session.sel.focus, app.session.page_hint)?;
+    let upstream = app.session.caret_upstream && app.session.sel.is_collapsed();
+    let c = l.caret_on_affinity(&app.session.sel.focus, app.session.page_hint, upstream)?;
     let p = page_to_screen(app, c.page, c.x, c.top)?;
     let scale = app
         .canvas

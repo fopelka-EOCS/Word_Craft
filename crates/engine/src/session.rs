@@ -328,6 +328,8 @@ struct Undo {
 pub struct EditSnapshot {
     doc: Document,
     sel: Selection,
+    /// The caret's affinity at a soft wrap, drawn with the selection.
+    caret_upstream: bool,
     history_len: usize,
     /// `Session::undo_evicted` when the snapshot was taken.
     evicted: u64,
@@ -391,6 +393,9 @@ pub struct Session {
     pub goal_x: Option<f32>,
     /// Page the caret was last on (headers/footers repeat on many pages).
     pub page_hint: usize,
+    /// The caret is drawn at the end of a wrapped line (after its last character) rather than
+    /// at the start of the next line: the same offset, Word's two stops at a soft wrap.
+    pub caret_upstream: bool,
     pub registry: Arc<Registry>,
     /// Author name for comments and tracked changes.
     pub author: String,
@@ -677,6 +682,7 @@ impl Session {
             find: FindState::default(),
             goal_x: None,
             page_hint: 0,
+            caret_upstream: false,
             registry: Arc::new(crate::cmd::registry()),
             author: "WordCraft User".into(),
             initials: String::new(),
@@ -1128,6 +1134,8 @@ impl Session {
             column: std::mem::replace(&mut self.column, u.column),
         };
         self.redo.push(Arc::new(cur));
+        // The restored selection's wrap stop shows at the start of its line.
+        self.caret_upstream = false;
         self.touch();
         true
     }
@@ -1147,6 +1155,8 @@ impl Session {
             column: std::mem::replace(&mut self.column, u.column),
         };
         self.history.push(Arc::new(cur));
+        // The restored selection's wrap stop shows at the start of its line.
+        self.caret_upstream = false;
         self.touch();
         true
     }
@@ -1204,6 +1214,7 @@ impl Session {
         self.password = None;
         self.file_name = None;
         self.sel = Selection::caret(self.doc.start_of(StoryRef::Body));
+        self.caret_upstream = false;
         self.pending = None;
         self.typing = None;
         self.also_selected.clear();
@@ -1257,6 +1268,7 @@ impl Session {
             find: _,
             goal_x: _,
             page_hint: _,
+            caret_upstream,
             registry: _,
             author: _,
             initials: _,
@@ -1317,6 +1329,7 @@ impl Session {
         EditSnapshot {
             doc: doc.clone(),
             sel: sel.clone(),
+            caret_upstream: *caret_upstream,
             history_len: history.len(),
             evicted: *undo_evicted,
             head,
@@ -1331,7 +1344,7 @@ impl Session {
     /// selection or undo/redo (undo steps the limit pushed out meanwhile come back). The layout
     /// is recomputed.
     pub fn restore(&mut self, snap: EditSnapshot) {
-        let EditSnapshot { doc, sel, history_len, evicted, head, redo, typing_open, join_next, dirty } = snap;
+        let EditSnapshot { doc, sel, caret_upstream, history_len, evicted, head, redo, typing_open, join_next, dirty } = snap;
         let gone = usize::try_from(self.undo_evicted.saturating_sub(evicted)).unwrap_or(usize::MAX);
         if gone > 0 {
             let back = gone.min(head.len());
@@ -1341,6 +1354,7 @@ impl Session {
         self.autocap = None;
         self.doc = doc;
         self.sel = sel;
+        self.caret_upstream = caret_upstream;
         self.also_selected.clear();
         self.history.truncate(history_len);
         self.redo = redo;

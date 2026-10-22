@@ -48,7 +48,7 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("caret.pageUp", "Page Up", "Navigation", |s, v| page(s, v, -1)).key("PageUp").params(EXTEND).pure(),
         CommandSpec::new("caret.pageDown", "Page Down", "Navigation", |s, v| page(s, v, 1)).key("PageDown").params(EXTEND).pure(),
         CommandSpec::new("caret.set", "Set Caret", "Navigation", set)
-            .params(r#"{"pos": Pos, "extend"?: bool} | {"page": n, "x": pt, "y": pt}"#)
+            .params(r#"{"pos": Pos, "extend"?: bool, "upstream"?: bool} | {"page": n, "x": pt, "y": pt}"#)
             .pure(),
         CommandSpec::new("select.all", "Select All", "Home › Editing › Select", select_all).key("Mod+A").pure(),
         CommandSpec::new("select.range", "Select Range", "Navigation", select_range).params(r#"{"anchor": Pos, "focus": Pos}"#).pure(),
@@ -64,6 +64,7 @@ pub fn specs() -> Vec<CommandSpec> {
             let to_end = p::bool(v, "end").unwrap_or(false);
             let (a, b) = s.sel.ordered();
             s.sel = Selection::caret(if to_end { b } else { a });
+            s.caret_upstream = false;
             sel_result(s)
         })
         .key("Escape")
@@ -89,8 +90,16 @@ fn mv(s: &mut Session, v: &Value, f: fn(&mut Session, &Pos) -> Pos) -> CmdResult
     s.goal_x = None;
     let from = s.sel.focus.clone();
     let to = f(s, &from);
+    // A moved-to wrap point shows at the start of its line (End sets its own).
+    s.caret_upstream = false;
     apply(s, to, ext);
     sel_result(s)
+}
+
+/// Is `pos` the end of a wrapped line (the same offset starts the next line)?
+fn at_wrap_end(s: &mut Session, pos: &Pos) -> bool {
+    let hint = s.page_hint;
+    s.layout().at_wrap_end(pos, hint)
 }
 
 /// Does the caret's paragraph read right to left?
@@ -112,12 +121,34 @@ fn lr(s: &mut Session, v: &Value, is_left: bool) -> CmdResult {
         let to_start = is_left != rtl_para(s);
         s.sel = Selection::caret(if to_start { a } else { b });
         s.goal_x = None;
+        s.caret_upstream = false;
         return sel_result(s);
     }
     if bidi_para(s) {
         return visual_lr(s, v, is_left);
     }
-    mv(s, v, if is_left { left } else { right })
+    let ext = extend(v);
+    s.goal_x = None;
+    let from = s.sel.focus.clone();
+    // Word's two stops at a soft wrap: Left from the next line's start first shows the end of
+    // the previous line, and Right from there shows the next line's start again (no character
+    // is crossed, so a shifted selection moves on at once).
+    if !ext && at_wrap_end(s, &from) {
+        if is_left && !s.caret_upstream {
+            s.caret_upstream = true;
+            return sel_result(s);
+        }
+        if !is_left && s.caret_upstream {
+            s.caret_upstream = false;
+            return sel_result(s);
+        }
+    }
+    let to = if is_left { left(s, &from) } else { right(s, &from) };
+    // Moving right onto a wrap end shows the caret after the previous line's last character;
+    // moving left shows the start of the next line first.
+    s.caret_upstream = !is_left && at_wrap_end(s, &to);
+    apply(s, to, ext);
+    sel_result(s)
 }
 
 /// Left/Right in bidirectional text: one caret position to the left or right on the screen.
@@ -126,6 +157,7 @@ fn lr(s: &mut Session, v: &Value, is_left: bool) -> CmdResult {
 fn visual_lr(s: &mut Session, v: &Value, is_left: bool) -> CmdResult {
     let ext = extend(v);
     s.goal_x = None;
+    s.caret_upstream = false;
     let from = s.sel.focus.clone();
     let l = s.layout();
     let to = match l.visual_step(&from, is_left, s.page_hint) {
@@ -216,20 +248,21 @@ fn vert(s: &mut Session, v: &Value, dir: i32) -> CmdResult {
     let ext = extend(v);
     let l = s.layout();
     let from = s.sel.focus.clone();
-    let to = match l.vertical(&from, s.goal_x, dir, s.page_hint) {
-        Some((p, gx)) => {
+    let (to, up) = match l.vertical_affinity(&from, s.goal_x, dir, s.page_hint, s.caret_upstream) {
+        Some((p, gx, up)) => {
             s.goal_x = Some(gx);
-            p
+            (p, up)
         }
         None => {
             // Top/bottom of the story: go to its start/end.
-            if dir < 0 { s.doc.start_of(from.story) } else { s.doc.end_of(from.story) }
+            (if dir < 0 { s.doc.start_of(from.story) } else { s.doc.end_of(from.story) }, false)
         }
     };
-    if let Some(c) = l.caret_on(&to, s.page_hint) {
+    if let Some(c) = l.caret_on_affinity(&to, s.page_hint, up) {
         s.page_hint = c.page;
     }
     let gx = s.goal_x;
+    s.caret_upstream = up;
     apply(s, to, ext);
     s.goal_x = gx;
     sel_result(s)
@@ -239,7 +272,7 @@ fn line(s: &mut Session, v: &Value, home: bool) -> CmdResult {
     let ext = extend(v);
     let l = s.layout();
     let from = s.sel.focus.clone();
-    let to = match l.line_bounds(&from, s.page_hint) {
+    let to = match l.line_bounds_affinity(&from, s.page_hint, s.caret_upstream) {
         Some((a, b)) => {
             if home {
                 a
@@ -249,6 +282,8 @@ fn line(s: &mut Session, v: &Value, home: bool) -> CmdResult {
         }
         None => from,
     };
+    // End goes after a wrapped line's last character.
+    s.caret_upstream = !home && l.at_wrap_end(&to, s.page_hint);
     s.goal_x = None;
     apply(s, to, ext);
     sel_result(s)
@@ -258,33 +293,38 @@ fn page(s: &mut Session, v: &Value, dir: i32) -> CmdResult {
     let ext = extend(v);
     let l = s.layout();
     let from = s.sel.focus.clone();
-    let Some(c) = l.caret_on(&from, s.page_hint) else { return sel_result(s) };
+    let Some(c) = l.caret_on_affinity(&from, s.page_hint, s.caret_upstream) else { return sel_result(s) };
     let np = if dir < 0 { c.page.saturating_sub(1) } else { (c.page + 1).min(l.pages.len().saturating_sub(1)) };
-    let to = l.hit(np, c.x, c.top + 1.0, from.story).unwrap_or(from);
+    let (to, up) = l.hit_affinity(np, c.x, c.top + 1.0, from.story).unwrap_or((from, false));
     s.page_hint = np;
+    s.caret_upstream = up;
     apply(s, to, ext);
     sel_result(s)
 }
 
 fn set(s: &mut Session, v: &Value) -> CmdResult {
     let ext = extend(v);
-    let to = if let Some(pv) = v.get("pos") {
-        parse_pos(pv).ok_or_else(|| CmdError::Params("bad `pos`".into()))?
+    let (to, up) = if let Some(pv) = v.get("pos") {
+        let pos = parse_pos(pv).ok_or_else(|| CmdError::Params("bad `pos`".into()))?;
+        // A click at a wrapped line's end passes `upstream` to show the caret there.
+        (pos, p::bool(v, "upstream").unwrap_or(false))
     } else if let (Some(pg), Some(x), Some(y)) = (p::u64(v, "page"), p::f32(v, "x"), p::f32(v, "y")) {
         let story = super::story_param(s, v);
         let l = s.layout();
         s.page_hint = pg as usize;
-        l.hit(pg as usize, x, y, story).ok_or_else(|| CmdError::Params("no text on that page".into()))?
+        l.hit_affinity(pg as usize, x, y, story).ok_or_else(|| CmdError::Params("no text on that page".into()))?
     } else {
         return Err(CmdError::Params("`pos` or `page`/`x`/`y` required".into()));
     };
     let to = s.doc.clamp(&to);
     s.goal_x = None;
+    s.caret_upstream = up;
     apply(s, to, ext);
     sel_result(s)
 }
 
 fn select_all(s: &mut Session, v: &Value) -> CmdResult {
+    s.caret_upstream = false;
     if s.selects_whole_story() {
         s.column = None;
         s.column_mode = false;
@@ -306,6 +346,7 @@ fn select_range(s: &mut Session, v: &Value) -> CmdResult {
     let a = v.get("anchor").and_then(parse_pos).ok_or_else(|| CmdError::Params("bad `anchor`".into()))?;
     let b = v.get("focus").and_then(parse_pos).ok_or_else(|| CmdError::Params("bad `focus`".into()))?;
     s.sel = Selection { anchor: s.doc.clamp(&a), focus: s.doc.clamp(&b) };
+    s.caret_upstream = false;
     sel_result(s)
 }
 
@@ -362,6 +403,7 @@ pub fn unit_range(s: &mut Session, at: &Pos, unit: Unit) -> (Pos, Pos) {
 }
 
 fn select_unit(s: &mut Session, unit: Unit) -> CmdResult {
+    s.caret_upstream = false;
     let f = s.sel.focus.clone();
     if s.doc.para_at(&f).is_some() {
         let (a, b) = unit_range(s, &f, unit);
@@ -432,6 +474,7 @@ fn drag_unit(s: &mut Session, v: &Value) -> CmdResult {
         return sel_result(s);
     }
     let (us, ue) = unit_range(s, &at, unit);
+    s.caret_upstream = false;
     s.sel = if unit == Unit::Document {
         Selection { anchor: us, focus: ue }
     } else if at >= start {
@@ -460,6 +503,7 @@ fn select_text(s: &mut Session, v: &Value) -> CmdResult {
             if count == n {
                 s.sel =
                     Selection { anchor: Pos { story, path: path.clone(), off: i }, focus: Pos { story, path: path.clone(), off: i + needle.len() } };
+                s.caret_upstream = false;
                 return sel_result(s);
             }
         }
