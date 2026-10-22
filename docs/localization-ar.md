@@ -72,8 +72,9 @@ never stored, compared, typed over, handed to the operating system or reported t
   or cancelled save (the prompt and status bar draw it), `ui.crop`.
 - Assembled lines go through `i18n::line` (status, labels with a value after a colon, tab stop
   tooltips, the command search results). Pieces that feed them stay in reading order to the end:
-  the tracked-formatting balloon's property descriptions (`panes::describe_props`) are built with
-  `t_logical`/`fmt_logical`, joined, and drawn through one `line`. Arrows, menu marks (`▾`, `◀`) and sample glyphs stay on
+  the property descriptions (`panes::describe`) are built with `t_logical`/`fmt_logical`; the
+  tracked-formatting balloon and the Style Inspector's Direct formatting rows join them and draw
+  each line through one `line`. Arrows, menu marks (`▾`, `◀`) and sample glyphs stay on
   their physical side, since the interface isn't mirrored.
 - Command search matches the typed words against labels and locations in reading order
   (`t_logical`, `location_logical`).
@@ -164,4 +165,4 @@ reordered strings.
 |---|---|---|
 | 2026-10-17 | minor | Arabic catalog (2,616 entries), registry row, Arabic interface font fallback, labels in display order (`i18n::bidi`) |
 | 2026-10-20 | minor | Review of #2677 (FredApps, CodeRabbit): `t_logical`/`tr_logical`/`fmt_logical` for stored, compared, OS-facing and automation text (untitled `مستند1`); `fmt` takes logical values and isolates them; assembled lines through `i18n::line`; 58 keys added upstream since |
-| 2026-10-21 | trivial | Review of #2677 (FredApps, CodeRabbit): formatting-balloon descriptions in reading order until drawn; command search in reading order; what stays unchanged for automation stated precisely |
+| 2026-10-21 | trivial | Review of #2677 (FredApps, CodeRabbit): formatting-balloon and Style Inspector descriptions in reading order until drawn; command search in reading order; what stays unchanged for automation stated precisely |

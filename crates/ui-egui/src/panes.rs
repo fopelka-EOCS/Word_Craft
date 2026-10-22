@@ -619,7 +619,7 @@ fn inspector(app: &mut WordApp, ui: &mut Ui) {
             if level_row(ui, &t, "Style", &pstyle_shown, false, "Reset to Normal", pstyle == "Normal" && para["style"] == "Normal") {
                 clear = Some("paragraphStyle");
             }
-            let (txt, empty) = if pdirect.is_empty() { (none.clone(), true) } else { (pdirect.join(", "), false) };
+            let (txt, empty) = if pdirect.is_empty() { (none.clone(), true) } else { (crate::i18n::line(pdirect.join(", ")), false) };
             if level_row(ui, &t, "Direct formatting", &txt, empty, "Clear Paragraph Formatting", empty) {
                 clear = Some("paragraphFormatting");
             }
@@ -633,7 +633,7 @@ fn inspector(app: &mut WordApp, ui: &mut Ui) {
             if level_row(ui, &t, "Style", &txt, empty, "Clear Character Style", empty) {
                 clear = Some("characterStyle");
             }
-            let (txt, empty) = if cdirect.is_empty() { (none.clone(), true) } else { (cdirect.join(", "), false) };
+            let (txt, empty) = if cdirect.is_empty() { (none.clone(), true) } else { (crate::i18n::line(cdirect.join(", ")), false) };
             if level_row(ui, &t, "Direct formatting", &txt, empty, "Clear Character Formatting", empty) {
                 clear = Some("characterFormatting");
             }
@@ -699,7 +699,8 @@ fn level_row(ui: &mut Ui, t: &Tokens, caption: &str, value: &str, dim: bool, tip
     clicked
 }
 
-/// Readable descriptions of the inspector's `direct` entries (`[{"prop", "value"}]`).
+/// Readable descriptions of the inspector's `direct` entries (`[{"prop", "value"}]`), in reading
+/// order: the inspector joins them into a row and draws it through `i18n::line`.
 fn direct_list(v: &Value) -> Vec<String> {
     v.as_array().map(|a| a.iter().take(64).map(|d| describe(d["prop"].as_str().unwrap_or(""), &d["value"])).collect()).unwrap_or_default()
 }
