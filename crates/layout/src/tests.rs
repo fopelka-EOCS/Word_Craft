@@ -606,6 +606,79 @@ fn a_word_a_negative_advance_narrows_still_fits() {
     assert_eq!(widths[0], 40.0, "the word is the sum of its advances");
     assert!(widths[0] <= 60.0, "a word of forty points fits in sixty");
     assert!(widths[0] > 30.0, "a word of forty points does not fit in thirty");
+
+    // The same word in a document: a font that pulls one glyph back takes the width off the
+    // rest of the word too, and the strip a floating object leaves is the row's only span, so
+    // the word is measured against it.
+    use wordcraft_doc::para::{Anchor, Float, ShapeKind, Wrap};
+    // Twelve characters, the sixth of them pulled back by thirty points.
+    let word = |pull: f32| {
+        let mut d = Document::from_text(&"a".repeat(12));
+        if pull != 0.0 {
+            d.format_range(&Pos::body(0, 5), &Pos::body(0, 6), &|c| c.spacing = Some(pull)).unwrap();
+        }
+        d
+    };
+    fn body(l: &DocLayout) -> &ParaLayout {
+        let Some(Placed::Lines { para, .. }) = l.pages[0].items.iter().find(|i| matches!(i, Placed::Lines { story: StoryRef::Body, .. })) else {
+            panic!("no body text on the page")
+        };
+        para
+    }
+    // The width of the word: the sum of its advances, its last glyph's right edge.
+    let width = |d: &Document| {
+        let l = lay(d);
+        let para = body(&l);
+        let ln = &para.lines[0];
+        let last = ln.c1 - 1;
+        ln.xs[last - ln.c0] + para.clusters[last].adv
+    };
+    let plain = width(&word(0.0));
+    let pulled = width(&word(-30.0));
+    assert!(pulled < plain, "a font that pulls a glyph back makes the word narrower: {pulled} against {plain}");
+    // The strip the object leaves is half way between the two widths: the word fits it with the
+    // glyph pulled back, and does not fit it without.
+    let strip = (plain + pulled) / 2.0;
+    // The lines of the word laid out beside an object that leaves a strip of that width: (top,
+    // left, the clusters it covers, where its text ends, whether it ends inside a word).
+    let beside = |d: Document| {
+        let float = Float { wrap: Wrap::Square, h_rel: Anchor::Column, v_rel: Anchor::Paragraph, x: 0.0, ..Default::default() };
+        let shape = InlineObject::Shape {
+            kind: ShapeKind::Rectangle,
+            w: 468.0 - strip,
+            h: 150.0,
+            fill: None,
+            stroke: None,
+            stroke_width: 1.0,
+            float,
+            story: None,
+            effects: Default::default(),
+            freeform: None,
+            extra: Default::default(),
+        };
+        let mut d = d;
+        d.insert_object(&Pos::body(0, 0), shape, &Default::default()).unwrap();
+        let l = lay(&d);
+        let para = body(&l);
+        para.lines
+            .iter()
+            .map(|ln| {
+                let inside = ln.c1 > ln.c0 && ln.end == para::LineEnd::Wrap && !para.clusters[ln.c1 - 1].break_after;
+                (ln.top, ln.left, ln.c1, ink_end(para, ln), inside)
+            })
+            .collect::<Vec<_>>()
+    };
+    // The narrower word fits the strip beside the object and stays there.
+    let fits = beside(word(-30.0));
+    assert_eq!(fits.len(), 1, "the word fits the strip beside the object: {fits:?}");
+    assert!(fits[0].1 >= 468.0 - strip - 0.01, "the word is in the strip beside the object: {fits:?}");
+    assert!(fits[0].3 <= 468.0 + 0.01, "the word ends inside the strip: {fits:?}");
+    assert!(!fits[0].4, "the word is not split across the strip: {fits:?}");
+    // The wider one does not: it moves on whole, below the object, rather than being split
+    // across the strip.
+    let moves_on = beside(word(0.0));
+    assert!(moves_on.iter().any(|l| l.0 >= 150.0 - 0.01 && l.1 < 1.0), "the wider word is laid out below the object: {moves_on:?}");
+    assert!(moves_on.iter().all(|l| !l.4), "the word is not split across the strip: {moves_on:?}");
 }
 
 /// The words after a break are words of their own: their advances are not counted in the word
