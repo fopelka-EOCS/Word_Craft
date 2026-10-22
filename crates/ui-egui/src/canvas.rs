@@ -2888,6 +2888,7 @@ fn context_menu(app: &mut WordApp, ui: &mut Ui) {
     if picture {
         item(ui, app, "Change Picture…", "ui.changePicture", json!({}));
         item(ui, app, "Reset Picture", "picture.reset", json!({}));
+        item(ui, app, "Size and Crop…", "ui.tab", json!({"tab": "Picture Format"}));
         item(ui, app, "Crop", "ui.crop", json!({}));
     }
     if object {
@@ -4793,15 +4794,8 @@ mod tests {
         use egui_kittest::kittest::Queryable;
         use wordcraft_doc::para::{InlineObject, OBJ};
         let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
-        let pic = InlineObject::Image {
-            media: "m".into(),
-            w: 200.0,
-            h: 100.0,
-            alt: String::new(),
-            float: Default::default(),
-            crop: [0.0; 4],
-            ole: None,
-        };
+        let pic =
+            InlineObject::Image { media: "m".into(), w: 200.0, h: 100.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None };
         app.session.doc.insert_object(&Pos::body(0, 0), pic, &Default::default()).unwrap();
         let end = Pos::body(0, OBJ.len_utf8());
         app.run("select.range", json!({"anchor": Pos::body(0, 0), "focus": end})).unwrap();
@@ -4825,7 +4819,7 @@ mod tests {
         }
         h.step();
         assert!(h.state().canvas.context_menu_open, "context menu is open on image");
-        h.get_by_label_contains("Crop").click();
+        h.get_by_label("Crop ").click();
         for _ in 0..3 {
             h.step();
         }
