@@ -74,10 +74,11 @@ pub(crate) fn fill(app: &mut WordApp, id: &str, params: &mut Value) -> Option<Re
 ///
 /// The text also goes on the primary selection where the platform has one (Linux), and only with
 /// "Use the middle mouse button to paste instead of autoscroll" on (#1934): a middle click then
-/// pastes a copy from here as it can from a browser. Without the option WordCraft never reads it,
-/// so it leaves the mouse selection other programs keep to them. It is plain text either way, and
-/// the ordinary clipboard is set whether or not this succeeds.
-pub(crate) fn put(app: &mut WordApp, ctx: &egui::Context, text: &str, html: &str, mathml: &str) {
+/// pastes a copy from here, as it can from a browser. Without the option WordCraft never reads it,
+/// so it leaves the mouse selection other programs keep to them. It is plain text either way — the
+/// primary selection carries no formatting — and the ordinary clipboard is set whether or not this
+/// succeeds.
+pub(crate) fn put(app: &WordApp, ctx: &egui::Context, text: &str, html: &str, mathml: &str) {
     if text.is_empty() {
         // A copied picture or shape has no text, only HTML (#2276): empty the clipboard's text,
         // else Paste would find the text copied before it and paste that instead of our copy.
@@ -87,14 +88,8 @@ pub(crate) fn put(app: &mut WordApp, ctx: &egui::Context, text: &str, html: &str
         return;
     }
     if app.session.prefs.middle_click_paste {
-        let ours = app.services.set_primary_text.as_ref().is_some_and(|f| f(text));
-        // Remember what we put there: a middle click pastes the primary selection with our own
-        // formatting only while it still holds our copy (#1934). Another program's selection is
-        // plain text, even when it reads the same.
-        app.canvas.primary_selection_ours = ours.then(|| text.to_string());
-    } else {
-        // The option is off, so the primary selection is not ours to paste with formatting.
-        app.canvas.primary_selection_ours = None;
+        // A middle click in another program pastes this copy then, as a browser's does (#1934).
+        let _ = app.services.set_primary_text.as_ref().is_some_and(|f| f(text));
     }
     if !html.is_empty() && app.services.set_clipboard_html.as_ref().is_some_and(|f| f(html, text, mathml)) {
         return;
@@ -103,7 +98,7 @@ pub(crate) fn put(app: &mut WordApp, ctx: &egui::Context, text: &str, html: &str
 }
 
 /// Put what Copy or Cut returned on the system clipboard (see [`put`]).
-pub(crate) fn put_result(app: &mut WordApp, ctx: &egui::Context, r: &Value) {
+pub(crate) fn put_result(app: &WordApp, ctx: &egui::Context, r: &Value) {
     let s = |k: &str| r.get(k).and_then(Value::as_str).unwrap_or("");
     put(app, ctx, s("text"), s("html"), s("mathml"));
 }
@@ -264,7 +259,9 @@ mod tests {
     }
 
     /// #1934: a copy also reaches the primary selection, so a middle click pastes what was
-    /// copied here — as it does from a browser — rather than only what another program left there.
+    /// copied here — here or in another program, as it does from a browser — rather than only
+    /// what another program left there. It is plain text: the primary selection carries no
+    /// formatting.
     #[test]
     fn copying_also_puts_the_text_on_the_primary_selection() {
         // #1934: a middle click pastes the primary selection, so a copy here has to land on it
@@ -286,7 +283,7 @@ mod tests {
         let ctx = egui::Context::default();
         a.run("select.all", json!({})).unwrap();
         let r = a.run("edit.copy", json!({})).unwrap();
-        put_result(&mut a, &ctx, &r);
+        put_result(&a, &ctx, &r);
         assert_eq!(primary.borrow().as_slice(), ["Studio"], "the copy reached the primary selection");
 
         // It goes there whatever the ordinary clipboard does, HTML or not.
@@ -304,11 +301,11 @@ mod tests {
         a.session.prefs.middle_click_paste = true;
         a.run("document.setText", json!({"text": "Studio"})).unwrap();
         let r = a.run("select.all", json!({})).and_then(|_| a.run("edit.copy", json!({}))).unwrap();
-        put_result(&mut a, &ctx, &r);
+        put_result(&a, &ctx, &r);
         assert_eq!(primary.borrow().last().map(String::as_str), Some("Studio"), "set even when the clipboard write failed");
 
-        // With the option off nothing reads the primary selection, so a copy leaves the mouse
-        // selection other programs keep alone.
+        // With the option off a copy leaves the primary selection alone, so the mouse selection
+        // other programs keep stays theirs.
         let mut a = app(Services {
             set_primary_text: Some(Box::new({
                 let s = primary.clone();
@@ -322,7 +319,7 @@ mod tests {
         a.run("document.setText", json!({"text": "Studio"})).unwrap();
         a.run("select.all", json!({})).unwrap();
         let r = a.run("edit.copy", json!({})).unwrap();
-        put_result(&mut a, &ctx, &r);
+        put_result(&a, &ctx, &r);
         assert_eq!(primary.borrow().len(), 2, "with the option off the copy left the primary selection alone");
     }
 
@@ -347,7 +344,7 @@ mod tests {
         a.run("select.all", json!({})).unwrap();
         let ctx = egui::Context::default();
         let r = a.run("edit.copy", json!({})).unwrap();
-        put_result(&mut a, &ctx, &r);
+        put_result(&a, &ctx, &r);
         let got_now = got.borrow().clone();
         assert_eq!(got_now.len(), 1);
         assert!(got_now[0].0.contains("<math") && got_now[0].1.contains("y=2x_s"), "{got_now:?}");
@@ -356,7 +353,7 @@ mod tests {
         // Text without an equation gets HTML too, so other programs keep its formatting (#1523).
         a.run("select.range", json!({"anchor": {"block": 0, "off": 0}, "focus": {"block": 0, "off": 5}})).unwrap();
         let r = a.run("edit.copy", json!({})).unwrap();
-        put_result(&mut a, &ctx, &r);
+        put_result(&a, &ctx, &r);
         let got_now = got.borrow().clone();
         assert_eq!(got_now.len(), 2);
         assert!(got_now[1].0.contains("Speed") && !got_now[1].0.contains("<math") && got_now[1].1 == "Speed", "{got_now:?}");
@@ -364,7 +361,7 @@ mod tests {
         // The equation alone: its MathML for the platform's MathML formats too (#1297).
         a.run("select.range", json!({"anchor": {"block": 0, "off": 6}, "focus": {"block": 0, "off": 9}})).unwrap();
         let r = a.run("edit.copy", json!({})).unwrap();
-        put_result(&mut a, &ctx, &r);
+        put_result(&a, &ctx, &r);
         let got_now = got.borrow().clone();
         assert_eq!(got_now.len(), 3);
         assert!(got_now[2].2.starts_with("<math") && got_now[2].2.contains("<msub>") && got_now[2].1 == "y=2x_s", "{got_now:?}");
