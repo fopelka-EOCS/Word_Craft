@@ -49,6 +49,11 @@ pub enum ProofLang {
     /// `id_ID` dictionary, dictionary-driven suggestions and generic checks with Indonesian
     /// messages. Hyphenation keeps the fallback English patterns.
     Id,
+    /// Romanian (`ro`, `ro-RO`, `ro-MD`; also ISO 639-2 `ron`/`rum` and the retired `mo`/`mol`):
+    /// the installed Hunspell `ro_RO` dictionary, dictionary-driven suggestions led by the
+    /// comma-below `ș`/`ț` form of a word typed with the cedilla `ş`/`ţ`, and conservative checks
+    /// with Romanian messages. Hyphenation keeps the fallback English patterns.
+    Ro,
     /// German (`de`, `de-DE`, `de-AT`, `de-CH`…): hyphenation by the German patterns (reformed
     /// spelling). There is no German dictionary or grammar yet, so, as for [`ProofLang::Other`],
     /// no spelling or grammar marks.
@@ -62,7 +67,7 @@ pub enum ProofLang {
 
 impl ProofLang {
     /// Every language with a spelling dictionary, in display order.
-    pub const PROOFED: [ProofLang; 11] = [
+    pub const PROOFED: [ProofLang; 12] = [
         ProofLang::En,
         ProofLang::EnGb,
         ProofLang::EnCa,
@@ -74,6 +79,7 @@ impl ProofLang {
         ProofLang::Ru,
         ProofLang::Cs,
         ProofLang::Id,
+        ProofLang::Ro,
     ];
 
     /// The proofing language of a BCP 47 tag (`pl-PL`, `en_GB`, `PL`…). The primary subtag
@@ -102,6 +108,8 @@ impl ProofLang {
             ProofLang::Cs
         } else if primary.eq_ignore_ascii_case("id") || primary.eq_ignore_ascii_case("ind") || primary.eq_ignore_ascii_case("in") {
             ProofLang::Id
+        } else if ["ro", "ron", "rum", "mo", "mol"].iter().any(|c| primary.eq_ignore_ascii_case(c)) {
+            ProofLang::Ro
         } else if ["de", "deu", "ger"].iter().any(|c| primary.eq_ignore_ascii_case(c)) {
             ProofLang::De
         } else {
@@ -133,7 +141,7 @@ impl ProofLang {
         matches!(self, ProofLang::En | ProofLang::EnGb | ProofLang::EnCa)
     }
 
-    /// The primary language subtag (`en`, `pl`, `bg`, `tr`, `ru`, `cs`, `id`, `de`); empty for [`ProofLang::Other`].
+    /// The primary language subtag (`en`, `pl`, `bg`, `tr`, `ru`, `cs`, `id`, `ro`, `de`); empty for [`ProofLang::Other`].
     pub fn code(self) -> &'static str {
         match self {
             ProofLang::En | ProofLang::EnGb | ProofLang::EnCa => "en",
@@ -146,6 +154,7 @@ impl ProofLang {
             ProofLang::Ru => "ru",
             ProofLang::Cs => "cs",
             ProofLang::Id => "id",
+            ProofLang::Ro => "ro",
             ProofLang::De => "de",
             ProofLang::Other => "",
         }
@@ -244,6 +253,15 @@ mod tests {
         }
         assert_eq!(ProofLang::Id.code(), "id");
         assert!(ProofLang::Id.is_proofed() && ProofLang::PROOFED.contains(&ProofLang::Id));
+        for t in ["ro", "ro-RO", "RO-ro", "ro_RO", "ro_RO.UTF-8", " ro-RO ", "ro-MD", "ro-Latn-RO", "ron", "RUM", "mo", "mo-MD", "mol"] {
+            assert_eq!(ProofLang::from_tag(Some(t)), ProofLang::Ro, "{t}");
+        }
+        assert_eq!(ProofLang::Ro.code(), "ro");
+        assert!(ProofLang::Ro.is_proofed() && ProofLang::PROOFED.contains(&ProofLang::Ro));
+        // Romani (`rom`) and Romansh (`rm`) are other languages.
+        for t in ["rom", "rm", "rm-CH", "rox", "mos", "roh"] {
+            assert_eq!(ProofLang::from_tag(Some(t)), ProofLang::Other, "{t}");
+        }
         for t in ["en", "en-US", "EN_us", "en-Latn-US", "en-PH", "en-001", "eng", "en_US.UTF-8", "en-x-gb"] {
             assert_eq!(ProofLang::from_tag(Some(t)), ProofLang::En, "{t}");
         }

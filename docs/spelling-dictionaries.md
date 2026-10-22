@@ -1,9 +1,9 @@
 # Installing spelling dictionaries
 
-> **Last reviewed:** 2026-10-16 · **Last updated:** 2026-10-22 · **Change:** trivial (every Hunspell language shows (no dictionary), not only Polish and Portuguese, and Indonesian is listed, #3150; previously trivial: ISO 8859-1 dictionaries are read, #2824)
+> **Last reviewed:** 2026-10-16 · **Last updated:** 2026-10-22 · **Change:** minor (Romanian: the `ro_RO` file names and how to install it; previously trivial: every Hunspell language shows (no dictionary), not only Polish and Portuguese, and Indonesian is listed, #3150; previously trivial: ISO 8859-1 dictionaries are read, #2824)
 
 English spelling works out of the box. Polish, Russian, Portuguese, Czech, Italian, Croatian,
-Turkish and Indonesian spelling use a standard **Hunspell** dictionary (an `.aff` and a `.dic` file) that
+Turkish, Indonesian and Romanian spelling use a standard **Hunspell** dictionary (an `.aff` and a `.dic` file) that
 WordCraft reads at runtime. These dictionaries are not bundled: they are large, and several are
 GPL or LGPL licensed. Without one, the language isn't checked. The status bar then shows the
 language with **(no dictionary)**, for example *Português (Brasil) (no dictionary)*.
@@ -30,6 +30,7 @@ WordCraft looks for the first of these file names (each name means a `<name>.aff
 | Croatian | `hr_HR`, `hr-HR`, `hr` | LibreOffice `dict-hr` |
 | Turkish | `tr_TR`, `tr-TR`, `tr` | LibreOffice `dict-tr` |
 | Indonesian | `id_ID`, `id-ID`, `id`, `in_ID` | LibreOffice `dict-id` |
+| Romanian | `ro_RO`, `ro-RO`, `ro`, `ro_MD` | LibreOffice `dict-ro` (rospell) |
 
 Every Portuguese region uses the same `pt_BR` dictionary, so text marked *Português (Portugal)*
 is checked with it too.
@@ -107,6 +108,31 @@ curl -fLO https://raw.githubusercontent.com/LibreOffice/dictionaries/master/pt_B
 Other languages work the same way: replace `pt_BR` with the language's folder and file names
 from the LibreOffice repository (for example `it_IT/it_IT.aff`).
 
+## Example: Romanian (`ro_RO`)
+
+The Romanian dictionary LibreOffice ships (rospell, GPL / LGPL / MPL) is in the
+[LibreOffice dictionaries repository](https://github.com/LibreOffice/dictionaries/tree/master/ro),
+in the folder `ro` (not `ro_RO`). If LibreOffice is installed, WordCraft finds its `dict-ro`
+extension on its own.
+
+On Windows, in PowerShell:
+
+```powershell
+$d = "$env:LOCALAPPDATA\WordCraft\dictionaries"
+New-Item -ItemType Directory -Force $d | Out-Null
+$base = "https://raw.githubusercontent.com/LibreOffice/dictionaries/master/ro"
+Invoke-WebRequest "$base/ro_RO.aff" -OutFile "$d\ro_RO.aff" -UseBasicParsing
+Invoke-WebRequest "$base/ro_RO.dic" -OutFile "$d\ro_RO.dic" -UseBasicParsing
+```
+
+On Debian and Ubuntu, `sudo apt install hunspell-ro`.
+
+Restart WordCraft. Text in Romanian (Review › Language › Romanian; the Romanian interface writes
+new documents in Romanian) is then checked as you type. The dictionary spells `ș` and `ț` with a
+comma below, as the current norm does: a word typed with the older cedilla letters `ş` and `ţ`
+is underlined with *Se scrie cu ș și ț cu virgulă, nu cu sedilă*, and the corrected word is the
+first suggestion.
+
 ## Checking that it works
 
 - Restart WordCraft. The status bar no longer says **(no dictionary)**, and a misspelled word
@@ -128,6 +154,7 @@ Never commit dictionary files to this repository: they stay on the user's system
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-22 | minor | Romanian: the `ro_RO` file names, LibreOffice's `dict-ro` and how to install the dictionary on Windows and Debian/Ubuntu |
 | 2026-10-22 | trivial | Italian, Croatian, Turkish, Russian, Czech and Indonesian without a dictionary now show **(no dictionary)** (or **(dictionary unreadable)**) too, as this page already said; before, only Polish and Portuguese did. Indonesian is listed with its file names (#3150) |
 | 2026-10-18 | trivial | ISO 8859-1 (`SET ISO8859-1`) dictionaries are read, so the original VERO `pt_BR` works without converting it to UTF-8 (#2824) |
 | 2026-10-18 | minor | An installed dictionary that can't be read shows **(dictionary unreadable)** in the status bar, with the file and reason in its tooltip and in File › Options › Proofing (#2830) |

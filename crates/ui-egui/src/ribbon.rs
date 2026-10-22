@@ -774,7 +774,7 @@ fn mi_text(ui: &mut Ui, app: &mut WordApp, text: &str, id: &str, params: Value) 
 }
 
 /// The proofing languages the Language menu offers: tag and English name (translated when drawn).
-pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 12] = [
+pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 13] = [
     ("en-US", "English (United States)"),
     ("en-GB", "English (United Kingdom)"),
     ("en-AU", "English (Australia)"),
@@ -787,6 +787,7 @@ pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 12] = [
     ("ru-RU", "Russian"),
     ("cs-CZ", "Czech"),
     ("id-ID", "Indonesian"),
+    ("ro-RO", "Romanian"),
 ];
 
 /// The English name of a proofing language tag, as the status bar shows it (no tag: WordCraft's
@@ -827,6 +828,7 @@ pub(crate) fn language_name(tag: Option<&str>) -> String {
             wordcraft_engine::proof::ProofLang::Ru => "Russian".into(),
             wordcraft_engine::proof::ProofLang::Cs => "Czech".into(),
             wordcraft_engine::proof::ProofLang::Id => "Indonesian".into(),
+            wordcraft_engine::proof::ProofLang::Ro => "Romanian".into(),
             wordcraft_engine::proof::ProofLang::De => "German (Germany)".into(),
             wordcraft_engine::proof::ProofLang::En if tag.eq_ignore_ascii_case("en") => "English (United States)".into(),
             _ => tag.to_string(),
@@ -836,7 +838,7 @@ pub(crate) fn language_name(tag: Option<&str>) -> String {
 
 /// The English name of a region subtag the language list has no entry for (else the subtag).
 fn region_name(code: &str) -> String {
-    const REGIONS: [(&str, &str); 62] = [
+    const REGIONS: [(&str, &str); 63] = [
         ("AE", "U.A.E."),
         ("AO", "Angola"),
         ("AR", "Argentina"),
@@ -877,6 +879,7 @@ fn region_name(code: &str) -> String {
         ("LU", "Luxembourg"),
         ("MA", "Morocco"),
         ("MC", "Monaco"),
+        ("MD", "Moldova"),
         ("ME", "Montenegro"),
         ("MO", "Macao SAR"),
         ("MX", "Mexico"),
@@ -966,6 +969,7 @@ pub(crate) fn language_menu(ui: &mut Ui, app: &mut WordApp) {
             || (tag == "tr-TR" && current.eq_ignore_ascii_case("tr"))
             || (tag == "cs-CZ" && wordcraft_engine::proof::ProofLang::from_tag(Some(&current)) == wordcraft_engine::proof::ProofLang::Cs)
             || (tag == "id-ID" && wordcraft_engine::proof::ProofLang::from_tag(Some(&current)) == wordcraft_engine::proof::ProofLang::Id)
+            || (tag == "ro-RO" && wordcraft_engine::proof::ProofLang::from_tag(Some(&current)) == wordcraft_engine::proof::ProofLang::Ro)
             || (tag == "en-US" && current.eq_ignore_ascii_case("en"))
     };
     let checks = language_checks(&current, listed);
@@ -3322,6 +3326,16 @@ mod tests {
         for tag in ["id", "id-ID", "ID-id", "ind", "in"] {
             assert_eq!(language_name(Some(tag)), "Indonesian", "{tag}");
         }
+    }
+
+    #[test]
+    fn romanian_has_a_name_in_the_language_menu() {
+        assert!(PROOFING_LANGUAGES.contains(&("ro-RO", "Romanian")));
+        assert!(crate::dialogs_layout::LANGUAGES.contains(&("ro-RO", "Romanian")));
+        for tag in ["ro", "ro-RO", "RO-ro", "ron", "rum", "mo"] {
+            assert_eq!(language_name(Some(tag)), "Romanian", "{tag}");
+        }
+        assert_eq!(language_name(Some("ro-MD")), "Romanian (Moldova)");
     }
 
     #[test]
