@@ -618,12 +618,16 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                 if app.session.prefs.overtype && st(ui, tl!("Overtype")).on_hover_text(tl!("Click to switch back to inserting")).clicked() {
                     let _ = app.run("text.overtype", json!({"value": false}));
                 }
-                // The message is drawn where the row is now; the controls on the right are laid
-                // out first, so the message can be shortened to the space they leave (#2402): a
-                // long one (the path of a file that isn't there) must not be drawn over the
-                // Focus and view buttons.
-                let msg_at = ui.cursor().min;
-                let mut controls_left = f32::INFINITY;
+                // The message is drawn where the row is now; the controls are laid out first, so
+                // the message can be shortened to the space they leave (#2402): a long one (the
+                // path of a file that isn't there) must not be drawn over the Focus and view
+                // buttons. LTR grows the message rightward from the cursor's left. RTL packs the
+                // row from the right, so the free point beside the status items is the cursor's
+                // right and the message grows leftward.
+                let rtl = crate::i18n::current().is_rtl();
+                let cursor = ui.cursor();
+                let msg_at = if rtl { pos2(cursor.max.x, cursor.min.y) } else { cursor.min };
+                let mut controls_edge = if rtl { f32::NEG_INFINITY } else { f32::INFINITY };
                 ui.with_layout(crate::i18n::trailing_layout(egui::Align::Center), |ui| {
                     ui.spacing_mut().item_spacing = vec2(4.0, 0.0);
                     let reading = app.session.view.read_mode;
@@ -686,9 +690,9 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                     let focus = tl!("Focus");
                     let focus_w = ui.ctx().fonts_mut(|f| f.layout_no_wrap(focus.to_string(), regular(11.5), t.text_dim).size().x);
                     let (r, resp) = ui.allocate_exact_size(vec2((focus_w + 26.0).max(56.0), 20.0), Sense::click());
-                    // The Focus button is the last of the controls, so it is the leftmost one: the
-                    // message has to stop before it (#2402).
-                    controls_left = r.min.x;
+                    // Focus is the last control: the leftmost in LTR, the rightmost in RTL. The
+                    // message stops at the edge that faces it (#2402).
+                    controls_edge = if rtl { r.max.x } else { r.min.x };
                     if resp.hovered() {
                         ui.painter().rect_filled(r, 3.0, t.hover);
                     }
@@ -714,12 +718,18 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                 {
                     let font = TypeRung::Caption.regular();
                     let track = TypeRung::Caption.tracking();
-                    // The room the message has: what is left between here and the controls.
-                    let room = controls_left - ui.spacing().item_spacing.x - msg_at.x;
+                    // The room the message has: what is left between here and the controls. RTL
+                    // measures from the controls' right edge back to the status items.
+                    let room = if rtl {
+                        msg_at.x - ui.spacing().item_spacing.x - controls_edge
+                    } else {
+                        controls_edge - ui.spacing().item_spacing.x - msg_at.x
+                    };
                     let msg_shown = fit_text(ui.painter(), msg, &font, track, t.accent_text, room);
                     if !msg_shown.is_empty() {
                         let w = text_width(ui.painter(), &msg_shown, &font, track, t.accent_text);
-                        let rect = Rect::from_min_size(msg_at, vec2(w + 1.0, TypeRung::Caption.line_height()));
+                        let origin = if rtl { pos2(msg_at.x - w, msg_at.y) } else { msg_at };
+                        let rect = Rect::from_min_size(origin, vec2(w + 1.0, TypeRung::Caption.line_height()));
                         // The whole message is in the tooltip; the bar only has room for the
                         // beginning of it (#2402).
                         let _ = ui.interact(rect, status_message_id(), Sense::hover()).on_hover_text(msg.clone());
@@ -879,6 +889,53 @@ mod tests {
         let msg = ctx.read_response(status_message_id()).expect("the message is drawn");
         assert!(msg.rect.width() < whole, "the message is shortened: {:?} of {whole}", msg.rect);
         assert!(f64::from(msg.rect.right()) <= focus.x0, "the message stops before the Focus button: {:?} vs {}", msg.rect, focus.x0);
+    }
+
+    /// Hebrew packs the status row from the right and the zoom controls from the left, with Focus
+    /// at their right edge. A long message has to stop at that edge instead of covering the zoom
+    /// and view controls.
+    #[test]
+    fn a_long_status_message_stops_at_the_controls_in_hebrew() {
+        struct Restore;
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                crate::i18n::set_current(crate::i18n::Lang::EN);
+            }
+        }
+        let _restore = Restore;
+        crate::i18n::set_current(crate::i18n::Lang::from_code("he").unwrap());
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        let long = "C:\\Test\\Documents\\Reports\\Final individual test folder\\Second level folder\\Project - Gadgets and sleep of teenagers.docx: The system cannot find the path specified. (os error 3)";
+        a.status_msg = Some((long.to_string(), crate::now_ms()));
+        let ctx = ctx();
+        ctx.enable_accesskit();
+        let input = egui::RawInput {
+            time: Some(0.0),
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1200.0, 800.0))),
+            ..Default::default()
+        };
+        let mut whole = 0.0;
+        let focus_label = tl!("Focus");
+        let mut out = ctx.run_ui(input, |ui| {
+            status_bar(&mut a, ui);
+            let t = Tokens::get(ui.ctx());
+            let font = TypeRung::Caption.regular();
+            let track = TypeRung::Caption.tracking();
+            whole = text_width(ui.painter(), long, &font, track, t.accent_text);
+        });
+        out.textures_delta.clear();
+        let update = out.platform_output.accesskit_update.take().unwrap();
+        let focus =
+            update.nodes.iter().find(|(_, node)| node.label() == Some(focus_label)).unwrap_or_else(|| panic!("Focus is drawn")).1.bounds().unwrap();
+        let msg = ctx.read_response(status_message_id()).expect("the message is drawn");
+        assert!(msg.rect.left() >= 0.0, "the message stays on the bar: {:?}", msg.rect);
+        assert!(msg.rect.width() < whole, "the message is shortened: {:?} of {whole}", msg.rect);
+        assert!(
+            f64::from(msg.rect.left()) >= focus.x1,
+            "the message starts to the right of the controls: {:?} vs focus right {}",
+            msg.rect,
+            focus.x1
+        );
     }
 
     /// The status bar's "editing a non-body story" line named every one of them "Editing

@@ -687,6 +687,14 @@ fn animations_picker(app: &mut WordApp, ui: &mut Ui) {
     }
 }
 
+/// A language's own name as egui should paint it. egui lays glyphs left to right, and `present`
+/// leaves a name logical unless the interface is already right to left — the picker is usually
+/// opened from another language. Only names that contain right-to-left letters are reordered.
+fn language_label(name: &str) -> String {
+    let rtl_letters = name.chars().any(|c| matches!(unicode_bidi::bidi_class(c), unicode_bidi::BidiClass::R | unicode_bidi::BidiClass::AL));
+    if rtl_letters { crate::i18n::visual_for_ui(name) } else { name.to_string() }
+}
+
 /// Interface language: follow the system (the default) or pick one (#8).
 fn language_picker(app: &mut WordApp, ui: &mut Ui) {
     use crate::i18n::{AUTO, Lang};
@@ -694,8 +702,8 @@ fn language_picker(app: &mut WordApp, ui: &mut Ui) {
     app.want_system_cjk = true;
     app.want_hebrew_ui = true;
     let system = crate::i18n::system_lang();
-    let auto_label = crate::i18n::fmt(tl!("Automatic ({language})"), &[("language", system.name())]);
-    let current = if app.ui.language == AUTO { auto_label.clone() } else { Lang::from_pref(&app.ui.language).name().to_string() };
+    let auto_label = crate::i18n::fmt(tl!("Automatic ({language})"), &[("language", &language_label(system.name()))]);
+    let current = if app.ui.language == AUTO { auto_label.clone() } else { language_label(Lang::from_pref(&app.ui.language).name()) };
     ui.horizontal(|ui| {
         ui.label(tl!("Interface language:"));
         egui::ComboBox::from_id_salt("interface_language").selected_text(current).width(220.0).show_ui(ui, |ui| {
@@ -703,7 +711,7 @@ fn language_picker(app: &mut WordApp, ui: &mut Ui) {
                 let _ = app.run("ui.language", json!({"value": AUTO}));
             }
             for lang in Lang::for_picker() {
-                if ui.selectable_label(app.ui.language == lang.code(), lang.name()).clicked() {
+                if ui.selectable_label(app.ui.language == lang.code(), language_label(lang.name())).clicked() {
                     let _ = app.run("ui.language", json!({"value": lang.code()}));
                 }
             }
@@ -808,6 +816,20 @@ mod tests {
 
     fn app() -> WordApp {
         WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default())
+    }
+
+    /// The language list paints Hebrew in visual order. The code stored for the choice stays the
+    /// language id; only the letters drawn in the row change.
+    #[test]
+    fn hebrew_language_name_is_painted_in_visual_order() {
+        let logical = crate::i18n::Lang::from_code("he").unwrap().name();
+        assert_eq!(logical, "עברית (Hebrew)");
+        let shown = super::language_label(logical);
+        assert_eq!(shown, crate::i18n::visual_for_ui(logical));
+        assert_ne!(shown, logical);
+        assert!(shown.contains("Hebrew"), "{shown}");
+        assert_eq!(super::language_label("English"), "English");
+        assert_eq!(super::language_label("Français"), "Français");
     }
 
     fn nav_harness(language: &str, percent: u16) -> egui_kittest::Harness<'static, WordApp> {

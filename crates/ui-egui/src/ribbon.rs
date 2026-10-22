@@ -365,11 +365,11 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                                 crate::widgets::icon_only_button(ui, "pencil", editing_label, regular(12.0), true)
                             };
                             egui::Popup::menu(&mode).show(|ui| {
-                                if ui.selectable_label(!track, tl!(tl!("Editing — edit the document directly"))).clicked() {
+                                if ui.selectable_label(!track, tl!("Editing — edit the document directly")).clicked() {
                                     let _ = app.run("review.trackChanges", json!({"value": false}));
                                     ui.close();
                                 }
-                                if ui.selectable_label(track, tl!(tl!("Reviewing — edits become suggestions"))).clicked() {
+                                if ui.selectable_label(track, tl!("Reviewing — edits become suggestions")).clicked() {
                                     let _ = app.run("review.trackChanges", json!({"value": true}));
                                     ui.close();
                                 }
@@ -385,7 +385,13 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                             }
                         });
                         ui.add_space(8.0);
-                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        // Hebrew packs the tabs from the right edge. English keeps File on the left.
+                        let tab_layout = if crate::i18n::current().is_rtl() {
+                            egui::Layout::right_to_left(egui::Align::Center)
+                        } else {
+                            egui::Layout::left_to_right(egui::Align::Center)
+                        };
+                        ui.with_layout(tab_layout, |ui| {
                             // The tabs that don't fit go into a » menu at the end of the strip (#897, #2026).
                             for (i, ((tab, custom), _)) in tabs.iter().zip(&plan.fits).enumerate().filter(|(_, (_, fits))| **fits) {
                                 let (tab, custom) = (tab.as_str(), *custom);
@@ -3470,6 +3476,43 @@ mod tests {
                 assert!(h.query_by_label(tl!("File")).is_some(), "{lang} {width}: File stays on the strip");
             }
         }
+    }
+
+    /// Hebrew puts File to the right of Home, against the window's right edge, and the Share
+    /// button on the trailing (left) side.
+    #[test]
+    fn hebrew_tabs_pack_from_the_right() {
+        use egui_kittest::kittest::Queryable;
+        struct Restore;
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                crate::i18n::set_current(crate::i18n::Lang::EN);
+            }
+        }
+        let _restore = Restore;
+        let mut app = WordApp::new(Session::new(wordcraft_doc::Document::from_text("Text")), crate::Services::default());
+        app.run("ui.language", json!({"value": "he"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1280.0, 600.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        h.run_steps(3);
+        // The tab strip sits under the title bar (about y = 46), above the ribbon groups.
+        let on_strip = |label: &str| {
+            h.query_all_by_label(label)
+                .map(|n| n.rect())
+                .find(|r| r.top() < 80.0 && r.bottom() < 90.0)
+                .unwrap_or_else(|| panic!("{label} is not on the tab strip"))
+        };
+        let file = on_strip(tl!("File"));
+        let home = on_strip(tl!("Home"));
+        let share = on_strip(tl!("Share"));
+        assert!(file.center().x > home.center().x, "File sits to the right of Home: {file:?} {home:?}");
+        assert!(file.center().x > share.center().x, "tabs sit to the right of Share: {file:?} {share:?}");
     }
 
     #[test]
