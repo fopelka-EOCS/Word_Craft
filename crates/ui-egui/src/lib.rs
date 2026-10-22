@@ -16,7 +16,7 @@ fn system_theme(ctx: &egui::Context, desktop_dark: Option<bool>) -> Option<egui:
 #[macro_export]
 macro_rules! tl {
     ($s:expr) => {
-        $crate::i18n::t($s)
+        $crate::i18n::present($crate::i18n::t($s))
     };
 }
 
@@ -575,6 +575,11 @@ pub struct WordApp {
     /// CJK text is (about to be) on screen in a non-CJK interface, e.g. the language names in
     /// File ▸ Options: load the installed CJK fallback font if no embedded face covers it.
     pub(crate) want_system_cjk: bool,
+    /// Hebrew interface text, or the language list, is on screen. The bundled UI faces have no
+    /// Hebrew, so one installed fallback face is borrowed into the UI fonts.
+    pub(crate) want_hebrew_ui: bool,
+    /// The Hebrew UI fallback was looked up once, so a machine without that font does not rescan.
+    hebrew_ui_checked: bool,
     /// The document (id, revision) whose comment text [`WordApp::ensure_comment_fonts`] last
     /// looked at.
     comment_fonts_for: Option<(u64, u64)>,
@@ -715,6 +720,8 @@ impl WordApp {
             fonts_korean: false,
             fonts_system_cjk: false,
             want_system_cjk: false,
+            want_hebrew_ui: false,
+            hebrew_ui_checked: false,
             comment_fonts_for: None,
             recent_fonts_for: Vec::new(),
             find_fonts_for: None,
@@ -1948,12 +1955,34 @@ impl WordApp {
         if stem.chars().any(wordcraft_fonts::is_cjk) {
             self.want_system_cjk = true;
         }
+        if stem.chars().any(|c| ('\u{0590}'..='\u{05FF}').contains(&c)) {
+            self.want_hebrew_ui = true;
+        }
         let new = theme::faces_for_preedit(&stem, &self.canvas.ime_faces, theme::caption_char_covered, |c| {
             wordcraft_fonts::FontDb::global().fallback_for(c, u32::MAX)
         });
         if !new.is_empty() {
             self.canvas.ime_faces.extend(new);
             // Fonts are already installed for this frame's language; load the new faces too.
+            self.styled = false;
+        }
+    }
+
+    /// The interface faces (Inter, Source Sans, JetBrains Mono) have no Hebrew. When the UI is
+    /// Hebrew, or the language list is showing עברית, borrow one installed fallback face the way
+    /// the caption borrows a face for a Hebrew file name. Tried once: a machine with no Hebrew
+    /// font keeps the English faces and does not scan again every frame.
+    fn ensure_hebrew_ui_font(&mut self, lang: i18n::Lang) {
+        if self.hebrew_ui_checked || !(lang.is_rtl() || self.want_hebrew_ui) {
+            return;
+        }
+        self.hebrew_ui_checked = true;
+        let sample = "אבגדהוזחטיכלמנסעפצקרשת";
+        let new = theme::faces_for_preedit(sample, &self.canvas.ime_faces, theme::caption_char_covered, |c| {
+            wordcraft_fonts::FontDb::global().fallback_for(c, u32::MAX)
+        });
+        if !new.is_empty() {
+            self.canvas.ime_faces.extend(new);
             self.styled = false;
         }
     }
@@ -2051,10 +2080,11 @@ impl WordApp {
     /// named in the interface language, as `Document1` is in English.
     pub fn title_stem(&self) -> String {
         match &self.session.path {
-            Some(p) => p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| tl!("Document1").into()),
+            // Logical text: file names and the control channel must not be visually reordered.
+            Some(p) => p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| i18n::t("Document1").into()),
             None => match &self.session.file_name {
                 Some(name) => name.clone(),
-                None if self.session.doc.core.title.is_empty() => tl!("Document1").into(),
+                None if self.session.doc.core.title.is_empty() => i18n::t("Document1").into(),
                 None => self.session.doc.core.title.clone(),
             },
         }
@@ -2121,6 +2151,7 @@ impl WordApp {
         self.ensure_comment_fonts();
         self.ensure_recent_fonts();
         self.ensure_find_fonts();
+        self.ensure_hebrew_ui_font(lang);
         self.install_ui_fonts(ctx, lang);
         if let Some(answer) = self.desktop_theme.take_change() {
             self.desktop_dark = Some(answer);

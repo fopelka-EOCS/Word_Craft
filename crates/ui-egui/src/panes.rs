@@ -13,100 +13,117 @@ use wordcraft_doc::{Document, Path, Pos, StoryRef};
 use crate::WordApp;
 use crate::theme::{Tokens, regular, semibold};
 
+/// A side pane. `left` is the side in a left-to-right interface; Hebrew docks it on the other side.
+fn dock(id: &'static str, left: bool) -> egui::Panel {
+    if left ^ crate::i18n::current().is_rtl() { egui::Panel::left(id) } else { egui::Panel::right(id) }
+}
+
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     // SmartArt Design › Text Pane, while a SmartArt graphic WordCraft can edit is selected.
     if app.session.view.smart_art_pane && wordcraft_engine::cmd::smart_art::selected_smart_art(&app.session).is_some() {
-        egui::Panel::left("smart_art_pane")
+        dock("smart_art_pane", true)
             .default_size(250.0)
             .resizable(true)
             .frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border)))
             .show(ui, |ui| {
-                if header(ui, "Text Pane") {
-                    let _ = app.run("smartArt.textPane", json!({"value": false}));
-                    return;
-                }
-                crate::dialogs_smart_art::text_pane(app, ui);
+                crate::i18n::mirrored(ui, |ui| {
+                    if header(ui, "Text Pane") {
+                        let _ = app.run("smartArt.textPane", json!({"value": false}));
+                        return;
+                    }
+                    crate::dialogs_smart_art::text_pane(app, ui);
+                })
             });
     }
     if app.session.view.nav_pane {
-        egui::Panel::left("nav_pane")
+        dock("nav_pane", true)
             .default_size(260.0)
             .resizable(true)
             .frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border)))
-            .show(ui, |ui| nav(app, ui));
+            .show(ui, |ui| crate::i18n::mirrored(ui, |ui| nav(app, ui)));
     }
     if app.session.view.clipboard_pane {
-        egui::Panel::left("clipboard_pane")
+        dock("clipboard_pane", true)
             .default_size(250.0)
             .resizable(true)
             .frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border)))
-            .show(ui, |ui| clipboard(app, ui));
+            .show(ui, |ui| crate::i18n::mirrored(ui, |ui| clipboard(app, ui)));
     }
     if app.session.view.styles_pane {
-        egui::Panel::right("styles_pane")
+        dock("styles_pane", false)
             .default_size(250.0)
             .resizable(true)
             .frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border)))
-            .show(ui, |ui| styles(app, ui));
+            .show(ui, |ui| crate::i18n::mirrored(ui, |ui| styles(app, ui)));
     }
     if app.session.view.style_inspector {
-        egui::Panel::right("style_inspector")
+        dock("style_inspector", false)
             .default_size(240.0)
             .resizable(true)
             .frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border)))
-            .show(ui, |ui| inspector(app, ui));
+            .show(ui, |ui| crate::i18n::mirrored(ui, |ui| inspector(app, ui)));
     }
     if app.session.view.accessibility_pane {
-        egui::Panel::right("accessibility_pane")
+        dock("accessibility_pane", false)
             .default_size(280.0)
             .resizable(true)
             .frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border)))
-            .show(ui, |ui| crate::a11y_pane::accessibility(app, ui));
+            .show(ui, |ui| crate::i18n::mirrored(ui, |ui| crate::a11y_pane::accessibility(app, ui)));
     }
     if app.session.view.alt_text_pane {
-        egui::Panel::right("alt_text_pane")
+        dock("alt_text_pane", false)
             .default_size(260.0)
             .resizable(true)
             .frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border)))
-            .show(ui, |ui| crate::a11y_pane::alt_text(app, ui));
+            .show(ui, |ui| crate::i18n::mirrored(ui, |ui| crate::a11y_pane::alt_text(app, ui)));
     }
     if !app.session.view.format_shape_pane {
         crate::format_shape::forget_drag(ui.ctx());
     } else {
-        egui::Panel::right("format_shape_pane")
+        dock("format_shape_pane", false)
             .default_size(280.0)
             .resizable(true)
             .frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border)))
-            .show(ui, |ui| egui::ScrollArea::vertical().show(ui, |ui| crate::format_shape::pane(app, ui)));
+            .show(ui, |ui| {
+                crate::i18n::mirrored(ui, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| crate::format_shape::pane(app, ui));
+                })
+            });
     }
     if app.restrict.open {
-        egui::Panel::right("restrict_pane")
+        dock("restrict_pane", false)
             .default_size(270.0)
             .resizable(true)
             .frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border)))
             .show(ui, |ui| {
-                if header(ui, "Restrict Editing") {
-                    app.restrict.open = false;
-                    return;
-                }
-                crate::dialogs_review::restrict_pane(app, ui);
+                crate::i18n::mirrored(ui, |ui| {
+                    if header(ui, "Restrict Editing") {
+                        app.restrict.open = false;
+                        return;
+                    }
+                    crate::dialogs_review::restrict_pane(app, ui);
+                })
             });
     }
     if app.session.view.comments_pane {
-        egui::Panel::right("comments_pane")
+        dock("comments_pane", false)
             .default_size(290.0)
             .resizable(true)
             .frame(egui::Frame::NONE.fill(t.panel).inner_margin(10).stroke(Stroke::new(1.0, t.border)))
-            .show(ui, |ui| comments(app, ui));
+            .show(ui, |ui| crate::i18n::mirrored(ui, |ui| comments(app, ui)));
     }
 }
 
 pub(crate) fn header(ui: &mut Ui, title: &str) -> bool {
+    crate::i18n::mirrored(ui, |ui| header_row(ui, title))
+}
+
+fn header_row(ui: &mut Ui, title: &str) -> bool {
     let mut close = false;
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(tl!(title)).font(semibold(15.0)));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.with_layout(crate::i18n::trailing_layout(egui::Align::Center), |ui| {
             // Drawn, not the "✕" character: the interface fonts have no glyph for it.
             if crate::widgets::icon_button(ui, "close", tl!("Close")).clicked() {
                 close = true;
@@ -344,7 +361,7 @@ fn clipboard(app: &mut WordApp, ui: &mut Ui) {
                     let _ = app.run("edit.pasteClipboardItem", json!({"index": i}));
                     app.canvas.want_focus = true;
                 }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                ui.with_layout(crate::i18n::trailing_layout(egui::Align::Min), |ui| {
                     if ui.small_button(tl!("Delete")).clicked() {
                         let _ = app.run("edit.deleteClipboardItem", json!({"index": i}));
                         app.canvas.want_focus = true;
@@ -403,7 +420,7 @@ fn styles(app: &mut WordApp, ui: &mut Ui) {
         for (id, name, is_char, builtin) in list {
             ui.horizontal(|ui| {
                 let r = ui.selectable_label(id == cur, &name);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.with_layout(crate::i18n::trailing_layout(egui::Align::Center), |ui| {
                     ui.label(egui::RichText::new(if is_char { "a" } else { "¶" }).weak());
                 });
                 if r.clicked() {
@@ -752,7 +769,7 @@ fn level_row(ui: &mut Ui, t: &Tokens, caption: &str, value: &str, dim: bool, tip
             let text = egui::RichText::new(value).font(regular(12.5)).color(if dim { t.text_disabled } else { t.text });
             ui.add(egui::Label::new(text).wrap());
         });
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+        ui.with_layout(crate::i18n::trailing_layout(egui::Align::Min), |ui| {
             let (r, resp) = ui.allocate_exact_size(vec2(22.0, 20.0), egui::Sense::click());
             let enabled = !disabled;
             if enabled && resp.hovered() {

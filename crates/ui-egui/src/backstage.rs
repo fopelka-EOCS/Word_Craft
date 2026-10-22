@@ -25,8 +25,19 @@ const PAGES: [(&str, &str, &str); 11] = [
 /// window (the title bar's content edge), at the plain control inset in full screen, where the
 /// lights aren't docked top-left and the reserved offset would leave dead space.
 fn back_chevron_c(band_min_x: f32, center_y: f32, fullscreen: bool, content_left: f32) -> egui::Pos2 {
-    let x = if fullscreen { 26.0 } else { content_left + 3.0 };
-    pos2(band_min_x + x, center_y)
+    let inset = if fullscreen { 26.0 } else { content_left + 3.0 };
+    // The nav band is 200px wide. Hebrew docks it on the right, so the chevron sits on that outer edge.
+    let x = if crate::i18n::current().is_rtl() { band_min_x + 200.0 - inset } else { band_min_x + inset };
+    pos2(x, center_y)
+}
+
+fn rtl_ui() -> bool {
+    crate::i18n::current().is_rtl()
+}
+
+/// A point `inset` from the leading edge of `r` (the left edge, or the right edge when mirrored).
+fn lead_x(r: egui::Rect, inset: f32) -> f32 {
+    if rtl_ui() { r.max.x - inset } else { r.min.x + inset }
 }
 
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
@@ -37,124 +48,147 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         app.ui.backstage_page = "home".into();
     }
     let mac = app.integrated_titlebar;
-    egui::Panel::left("backstage_nav")
-        .exact_size(200.0)
+    let nav = if rtl_ui() { egui::Panel::right("backstage_nav") } else { egui::Panel::left("backstage_nav") };
+    nav.exact_size(200.0)
         // Fixed width, as in Word: without this egui shows a resize handle that does nothing (#502).
         .resizable(false)
         .frame(egui::Frame::NONE.fill(t.nav).inner_margin(egui::Margin { left: 0, right: 0, top: if mac { 0 } else { 12 }, bottom: 12 }))
         .show(ui, |ui| {
-            let back = if mac {
-                // macOS (#222): the Backstage covers the title bar, so its top band is the title
-                // bar: the back button sits beside the traffic lights, centred with them and as far
-                // from them as the title bar's own controls, and the rest of the band drags the window.
-                let (band, drag) = ui.allocate_exact_size(vec2(200.0, app.mac_titlebar.height), Sense::click_and_drag());
-                if drag.drag_started() {
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
-                }
-                // The chevron's stroke starts at the content edge.
-                let c = back_chevron_c(band.min.x, band.center().y, app.session.view.full_screen, app.mac_titlebar.content_left);
-                let resp = ui.interact(Rect::from_center_size(c, vec2(22.0, band.height())), ui.id().with("backstage_back"), Sense::click());
-                icons::paint(ui.painter(), Rect::from_center_size(c, vec2(18.0, 18.0)), "chevronLeft", egui::Color32::WHITE, egui::Color32::WHITE);
-                resp
-            } else {
-                // The hit area is scoped to the chevron, not the whole 200px-wide row (#3041):
-                // the row reads as plain sidebar background next to it, so clicking there must
-                // not also close the File page, same as the macOS chevron fix (#2972) below.
-                let (r, _) = ui.allocate_exact_size(vec2(200.0, 40.0), Sense::hover());
-                let c = pos2(r.min.x + 26.0, r.center().y);
-                let resp = ui.interact(Rect::from_center_size(c, vec2(22.0, r.height())), ui.id().with("backstage_back"), Sense::click());
-                icons::paint(ui.painter(), Rect::from_center_size(c, vec2(18.0, 18.0)), "chevronLeft", egui::Color32::WHITE, egui::Color32::WHITE);
-                resp
-            };
-            // Escape in the built-in file browser closes only the browser.
-            if back.clicked() || (!app.file_dialog_open() && ui.input(|i| i.key_pressed(egui::Key::Escape))) {
-                app.ui.backstage = false;
-                app.canvas.want_focus = true;
-            }
-            ui.add_space(if mac { 12.0 } else { 6.0 });
-            for (id, label, icon) in PAGES {
-                // No document open (#1129): Info, Save, Save As, Print and Export are greyed out.
-                let on = has_document || works_without_document(id);
-                let (r, resp) = ui.add_enabled_ui(on, |ui| ui.allocate_exact_size(vec2(200.0, 38.0), Sense::click())).inner;
-                resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, tl!(label)));
-                let active = app.ui.backstage_page == id;
-                if active {
-                    ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(46));
-                } else if on && resp.hovered() {
-                    ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(26));
-                }
-                let ink = if on { egui::Color32::WHITE } else { egui::Color32::from_white_alpha(110) };
-                icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 31.0, r.center().y), vec2(18.0, 18.0)), icon, ink, ink);
-                ui.painter().text(
-                    pos2(r.min.x + 52.0, r.center().y),
-                    Align2::LEFT_CENTER,
-                    tl!(label),
-                    if active { semibold(14.0) } else { medium(14.0) },
-                    ink,
-                );
-                if resp.clicked() {
-                    match id {
-                        // A document without a file goes to the Save As page (as in Word) instead
-                        // of `file.save`, which would also open the native Save As dialog.
-                        // In the browser a save is a download, so it saves right away.
-                        "save" if app.session.path.is_none() && app.services.download.is_none() => {
-                            app.ui.backstage_page = "saveAs".into();
-                        }
-                        "save" => {
-                            let r = app.run("file.save", json!({}));
-                            if r.is_ok_and(|v| v.get("saved").and_then(serde_json::Value::as_bool) == Some(true) || v.get("downloaded").is_some()) {
-                                app.ui.backstage = false;
-                                app.canvas.want_focus = true;
-                            } else {
-                                app.ui.backstage_page = "saveAs".into();
-                            }
-                        }
-                        "saveAs" => {
-                            app.ui.backstage_page = "saveAs".into();
-                        }
-                        // Not a page: `file.close` asks Save / Don't Save / Cancel first when there
-                        // are unsaved changes, and Cancel leaves the Backstage where it was.
-                        "close" => {
-                            let _ = app.run("file.close", json!({}));
-                        }
-                        _ => app.ui.backstage_page = id.into(),
+            crate::i18n::mirrored(ui, |ui| {
+                let back = if mac {
+                    // macOS (#222): the Backstage covers the title bar, so its top band is the title
+                    // bar: the back button sits beside the traffic lights, centred with them and as far
+                    // from them as the title bar's own controls, and the rest of the band drags the window.
+                    let (band, drag) = ui.allocate_exact_size(vec2(200.0, app.mac_titlebar.height), Sense::click_and_drag());
+                    if drag.drag_started() {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
                     }
+                    // The chevron's stroke starts at the content edge.
+                    let c = back_chevron_c(band.min.x, band.center().y, app.session.view.full_screen, app.mac_titlebar.content_left);
+                    let resp = ui.interact(Rect::from_center_size(c, vec2(22.0, band.height())), ui.id().with("backstage_back"), Sense::click());
+                    icons::paint(
+                        ui.painter(),
+                        Rect::from_center_size(c, vec2(18.0, 18.0)),
+                        if rtl_ui() { "chevronRight" } else { "chevronLeft" },
+                        egui::Color32::WHITE,
+                        egui::Color32::WHITE,
+                    );
+                    resp
+                } else {
+                    // The hit area is scoped to the chevron, not the whole 200px-wide row (#3041):
+                    // the row reads as plain sidebar background next to it, so clicking there must
+                    // not also close the File page, same as the macOS chevron fix (#2972) below.
+                    let (r, _) = ui.allocate_exact_size(vec2(200.0, 40.0), Sense::hover());
+                    let c = pos2(lead_x(r, 26.0), r.center().y);
+                    let resp = ui.interact(Rect::from_center_size(c, vec2(22.0, r.height())), ui.id().with("backstage_back"), Sense::click());
+                    icons::paint(
+                        ui.painter(),
+                        Rect::from_center_size(c, vec2(18.0, 18.0)),
+                        if rtl_ui() { "chevronRight" } else { "chevronLeft" },
+                        egui::Color32::WHITE,
+                        egui::Color32::WHITE,
+                    );
+                    resp
+                };
+                // Escape in the built-in file browser closes only the browser.
+                if back.clicked() || (!app.file_dialog_open() && ui.input(|i| i.key_pressed(egui::Key::Escape))) {
+                    app.ui.backstage = false;
+                    app.canvas.want_focus = true;
                 }
-            }
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-                for (label, id) in [("About", "about"), ("Discord community", "discord")] {
-                    let (r, resp) = ui.allocate_exact_size(vec2(200.0, 32.0), Sense::click());
-                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tl!(label)));
-                    if resp.hovered() {
+                ui.add_space(if mac { 12.0 } else { 6.0 });
+                for (id, label, icon) in PAGES {
+                    // No document open (#1129): Info, Save, Save As, Print and Export are greyed out.
+                    let on = has_document || works_without_document(id);
+                    let (r, resp) = ui.add_enabled_ui(on, |ui| ui.allocate_exact_size(vec2(200.0, 38.0), Sense::click())).inner;
+                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, tl!(label)));
+                    let active = app.ui.backstage_page == id;
+                    if active {
+                        ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(46));
+                    } else if on && resp.hovered() {
                         ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(26));
                     }
-                    ui.painter().text(pos2(r.min.x + 22.0, r.center().y), Align2::LEFT_CENTER, tl!(label), regular(13.0), egui::Color32::WHITE);
+                    let ink = if on { egui::Color32::WHITE } else { egui::Color32::from_white_alpha(110) };
+                    icons::paint(ui.painter(), Rect::from_center_size(pos2(lead_x(r, 31.0), r.center().y), vec2(18.0, 18.0)), icon, ink, ink);
+                    ui.painter().text(
+                        pos2(lead_x(r, 52.0), r.center().y),
+                        if rtl_ui() { Align2::RIGHT_CENTER } else { Align2::LEFT_CENTER },
+                        tl!(label),
+                        if active { semibold(14.0) } else { medium(14.0) },
+                        ink,
+                    );
                     if resp.clicked() {
-                        if id == "discord" {
-                            let _ = app.run("ui.discord", json!({}));
-                        } else {
-                            app.dialog = crate::dialogs::Dialog::open("about", app);
+                        match id {
+                            // A document without a file goes to the Save As page (as in Word) instead
+                            // of `file.save`, which would also open the native Save As dialog.
+                            // In the browser a save is a download, so it saves right away.
+                            "save" if app.session.path.is_none() && app.services.download.is_none() => {
+                                app.ui.backstage_page = "saveAs".into();
+                            }
+                            "save" => {
+                                let r = app.run("file.save", json!({}));
+                                if r.is_ok_and(|v| v.get("saved").and_then(serde_json::Value::as_bool) == Some(true) || v.get("downloaded").is_some())
+                                {
+                                    app.ui.backstage = false;
+                                    app.canvas.want_focus = true;
+                                } else {
+                                    app.ui.backstage_page = "saveAs".into();
+                                }
+                            }
+                            "saveAs" => {
+                                app.ui.backstage_page = "saveAs".into();
+                            }
+                            // Not a page: `file.close` asks Save / Don't Save / Cancel first when there
+                            // are unsaved changes, and Cancel leaves the Backstage where it was.
+                            "close" => {
+                                let _ = app.run("file.close", json!({}));
+                            }
+                            _ => app.ui.backstage_page = id.into(),
                         }
                     }
                 }
-            });
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                    for (label, id) in [("About", "about"), ("Discord community", "discord")] {
+                        let (r, resp) = ui.allocate_exact_size(vec2(200.0, 32.0), Sense::click());
+                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tl!(label)));
+                        if resp.hovered() {
+                            ui.painter().rect_filled(r, 0.0, egui::Color32::from_white_alpha(26));
+                        }
+                        ui.painter().text(
+                            pos2(lead_x(r, 22.0), r.center().y),
+                            if rtl_ui() { Align2::RIGHT_CENTER } else { Align2::LEFT_CENTER },
+                            tl!(label),
+                            regular(13.0),
+                            egui::Color32::WHITE,
+                        );
+                        if resp.clicked() {
+                            if id == "discord" {
+                                let _ = app.run("ui.discord", json!({}));
+                            } else {
+                                app.dialog = crate::dialogs::Dialog::open("about", app);
+                            }
+                        }
+                    }
+                });
+            })
         });
     egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.ribbon).inner_margin(egui::Margin::symmetric(40, 30))).show(ui, |ui| {
-        // The Print page fills the pane and scrolls its settings and its preview itself (#1156).
-        if app.ui.backstage_page == "print" {
-            export_page(app, ui);
-            return;
-        }
-        egui::ScrollArea::vertical().show(ui, |ui| match app.ui.backstage_page.as_str() {
-            "home" => home_page(app, ui),
-            "new" => new_page(app, ui),
-            "open" => open_page(app, ui),
-            "saveAs" => save_as_page(app, ui),
-            "info" => info_page(app, ui),
-            "recover" => recovery_page(app, ui),
-            "print" | "export" => export_page(app, ui),
-            "options" => crate::options::page(app, ui),
-            _ => home_page(app, ui),
+        crate::i18n::mirrored(ui, |ui| {
+            // The Print page fills the pane and scrolls its settings and its preview itself (#1156).
+            if app.ui.backstage_page == "print" {
+                export_page(app, ui);
+                return;
+            }
+            egui::ScrollArea::vertical().show(ui, |ui| match app.ui.backstage_page.as_str() {
+                "home" => home_page(app, ui),
+                "new" => new_page(app, ui),
+                "open" => open_page(app, ui),
+                "saveAs" => save_as_page(app, ui),
+                "info" => info_page(app, ui),
+                "recover" => recovery_page(app, ui),
+                "print" | "export" => export_page(app, ui),
+                "options" => crate::options::page(app, ui),
+                _ => home_page(app, ui),
+            });
         });
     });
 }

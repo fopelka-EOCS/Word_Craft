@@ -302,7 +302,7 @@ fn preview(app: &mut WordApp, ui: &mut Ui, lay: &DocLayout, total: usize) {
         if nav(ui, "chevronRight", tl!("Next Page"), page + 1 < total) {
             app.ui.print.preview = page + 1;
         }
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.with_layout(crate::i18n::trailing_layout(egui::Align::Center), |ui| {
             let z = scale / crate::canvas::PX_PER_PT;
             if nav(ui, "onePage", tl!("One Page"), true) {
                 app.ui.print.zoom = None;
