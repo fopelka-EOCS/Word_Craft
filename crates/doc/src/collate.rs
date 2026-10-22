@@ -14,8 +14,9 @@
 //!    (`collate_ucd::canonical`: decomposed, marks in canonical order). So a Latin letter typed
 //!    precomposed (`ậ`) and typed as base + marks (`a` U+0302 U+0323 or `a` U+0323 U+0302;
 //!    marks of different combining classes match in either order) get one key. This covers the
-//!    Latin letters U+00C0..=U+024F and U+1E00..=U+1EFF with marks U+0300..=U+036F; other
-//!    scripts (Cyrillic й, Greek ά) are not unified. (Lowercasing comes first so a character whose lowercase is a precomposed letter, such
+//!    Latin letters U+00C0..=U+024F and U+1E00..=U+1EFF with marks U+0300..=U+036F; of the
+//!    other scripts only Cyrillic `ё` and `й` are unified (`е` U+0308 and `и` U+0306 are
+//!    composed after the tables); Greek `ά` and the rest are not. (Lowercasing comes first so a character whose lowercase is a precomposed letter, such
 //!    as the Angstrom sign, is decomposed too; the result is the same canonical lowercase text.)
 //! 2. Each cluster is a base character and the combining marks (U+0300..=U+036F) after it. The
 //!    base is composed with the cluster's **first** mark when `COMPOSE` has the pair **and**
@@ -412,7 +413,34 @@ fn lower_canonical(s: &str) -> String {
     if s.is_ascii() {
         return s.to_ascii_lowercase();
     }
-    collate_ucd::canonical(&s.to_lowercase())
+    compose_outside_tables(collate_ucd::canonical(&s.to_lowercase()))
+}
+
+/// `text` with each Cyrillic base + mark pair in `COMPOSE` (`е` U+0308, `и` U+0306) composed:
+/// the canonical tables cover Latin only, so the precomposed `ё` and `й` stay as they are and
+/// the decomposed spellings must compose to match them (rule 1).
+fn compose_outside_tables(text: String) -> String {
+    if !text.chars().any(|c| ('\u{400}'..='\u{4ff}').contains(&c)) {
+        return text;
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut base = None;
+    for c in text.chars() {
+        let composed = base
+            .take()
+            .filter(|b| ('\u{400}'..='\u{4ff}').contains(b))
+            .and_then(|b| COMPOSE.iter().find(|(x, m, _)| *x == b && *m == c).map(|(_, _, k)| *k));
+        if let Some(k) = composed {
+            out.pop();
+            out.push(k);
+        } else {
+            out.push(c);
+            if !is_mark(c) {
+                base = Some(c);
+            }
+        }
+    }
+    out
 }
 
 /// The letter `base` + `mark` compose to, when the key reads that letter as one (rule 2): it is
@@ -743,6 +771,17 @@ mod tests {
             assert_eq!(collate("ЁЛКА", "ёлка", Some(lang)), Ordering::Equal);
             assert_eq!(heading_letter("Ёлка", Some(lang)).as_deref(), Some("Ё"));
         }
+    }
+
+    #[test]
+    fn cyrillic_decomposed_letters_match_in_every_language() {
+        for lang in [None, Some("en-US"), Some("vi"), Some("uk")] {
+            assert_eq!(collate("йод", "и\u{306}од", lang), Ordering::Equal);
+            assert_eq!(collate("Ёлка", "е\u{308}лка", lang), Ordering::Equal);
+            assert_eq!(sort_key("и\u{306}\u{301}", lang), sort_key("й\u{301}", lang));
+        }
+        // Only the first mark composes; a lone mark is left alone.
+        assert_eq!(collate("\u{306}и", "\u{306}и", Some("ru")), Ordering::Equal);
     }
 
     #[test]

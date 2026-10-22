@@ -157,8 +157,9 @@ Icelandic. Vietnamese follows the CLDR `vi` standard order: `a ă â b c d đ e 
 with the tone as a second-level difference (`ma < mà < mả < mã < má < mạ`, `Hoà` before `Hòa`).
 Latin letters typed precomposed and as a base letter plus combining marks compare equal (U+00C0–U+024F
 and U+1E00–U+1EFF, with marks from U+0300–U+036F), and marks of different combining classes match in
-either order (marks of the same class keep their order, as Unicode requires); other scripts, such as
-Cyrillic й against и + U+0306 or Greek ά against α + U+0301, are not unified yet. Sorting never
+either order (marks of the same class keep their order, as Unicode requires); of other scripts only
+Cyrillic ё and й match their decomposed forms (see Russian below), and Greek ά against α + U+0301 is
+not unified yet. Sorting never
 changes the text itself. Sort accepts a Sorting language (Table › Sort
 dialog, or `lang` on `table.sort` and `para.sort`; Column language, the first language marked on
 the column's cells, by default) and Case sensitive (lower case before upper case among
