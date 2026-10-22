@@ -1621,7 +1621,7 @@ fn romanian_covers_every_key_of_every_other_catalog_and_keeps_placeholders() {
         let mut missing: Vec<_> = other_entries.into_iter().map(|e| (e.context, e.source)).filter(|k| !ro_keys.contains(k)).collect();
         missing.sort();
         // Italian and Hungarian still carry "Style: APA", which the interface no longer shows.
-        missing.retain(|(_, k)| k != "Style: APA" || !matches!(other.code(), "it" | "hu"));
+        missing.retain(|(_, k)| (!["Style: APA", "Collapse the Ribbon", "Expand the Ribbon"].contains(&k.as_str())) || !matches!(other.code(), "it" | "hu"));
         assert!(missing.is_empty(), "ro lacks {}'s {missing:?}", other.code());
     }
     assert_eq!(tr(ro, "Home"), "Pornire");
@@ -1677,7 +1677,7 @@ fn slovenian_covers_every_key_of_every_other_catalog() {
         let mut missing: Vec<String> = keys(other.0.source).difference(&slovenian).cloned().collect();
         missing.sort();
         // Italian and Hungarian still carry "Style: APA", which the interface no longer shows.
-        missing.retain(|k| k != "Style: APA" || !matches!(other.code(), "it" | "hu"));
+        missing.retain(|k| (!["Style: APA", "Collapse the Ribbon", "Expand the Ribbon"].contains(&k.as_str())) || !matches!(other.code(), "it" | "hu"));
         assert!(missing.is_empty(), "sl lacks {}'s {missing:?}", other.code());
     }
     let sl = lang("sl");

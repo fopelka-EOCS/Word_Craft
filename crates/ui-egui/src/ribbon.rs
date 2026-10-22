@@ -430,8 +430,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                             }
                             let resp = if cut { resp.on_hover_text(shown) } else { resp };
                             if active {
-                                let u = Rect::from_center_size(pos2(r.center().x, r.max.y - 2.0), vec2(w - 16.0, 3.0));
-                                ui.painter().rect_filled(u, 2.0, t.accent);
+                                let u = Rect::from_center_size(pos2(r.center().x, r.max.y - 1.5), vec2((w - 12.0).max(24.0), 3.0));
+                                ui.painter().rect_filled(u, 1.5, t.accent);
                             }
                             if resp.clicked() {
                                 let _ = app.run("ui.tab", json!({"tab": tab}));
@@ -487,7 +487,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         .frame(
             egui::Frame::NONE
                 .fill(t.ribbon)
-                .corner_radius(egui::CornerRadius::same(6))
+                .corner_radius(egui::CornerRadius::same(8))
                 .inner_margin(egui::Margin { left: 8, right: 8, top: 4, bottom: 4 })
                 .stroke(Stroke::new(1.0, t.border)),
         )

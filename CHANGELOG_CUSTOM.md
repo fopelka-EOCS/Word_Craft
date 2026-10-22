@@ -85,6 +85,38 @@ Serve come riferimento permanente affinché, in caso di aggiornamenti dal reposi
 ### 2.3 Traduzioni e Revisione Italiano
 - Traduzione di nuove voci di menu in `crates/ui-egui/src/i18n/it.tsv`.
 
+### 2.4 Palette Cromatica Ufficiale Word Fluent
+- `crates/ui-egui/src/theme.rs`:
+  - Colore accento principale: aggiornato al blu firma di Microsoft Word / Office Fluent (`#0F6CBD`, precedentemente `#3B5BDB`).
+  - Sfondo area di lavoro (canvas): aggiornato al tono neutro caldo di Word (`#EDEBE9`, precedentemente `#E6E6E6`).
+  - Sfondo barre (title bar e tab strip): allineati a `#F3F3F3`.
+  - Bordi e separatori: aggiornati al tono Fluent `#E1DFDD`.
+  - Colori di interazione: hover a `#F3F2F1`, pressed a `#EDEBE9`, selezione attiva a `#EBF3FC`.
+
+### 2.5 Ombreggiatura Morbida del Foglio di Lavoro
+- `crates/ui-egui/src/canvas.rs`:
+  - Sostituito il vecchio offset secco di 1px con una vera ombra sfumata a multi-layer (elevazione Fluent):
+    - Ombra morbida diffusa a 5px (alpha 0x0A)
+    - Ombra intermedia a 2.5px (alpha 0x12)
+    - Ombra direzionale vicina a 1px (alpha 0x1E)
+    - Bordo nitido perimetrale a 1px sul foglio (`Color32::from_rgba_unmultiplied(0, 0, 0, 0x18)`).
+
+### 2.6 Barra Multifunzione (Ribbon Card & Schede)
+- `crates/ui-egui/src/ribbon.rs`:
+  - Scheda attiva: barra inferiore blu `#0F6CBD` a pillola (3px di altezza, raggio 1.5px).
+  - Raggio di curvatura della card Ribbon: impostato a 8px per l'effetto contenitore moderno Fluent.
+
+### 2.7 Titolo Finestra, Toggle AutoSave e Barra di Ricerca
+- `crates/ui-egui/src/chrome.rs`:
+  - Switch AutoSave: sagomato a pillola (`38x18px`) con indicatore circolare e testo `On` / `Off` integrato.
+  - Barra di ricerca centrale: sagomata a pillola continua con raggio completo.
+
+### 2.8 Icone Vettoriali in Stile Word
+- `crates/ui-egui/src/icons.rs`:
+  - `paste` (Incolla): cartellina porta-blocco in tonalità legno/oro (`#D99B26`), foglio bianco con righe e fermaglio metallico.
+  - `painter` (Copia formato): pennello con setole e manico nei toni dorati.
+  - `bullets` ed `numbering` (Elenchi): punti elenco e numerazioni disegnati nel blu coordinato `#0F6CBD`.
+
 ---
 
 ## 3. Come Mantenere e Riapplicare le Modifiche con gli Aggiornamenti Upstream

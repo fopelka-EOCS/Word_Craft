@@ -1287,9 +1287,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             } else {
                 painter.with_clip_rect(painter.clip_rect().intersect(band))
             };
-            // Shadow and paper.
-            painter.rect_filled(visual_sr.translate(vec2(0.0, 2.0)).expand(1.5), 1.0, t.page_shadow);
+            // Realistic Fluent elevation shadow and paper.
+            painter.rect_filled(visual_sr.translate(vec2(0.0, 3.5)).expand(5.0), 3.0, Color32::from_rgba_unmultiplied(0, 0, 0, 0x0A));
+            painter.rect_filled(visual_sr.translate(vec2(0.0, 2.0)).expand(2.5), 2.0, Color32::from_rgba_unmultiplied(0, 0, 0, 0x12));
+            painter.rect_filled(visual_sr.translate(vec2(0.0, 1.0)).expand(1.0), 1.0, Color32::from_rgba_unmultiplied(0, 0, 0, 0x1E));
             painter.rect_filled(visual_sr, 0.0, if dark_page { Color32::from_gray(dark_paper) } else { Color32::WHITE });
+            painter.rect_stroke(visual_sr, 0.0, Stroke::new(1.0, Color32::from_rgba_unmultiplied(0, 0, 0, 0x18)), egui::StrokeKind::Outside);
             if tiled {
                 // Render before painting to keep the frame sharp immediately after an edit or
                 // zoom. Tiles are fixed to raster-pixel boundaries, independent of scrolling.

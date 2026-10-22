@@ -87,11 +87,14 @@ pub fn paint(p: &Painter, r: Rect, name: &str, c: Color32, accent: Color32) {
     match name {
         // Clipboard
         "paste" => {
-            pen.rect(4.0, 3.5, 14.0, 17.0, c);
-            pen.frect(7.0, 2.0, 11.0, 5.0, a);
-            pen.frect(9.0, 8.0, 17.5, 18.5, pen.a.linear_multiply(0.18));
-            pen.rect(9.0, 8.0, 17.5, 18.5, a);
-            pen.lines(10.8, 15.8, &[11.0, 13.5, 16.0]);
+            let wood = Color32::from_rgb(0xD9, 0x9B, 0x26);
+            let clip = Color32::from_rgb(0x8A, 0x88, 0x86);
+            pen.frect(3.5, 3.5, 14.5, 17.5, wood);
+            pen.rect(3.5, 3.5, 14.5, 17.5, Color32::from_rgb(0xB8, 0x7E, 0x14));
+            pen.frect(6.5, 2.0, 11.5, 4.5, clip);
+            pen.frect(8.0, 7.5, 17.5, 18.5, Color32::WHITE);
+            pen.rect(8.0, 7.5, 17.5, 18.5, Color32::from_rgb(0x60, 0x5E, 0x5C));
+            pen.lines(9.8, 15.8, &[10.5, 13.0, 15.5]);
         }
         "cut" => {
             pen.circle(6.0, 15.0, 2.5, c);
@@ -105,10 +108,12 @@ pub fn paint(p: &Painter, r: Rect, name: &str, c: Color32, accent: Color32) {
             pen.rect(7.5, 6.5, 16.5, 17.5, a);
         }
         "painter" => {
+            let wood = Color32::from_rgb(0xD9, 0x9B, 0x26);
             pen.frect(4.0, 3.0, 16.0, 8.0, yellow);
-            pen.rect(4.0, 3.0, 16.0, 8.0, c);
+            pen.rect(4.0, 3.0, 16.0, 8.0, Color32::from_rgb(0xB8, 0x7E, 0x14));
+            pen.frect(8.8, 12.0, 11.2, 18.0, wood);
+            pen.rect(8.8, 12.0, 11.2, 18.0, Color32::from_rgb(0xB8, 0x7E, 0x14));
             pen.line(&[(16.0, 5.5), (17.5, 5.5), (17.5, 10.0), (10.0, 10.0), (10.0, 12.0)]);
-            pen.frect(8.8, 12.0, 11.2, 18.0, c);
         }
         // Font
         "bold" => pen.text(10.0, 10.5, 15.0, "B", c, true),
@@ -171,23 +176,23 @@ pub fn paint(p: &Painter, r: Rect, name: &str, c: Color32, accent: Color32) {
         "fontdialog" => pen.line(&[(13.0, 13.0), (17.0, 17.0), (17.0, 13.0)]),
         // Paragraph
         "bullets" => {
-            for (i, y) in [5.0, 10.0, 15.0].iter().enumerate() {
-                pen.fcircle(4.0, *y, 1.4, if i == 0 { a } else { c });
-                pen.line(&[(7.5, *y), (17.0, *y)]);
+            for y in [5.0, 10.0, 15.0] {
+                pen.fcircle(4.0, y, 1.4, a);
+                pen.line(&[(7.5, y), (17.0, y)]);
             }
         }
         "numbering" => {
             for (i, y) in [5.0, 10.0, 15.0].iter().enumerate() {
-                pen.text(4.0, *y, 6.0, &(i + 1).to_string(), if i == 0 { a } else { c }, true);
+                pen.text(4.0, *y, 6.0, &(i + 1).to_string(), a, true);
                 pen.line(&[(7.5, *y), (17.0, *y)]);
             }
         }
         "multilevel" => {
             pen.text(3.5, 4.5, 5.5, "1", a, true);
             pen.line(&[(6.5, 4.5), (17.0, 4.5)]);
-            pen.text(6.5, 10.0, 5.5, "a", c, true);
+            pen.text(6.5, 10.0, 5.5, "a", a, true);
             pen.line(&[(9.5, 10.0), (17.0, 10.0)]);
-            pen.text(9.5, 15.5, 5.5, "i", c, true);
+            pen.text(9.5, 15.5, 5.5, "i", a, true);
             pen.line(&[(12.0, 15.5), (17.0, 15.5)]);
         }
         "outdent" | "indent" => {

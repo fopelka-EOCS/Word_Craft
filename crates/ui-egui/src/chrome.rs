@@ -294,15 +294,20 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                 let text = ui.add(
                     egui::Label::new(egui::RichText::new(tl!("AutoSave")).font(regular(11.5)).color(color)).selectable(false).sense(Sense::click()),
                 );
-                let (r, resp) = ui.allocate_exact_size(vec2(30.0, 16.0), Sense::click());
+                let (r, resp) = ui.allocate_exact_size(vec2(38.0, 18.0), Sense::click());
                 let (fill, stroke, knob_fill) = match (&block, on) {
                     (Some(_), _) => (t.input.gamma_multiply(0.5), t.border.gamma_multiply(0.7), t.text_dim.gamma_multiply(0.45)),
                     (None, true) => (t.accent, t.accent, t.on_accent),
                     (None, false) => (t.input, t.border_strong, t.text_dim),
                 };
-                ui.painter().rect(r, 8.0, fill, Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
-                let knob = if on { r.max.x - 8.0 } else { r.min.x + 8.0 };
-                ui.painter().circle_filled(pos2(knob, r.center().y), 5.0, knob_fill);
+                ui.painter().rect(r, 9.0, fill, Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
+                if on {
+                    ui.painter().text(pos2(r.min.x + 13.0, r.center().y), Align2::CENTER_CENTER, "On", regular(9.5), t.on_accent);
+                    ui.painter().circle_filled(pos2(r.max.x - 8.5, r.center().y), 6.0, knob_fill);
+                } else {
+                    ui.painter().circle_filled(pos2(r.min.x + 8.5, r.center().y), 6.0, knob_fill);
+                    ui.painter().text(pos2(r.max.x - 13.0, r.center().y), Align2::CENTER_CENTER, "Off", regular(9.5), t.text_dim);
+                }
                 let tip = block
                     .as_ref()
                     .map_or_else(|| tl!("AutoSave saves every change to the file (needs a saved document)").to_string(), |b| b.reason());
@@ -414,7 +419,8 @@ fn search_box(app: &mut WordApp, ui: &mut Ui, control_h: f32) {
     let (r, resp) = ui.allocate_exact_size(vec2(260.0, control_h), Sense::click());
     let ph = tl!("Search commands and help");
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, ph));
-    ui.painter().rect(r, 6.0, if resp.hovered() { t.input } else { t.ribbon }, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
+    let pill_radius = (control_h / 2.0).round();
+    ui.painter().rect(r, pill_radius, if resp.hovered() { t.input } else { t.ribbon }, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
     icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 16.0, r.center().y), vec2(16.0, 16.0)), "search", t.text_dim, t.accent);
     let pfont = TypeRung::Control.regular();
     let ptrack = TypeRung::Control.tracking();

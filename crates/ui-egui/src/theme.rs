@@ -5,8 +5,8 @@ use std::sync::Arc;
 use egui::{Align2, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Rect, Stroke, Visuals};
 
 /// WordCraft's app colour (and its darker ink for text on light backgrounds).
-pub const APP_COLOR: Color32 = Color32::from_rgb(0x3B, 0x5B, 0xDB);
-pub const APP_INK: Color32 = Color32::from_rgb(0x2B, 0x47, 0xB5);
+pub const APP_COLOR: Color32 = Color32::from_rgb(0x0F, 0x6C, 0xBD);
+pub const APP_INK: Color32 = Color32::from_rgb(0x0C, 0x4E, 0x8C);
 
 /// The interface theme setting (File › Options › General, View › Interface Theme): a fixed light or
 /// dark palette, or `System`, which follows the OS light/dark appearance live (#115). Dark page
@@ -304,32 +304,32 @@ impl Tokens {
     pub fn light() -> Self {
         Tokens {
             dark: false,
-            title_bar: Color32::from_rgb(0xF0, 0xF0, 0xF0),
+            title_bar: Color32::from_rgb(0xF3, 0xF3, 0xF3),
             ribbon: Color32::from_rgb(0xFF, 0xFF, 0xFF),
-            tab_strip: Color32::from_rgb(0xF0, 0xF0, 0xF0),
-            canvas: Color32::from_rgb(0xE6, 0xE6, 0xE6),
-            panel: Color32::from_rgb(0xFA, 0xFA, 0xFA),
-            border: Color32::from_rgb(0xE1, 0xE1, 0xE1),
-            border_strong: Color32::from_rgb(0xC8, 0xC8, 0xC8),
+            tab_strip: Color32::from_rgb(0xF3, 0xF3, 0xF3),
+            canvas: Color32::from_rgb(0xED, 0xEB, 0xE9),
+            panel: Color32::from_rgb(0xF8, 0xF8, 0xF8),
+            border: Color32::from_rgb(0xE1, 0xDF, 0xDD),
+            border_strong: Color32::from_rgb(0xC8, 0xC6, 0xC4),
             text: Color32::from_rgb(0x24, 0x24, 0x24),
             text_dim: Color32::from_rgb(0x61, 0x61, 0x61),
             text_disabled: Color32::from_rgb(0xA8, 0xA8, 0xA8),
             icon: Color32::from_rgb(0x42, 0x42, 0x42),
-            hover: Color32::from_rgb(0xE6, 0xE6, 0xE6),
-            pressed: Color32::from_rgb(0xD6, 0xD6, 0xD6),
-            checked: Color32::from_rgb(0xDD, 0xE3, 0xF8),
+            hover: Color32::from_rgb(0xF3, 0xF2, 0xF1),
+            pressed: Color32::from_rgb(0xED, 0xEB, 0xE9),
+            checked: Color32::from_rgb(0xEB, 0xF3, 0xFC),
             accent: APP_COLOR,
             nav: APP_COLOR,
             accent_text: APP_INK,
             on_accent: Color32::WHITE,
             input: Color32::WHITE,
-            input_border: Color32::from_rgb(0x8A, 0x8A, 0x8A),
-            group_label: Color32::from_rgb(0x70, 0x70, 0x70),
+            input_border: Color32::from_rgb(0x8A, 0x88, 0x86),
+            group_label: Color32::from_rgb(0x61, 0x61, 0x61),
             ruler: Color32::from_rgb(0xFF, 0xFF, 0xFF),
-            ruler_margin: Color32::from_rgb(0xD4, 0xD4, 0xD4),
-            ruler_tick: Color32::from_rgb(0x70, 0x70, 0x70),
-            status_bar: Color32::from_rgb(0xF0, 0xF0, 0xF0),
-            selection: Color32::from_rgba_unmultiplied(0x3B, 0x5B, 0xDB, 0x48),
+            ruler_margin: Color32::from_rgb(0xE9, 0xE9, 0xE9),
+            ruler_tick: Color32::from_rgb(0x61, 0x61, 0x61),
+            status_bar: Color32::from_rgb(0xF3, 0xF3, 0xF3),
+            selection: Color32::from_rgba_unmultiplied(0x0F, 0x6C, 0xBD, 0x38),
             find_highlight: Color32::from_rgba_unmultiplied(0xFF, 0xE0, 0x3D, 0x90),
             page_shadow: Color32::from_rgba_unmultiplied(0, 0, 0, 0x22),
             handle: Color32::WHITE,
