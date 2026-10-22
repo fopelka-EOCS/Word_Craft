@@ -70,9 +70,9 @@
 	Automatic follows your system's language. Menus and commands change; your documents don't.	„Automatisch“ folgt der Sprache Ihres Systems. Menüs und Befehle ändern sich, Ihre Dokumente nicht.
 	Automatic Table 1 (3 levels)	Automatisches Inhaltsverzeichnis 1 (3 Ebenen)
 	Automatic Table 2 (2 levels)	Automatisches Inhaltsverzeichnis 2 (2 Ebenen)
-	AutoSave	AutoSpeichern
+	AutoSave	Automatisch speichern
 	AutoSave documents you have saved in WordCraft	In WordCraft gespeicherte Dokumente automatisch speichern
-	AutoSave failed: {error}. Save the document to turn AutoSave back on.	AutoSpeichern fehlgeschlagen: {error}. Speichern Sie das Dokument, um AutoSpeichern wieder zu aktivieren.
+	AutoSave failed: {error}. Save the document to turn AutoSave back on.	Automatisches Speichern fehlgeschlagen: {error}. Speichern Sie das Dokument, um automatisches Speichern wieder zu aktivieren.
 	Balloons	Sprechblasen
 	Bottom Margin	Unterer Rand
 	Click a border between two cells to merge them. Esc stops.	Klicken Sie auf eine Rahmenlinie zwischen zwei Zellen, um sie zu verbinden. Esc beendet.
@@ -120,11 +120,11 @@
 	Search for templates	Vorlagen suchen
 	Show all revisions inline	Alle Änderungen im Text anzeigen
 	Show documents with their colours inverted, like View › Switch Modes. Saving, printing and PDFs are unchanged.	Zeigt Dokumente mit invertierten Farben an, wie Ansicht › Modus wechseln. Speichern, Drucken und PDFs bleiben unverändert.
-	AutoSave saves every change to the file (needs a saved document)	AutoSpeichern speichert jede Änderung in der Datei (erfordert ein gespeichertes Dokument)
-	AutoSave isn't available in the browser: it can't write to your files. Save downloads a copy.	AutoSpeichern ist im Browser nicht verfügbar: Es kann nicht in Ihre Dateien schreiben. „Speichern“ lädt eine Kopie herunter.
-	AutoSave only keeps .docx, .odt and .rtf files; {name} can't keep all formatting. Save as .docx to turn on AutoSave.	AutoSpeichern behält nur .docx-, .odt- und .rtf-Dateien; {name} kann nicht die gesamte Formatierung bewahren. Speichern Sie als .docx, um AutoSpeichern zu aktivieren.
-	Save the document to turn on AutoSave	Speichern Sie das Dokument, um AutoSpeichern zu aktivieren
-	Save the document to turn on AutoSave (a file you have only opened isn't rewritten until you save it)	Speichern Sie das Dokument, um AutoSpeichern zu aktivieren (eine nur geöffnete Datei wird erst beim Speichern neu geschrieben)
+	AutoSave saves every change to the file (needs a saved document)	Automatisches Speichern sichert jede Änderung in der Datei (erfordert ein gespeichertes Dokument)
+	AutoSave isn't available in the browser: it can't write to your files. Save downloads a copy.	Automatisches Speichern ist im Browser nicht verfügbar: Es kann nicht in Ihre Dateien schreiben. „Speichern“ lädt eine Kopie herunter.
+	AutoSave only keeps .docx, .odt and .rtf files; {name} can't keep all formatting. Save as .docx to turn on AutoSave.	Automatisches Speichern unterstützt nur .docx-, .odt- und .rtf-Dateien; {name} kann nicht die gesamte Formatierung bewahren. Speichern Sie als .docx, um automatisches Speichern zu aktivieren.
+	Save the document to turn on AutoSave	Speichern Sie das Dokument, um automatisches Speichern zu aktivieren
+	Save the document to turn on AutoSave (a file you have only opened isn't rewritten until you save it)	Speichern Sie das Dokument, um automatisches Speichern zu aktivieren (eine nur geöffnete Datei wird erst beim Speichern neu geschrieben)
 	AutoText	Textbausteine
 	Backspace	Rücktaste
 	Banded Columns	Gestreifte Spalten
@@ -181,7 +181,7 @@
 	Bullets	Aufzählungszeichen
 	Calendar	Kalender
 	Cancel	Abbrechen
-	Capitalize Each Word	Jedes Wort großschreiben
+	Capitalize Each Word	Jedes Wort Großschreiben
 	Captions	Beschriftungen
 	Cell Margins	Zellenränder
 	Cell Size	Zellengröße
@@ -1066,7 +1066,7 @@
 	Space before	Abstand vor
 	Suppress line numbers	Zeilennummern unterdrücken
 	Underline color	Unterstreichungsfarbe
-	Letters	Buchstaben
+	Letters	Briefe
 	E-mail Messages	E-Mail-Nachrichten
 	Directory	Verzeichnis
 	Normal Word Document	Normales Word-Dokument
@@ -1295,7 +1295,7 @@
 	{cols}×{rows} Table	{cols}×{rows}-Tabelle
 	AaBbYyZz	AaBbYyZz
 	pt	pt
-	Document1	Document1
+	Document1	Dokument1
 	Username	Benutzername
 	Display name	Anzeigename
 	Real name	Echter Name
@@ -1427,7 +1427,7 @@
 # Interface strings added on main since this catalog was first written.
 	As you type	Während der Eingabe
 	Asian text font:	Schriftart für asiatischen Text:
-	AutoSave writes your changes to the file a moment after you stop typing.	AutoSpeichern schreibt Ihre Änderungen kurz nach dem Ende der Eingabe in die Datei.
+	AutoSave writes your changes to the file a moment after you stop typing.	Automatisches Speichern schreibt Ihre Änderungen kurz nach dem Ende der Eingabe in die Datei.
 	Centimeters	Zentimeter
 	Check spelling as you type	Rechtschreibung während der Eingabe prüfen
 	Click to switch back to inserting	Klicken, um wieder zum Einfügen zu wechseln
