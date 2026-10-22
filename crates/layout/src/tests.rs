@@ -10908,3 +10908,74 @@ fn combine_on_a_character_grid_takes_cells_from_its_combined_advance() {
     let cells = w.adv / pitch;
     assert!((cells - cells.round()).abs() < 1e-3, "the notation takes whole cells: {cells}");
 }
+
+#[test]
+fn combine_halves_the_complex_script_size_too() {
+    // Arabic is shaped through `ResolvedChar::complex()`, which reads `size_cs`: the half-size
+    // sub-lines must halve that too, not only `size`, or the complex-script glyphs stay at the
+    // full complex-script size inside them.
+    let text = "مرحبا";
+    let chr = wordcraft_doc::CharProps {
+        size: Some(20.0),
+        size_cs: Some(16.0),
+        east_asian_layout: Some(EastAsianLayout { combine: Some(true), combine_brackets: Some(CombineBrackets::None), ..Default::default() }),
+        ..Default::default()
+    };
+    let mut d = Document::new();
+    d.body = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text(text, chr))];
+    let l = lay(&d);
+    let c = only_para(&l);
+    assert_eq!(c.clusters.len(), 1, "{:?}", c.clusters.iter().map(|c| (c.start, c.end, c.warichu)).collect::<Vec<_>>());
+    let w = &c.clusters[0];
+    assert!(w.warichu, "the run is one combined cluster");
+    let size = c.styles[w.style as usize].size;
+    assert!((size - 8.0).abs() < 0.01, "half of the complex-script size: {size}");
+}
+
+#[test]
+fn combine_uses_ordinary_text_when_its_pieces_would_mix_faces() {
+    // A combined cluster draws all its glyphs with one face. Here the run's East Asian font puts
+    // the upper letter in a different face from the Latin lower letter. The same happens when no
+    // fallback face covers a script mix: the pieces fall into different faces. The run must then
+    // stay ordinary text, each character in its own face, instead of drawing the lower line with
+    // the upper line's face and glyph ids.
+    let db = wordcraft_fonts::FontDb::global();
+    let resolve = |f: &str| wordcraft_fonts::word::resolve(f, false, false);
+    let mut fonts: Vec<(String, wordcraft_fonts::FaceRef)> = db
+        .east_asian_families()
+        .into_iter()
+        .map(|f| (f.clone(), resolve(&f)))
+        .filter(|(_, r)| !r.substituted && r.face.covers('日') && r.face.covers('a'))
+        .map(|(f, r)| (f, r.face))
+        .collect();
+    fonts.sort_by_key(|(_, f)| f.id());
+    fonts.dedup_by_key(|(_, f)| f.id());
+    let (Some((latin_family, latin)), Some((asian_family, asian))) = (fonts.first(), fonts.get(1)) else {
+        eprintln!("skipped: needs two installed East Asian families covering Latin too");
+        return;
+    };
+    let chr = wordcraft_doc::CharProps {
+        font: Some(latin_family.clone()),
+        font_ea: Some(asian_family.clone()),
+        size: Some(20.0),
+        east_asian_layout: Some(EastAsianLayout { combine: Some(true), combine_brackets: Some(CombineBrackets::None), ..Default::default() }),
+        ..Default::default()
+    };
+    let text = "日a";
+    let mut d = Document::new();
+    d.body = vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text(text, chr))];
+    let l = lay(&d);
+    let c = only_para(&l);
+    assert!(
+        c.clusters.iter().all(|cl| !cl.warichu),
+        "ordinary text, not one cluster drawn in the upper letter's face: {:?}",
+        c.clusters.iter().map(|cl| (cl.start, cl.end, cl.warichu)).collect::<Vec<_>>()
+    );
+    let face = |ch: char| {
+        let cl =
+            c.clusters.iter().find(|cl| text.get(cl.start..cl.end).and_then(|t| t.chars().next()) == Some(ch)).expect("a cluster for the letter");
+        c.styles[cl.style as usize].face
+    };
+    assert_eq!(face('日').id(), asian.id(), "the Japanese letter keeps the East Asian face");
+    assert_eq!(face('a').id(), latin.id(), "the Latin letter keeps the run's own face");
+}

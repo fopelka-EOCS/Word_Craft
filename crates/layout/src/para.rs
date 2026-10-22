@@ -1266,12 +1266,12 @@ impl<'a> Builder<'a> {
     /// so they enclose the two. Both sub-lines start after the opening bracket and the run takes
     /// the width of one line, not of both end to end. It is one atomic cluster: the line cannot
     /// break inside it, and the caret stops before and after it (not between its characters).
-    fn shape_warichu(&mut self, text: &str, start: usize, rc: &Arc<ResolvedChar>, brackets: CombineBrackets) {
+    fn shape_warichu(&mut self, text: &str, start: usize, rc: &Arc<ResolvedChar>, brackets: CombineBrackets) -> bool {
         let starts: Vec<usize> = wordcraft_doc::cluster::cluster_starts(text);
         // A one-grapheme run has no midpoint: it is all upper sub-line, the lower one empty.
         // Empty text has nothing to set.
         let Some(mid) = starts.get(starts.len().div_ceil(2)).copied().or_else(|| (!text.is_empty()).then_some(text.len())) else {
-            return;
+            return false;
         };
         let (top, bottom) = text.split_at(mid);
         let (open, close) = match brackets {
@@ -1282,7 +1282,9 @@ impl<'a> Builder<'a> {
             CombineBrackets::Curly => (Some('｛'), Some('｝')),
         };
         // The notation is drawn as one cluster, which has one face: shape it all in a single face
-        // that covers it, so no glyph is drawn with another font's glyph id.
+        // that covers it, so no glyph is drawn with another font's glyph id. If no face covers it,
+        // the pieces below fall into different fallback faces and the run is kept as ordinary text
+        // (each character in its own face) rather than drawn with the upper line's face.
         let primary = wordcraft_fonts::word::resolve(lookup_family(self.env.doc, &rc.font), rc.bold, rc.italic).face;
         let chars: Vec<char> = text.chars().chain(open).chain(close).filter(|c| !c.is_whitespace() && !c.is_control()).collect();
         self.force_face = (!chars.iter().all(|c| primary.covers(*c)))
@@ -1290,6 +1292,9 @@ impl<'a> Builder<'a> {
             .flatten();
         let mut half_rc: ResolvedChar = (**rc).clone();
         half_rc.size = (rc.size * 0.5).max(0.1);
+        // Complex-script text (Arabic, Persian, Hebrew…) is shaped through `ResolvedChar::complex`,
+        // which reads `size_cs`; halve it too so those glyphs sit on the half-size sub-lines.
+        half_rc.size_cs = (rc.size_cs * 0.5).max(0.1);
         let half = Arc::new(half_rc);
         // The line keeps the run's full-size height: Word does not grow the line for 割注.
         let full_si = self.style(rc, None, false);
@@ -1317,6 +1322,16 @@ impl<'a> Builder<'a> {
             }
         }
         self.force_face = None;
+        // The combined cluster draws all its glyphs in one face. Shaping a piece per character can
+        // still split it across faces (a symbol or a substituted numeral the run's face lacks, say).
+        // In that case drawing the cluster with the upper piece's face would use glyph ids from
+        // another font; give the run back to the ordinary path, where each character keeps its face.
+        let face_of = |b: &Self, k: usize| b.clusters.get(k).and_then(|c| b.styles.get(c.style as usize)).map(|st| st.face.id());
+        if pieces.is_empty() || pieces.iter().flat_map(|(_, a, b)| *a..*b).any(|k| face_of(self, k) != face_of(self, pieces[0].1)) {
+            self.glyphs.truncate(g0 as usize);
+            self.clusters.truncate(c0);
+            return false;
+        }
         let mut adv = [0.0f32; 4];
         for (kind, a, b) in &pieces {
             adv[*kind as usize] = self.clusters.get(*a..*b).into_iter().flatten().map(|c| c.adv).sum();
@@ -1369,7 +1384,7 @@ impl<'a> Builder<'a> {
             }
         }
         if !placed_any {
-            return;
+            return false;
         }
         let style = match pieces.iter().find(|(kind, _, _)| *kind == 1).and_then(|(_, a, _)| self.clusters.get(*a)) {
             Some(c) => c.style,
@@ -1393,6 +1408,7 @@ impl<'a> Builder<'a> {
             dot: false,
             warichu: true,
         });
+        true
     }
 
     /// Shape `texts` on top of one another as one cluster for `start..end`: each aligned within
@@ -1762,8 +1778,8 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
         if seg == 0
             && let Some(brackets) = rc.combine
             && !text.chars().any(|c| matches!(c, '\t' | LINE_BREAK | PAGE_BREAK | COLUMN_BREAK | OBJ | '\r'))
+            && b.shape_warichu(text, range.start, &rc, brackets)
         {
-            b.shape_warichu(text, range.start, &rc, brackets);
             continue;
         }
         for (i, c) in text.char_indices() {
