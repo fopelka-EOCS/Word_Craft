@@ -7,15 +7,16 @@ use wordcraft_doc::{PartKind, StoryRef};
 use crate::theme::{Tokens, TypeRung, fit_text, medium, paint_text, regular, semibold, text_width};
 use crate::{WordApp, icons};
 
-/// The Quick Access Toolbar's button for command `id`.
-pub(crate) fn qat_button_id(id: &str) -> egui::Id {
-    egui::Id::new(("qat_button", id))
-}
+/// Panel width (CSS/egui screen pixels) below which the title bar switches to
+/// a compact layout. Search and Discord yield to the Quick Access Toolbar,
+/// Share, the suite account and presence.
+///
+/// Shared with `ribbon` so the tab-strip compact breakpoint is consistent.
+pub(crate) const TITLE_NARROW: f32 = 760.0;
 
 fn qat_button(ui: &mut Ui, app: &mut WordApp, icon: &str, tip: &str, id: &str, enabled: bool) -> egui::Response {
     let t = Tokens::get(ui.ctx());
-    let (r, _) = ui.allocate_exact_size(vec2(26.0, 24.0), Sense::hover());
-    let resp = ui.interact(r, qat_button_id(id), Sense::click());
+    let (r, resp) = ui.allocate_exact_size(vec2(26.0, 24.0), Sense::click());
     if resp.hovered() && enabled {
         ui.painter().rect_filled(r, 4.0, t.hover);
     }
@@ -38,7 +39,7 @@ pub(crate) fn qat_enabled(app: &WordApp, id: &str) -> bool {
     match id {
         "edit.undo" => app.session.can_undo(),
         "edit.redo" => app.session.can_redo(),
-        "file.save" => app.has_document(),
+        "file.save" => true,
         _ => crate::widgets::enabled(app, id),
     }
 }
@@ -95,11 +96,6 @@ pub(crate) fn status_message_id() -> egui::Id {
 /// Row `i` of the Undo list (0 = the newest step).
 fn undo_list_row_id(i: usize) -> egui::Id {
     undo_list_button_id().with(("row", i))
-}
-
-/// The footer Cancel row's id (#1903).
-pub(crate) fn undo_list_cancel_id() -> egui::Id {
-    undo_list_button_id().with("cancel")
 }
 
 /// The Undo list's rows, newest first: each step named as the Undo button's tooltip names it.
@@ -163,21 +159,8 @@ fn undo_list(ui: &mut Ui, app: &mut WordApp) {
         }
     });
     ui.separator();
-    let n = hovered.map_or(0, |h| h + 1);
-    if n == 0 {
-        // Cancel is a real row: it closes the popup without undoing anything (#1903).
-        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), ROW), Sense::hover());
-        let resp = ui.interact(r, undo_list_cancel_id(), Sense::click());
-        if resp.hovered() {
-            ui.painter().rect_filled(r, 0.0, t.selection);
-        }
-        ui.painter().text(pos2(r.min.x + 6.0, r.center().y), Align2::LEFT_CENTER, undo_list_footer(0), regular(12.0), t.text);
-        if resp.clicked() {
-            ui.close();
-        }
-    } else {
-        ui.vertical_centered(|ui| ui.label(egui::RichText::new(undo_list_footer(n)).font(regular(12.0)).color(t.text)));
-    }
+    let footer = undo_list_footer(hovered.map_or(0, |h| h + 1));
+    ui.vertical_centered(|ui| ui.label(egui::RichText::new(footer).font(regular(12.0)).color(t.text)));
     if let Some(i) = clicked {
         crate::widgets::run_from_ribbon(app, "edit.undoTo", json!({"count": i + 1}));
         ui.close();
@@ -208,12 +191,6 @@ pub(crate) fn qat_menu(ui: &mut Ui, app: &mut WordApp) {
         crate::dialogs_ribbon::open(app, crate::dialogs_ribbon::Page::QuickAccess);
         ui.close();
     }
-    ui.separator();
-    // Last, as in Word (#1945); the ribbon's right-click menu brings the toolbar back.
-    if ui.button(tl!("Hide Quick Access Toolbar")).clicked() {
-        let _ = app.run("ui.quickAccessToolbar", json!({"value": false}));
-        ui.close();
-    }
 }
 
 /// Height of the macOS integrated title bar (#225). AppKit draws the traffic lights itself, centred
@@ -232,9 +209,8 @@ const MAC_LIGHTS_LEFT: f32 = 10.0;
 /// from the top of the window.
 pub const MAC_CONTENT_LEFT: f32 = MAC_LIGHTS_LEFT + 2.0 * MAC_LIGHT_PITCH + MAC_LIGHT + (MAC_TITLE_BAR - MAC_LIGHT) / 2.0;
 
-/// The macOS title bar as laid out around the traffic lights: its height and where content starts
-/// after the lights. The app measures the real buttons (they grew in macOS 26); until then, or if it
-/// can't, the standard layout above.
+/// Where content starts after the lights. The app measures the real buttons (they grew in
+/// macOS 26); until then, or if it can't, the standard layout above.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MacTitleBar {
     pub height: f32,
@@ -263,14 +239,16 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
     // macOS: shorter, so the system's traffic lights are centred in it; the tallest controls
     // shrink to keep a margin above and below them.
     let mac = app.integrated_titlebar;
-    let bar = app.mac_titlebar;
-    let left = if mac { bar.content_left as i8 } else { 8 };
+    let left = if mac { MAC_CONTENT_LEFT as i8 } else { 8 };
     let control_h = if mac { 22.0 } else { 26.0 };
     egui::Panel::top("title_bar")
-        .exact_size(if mac { bar.height } else { 38.0 })
+        .exact_size(if mac { MAC_TITLE_BAR } else { 38.0 })
         .frame(egui::Frame::NONE.fill(t.title_bar).inner_margin(egui::Margin { left, right: 10, top: 0, bottom: 0 }))
         .show(ui, |ui| {
             let full = ui.max_rect();
+            // Below TITLE_NARROW the search box would overlap the QAT; hide it (and
+            // Discord) so every control stays reachable without visual collisions.
+            let narrow = full.width() < TITLE_NARROW;
             // Drag the window by the title bar (integrated title bar on macOS).
             let drag = ui.interact(full, ui.id().with("title_drag"), Sense::click_and_drag());
             if drag.drag_started() {
@@ -321,23 +299,20 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                     }
                 }
                 ui.add_space(8.0);
-                // Hidden (#1945): neither the buttons nor the … menu; the title centres as before.
-                if app.ui.quick_access_toolbar {
-                    quick_access(ui, app);
-                }
+                quick_access(ui, app);
                 qat_end = ui.min_rect().max.x;
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Account / community.
-                    let (r, resp) = ui.allocate_exact_size(vec2(control_h, control_h), Sense::click());
-                    ui.painter().circle_filled(r.center(), control_h / 2.0 - 1.0, t.accent);
-                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Account")));
-                    let initials: String = app.session.user_initials().chars().take(2).collect();
-                    ui.painter().text(r.center(), Align2::CENTER_CENTER, initials, semibold(10.5), t.on_accent);
-                    if resp.on_hover_text(format!("{} — set your name in File › Options", app.session.author)).clicked() {
-                        let _ = app.run("ui.backstage", json!({"value": true, "page": "options", "pane": "general"}));
-                    }
+                    // The suite account, collaborators and Share live together
+                    // in the title bar. The document-author initials still
+                    // belong to comments and tracked changes under Options;
+                    // they are not a second account.
+                    crate::cloud::who(app, ui);
                     ui.add_space(8.0);
-                    if app.ui.show_discord {
+                    crate::ribbon::title_share(app, ui);
+                    ui.add_space(8.0);
+                    // Discord and Search are hidden below TITLE_NARROW so the QAT buttons
+                    // and the account controls cannot overlap at ~472 px or narrower.
+                    if !narrow && app.ui.show_discord {
                         let (r, resp) = ui.allocate_exact_size(vec2(84.0, 22.0), Sense::click());
                         ui.painter().rect_filled(r, 11.0, if resp.hovered() { t.accent_text } else { t.accent });
                         icons::paint(
@@ -358,47 +333,29 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                 });
             });
             // Centred title.
-            let title = if !app.has_document() {
-                // No document open (#1129): the app's name alone.
-                "WordCraft".to_string()
-            } else {
-                format!(
-                    "{} — {}",
-                    app.title_stem(),
-                    if app.session.dirty {
-                        tl!("Edited")
-                    } else if app.session.path.is_some() {
-                        tl!("Saved")
-                    } else {
-                        tl!("Not saved")
-                    }
-                )
-            };
+            let title = format!(
+                "{} — {}",
+                app.title_stem(),
+                if app.session.dirty {
+                    tl!("Edited")
+                } else if app.session.path.is_some() || crate::cloud::origin(app).is_some() {
+                    // A document that came from the cloud is saved, in the cloud. It has no file
+                    // on this computer, and saying "Not saved" about it would be untrue.
+                    tl!("Saved")
+                } else {
+                    tl!("Not saved")
+                }
+            );
             let font = TypeRung::Chrome.semibold();
             let track = TypeRung::Chrome.tracking();
+            let w = text_width(ui.painter(), &title, &font, track, t.text);
             let cx = full.center().x;
-            let available = 2.0 * (cx - qat_end - 10.0).min(right_start - 10.0 - cx);
-            let mut shown: String = title.chars().take(240).collect();
-            if text_width(ui.painter(), &shown, &font, track, t.text) > available {
-                while !shown.is_empty() && text_width(ui.painter(), &format!("{shown}…"), &font, track, t.text) > available {
-                    shown.pop();
-                }
-                shown.push('…');
-            }
-            let w = text_width(ui.painter(), &shown, &font, track, t.text);
-            if available > 24.0 {
-                let rect = Rect::from_center_size(pos2(cx, full.center().y), vec2(w + 8.0, control_h));
-                let response = ui.interact(rect, ui.id().with("document_name"), Sense::click()).on_hover_text(tl!("Rename Document"));
-                response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &title));
-                if response.clicked() {
-                    let _ = app.run("file.rename", json!({}));
-                }
-
+            if cx - w / 2.0 > qat_end + 10.0 && cx + w / 2.0 < right_start - 10.0 {
                 paint_text(
                     ui.painter(),
                     pos2(cx - w / 2.0, full.center().y - TypeRung::Chrome.line_height() / 2.0),
                     Align2::LEFT_TOP,
-                    &shown,
+                    &title,
                     &font,
                     track,
                     t.text,
@@ -530,25 +487,16 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                 .stroke(Stroke::new(1.0, t.border)),
         )
         .show(ui, |ui| {
-            // No document open (#1129): an empty status bar.
-            if !app.has_document() {
-                return;
-            }
             ui.horizontal_centered(|ui| {
                 ui.spacing_mut().item_spacing = vec2(14.0, 0.0);
                 let l = app.session.layout();
-                let page = if app.session.selects_whole_story() {
-                    app.session.page_hint.min(l.pages.len().saturating_sub(1)) + 1
-                } else {
-                    l.caret_on(&app.session.sel.focus, app.session.page_hint).map(|c| c.page + 1).unwrap_or(1)
-                };
+                let page = l.caret_on(&app.session.sel.focus, app.session.page_hint).map(|c| c.page + 1).unwrap_or(1);
                 let st = |ui: &mut Ui, s: &str| {
                     let font = TypeRung::Caption.regular();
                     let track = TypeRung::Caption.tracking();
                     let w = text_width(ui.painter(), s, &font, track, t.text_dim);
                     let (r, resp) = ui.allocate_exact_size(vec2(w + 1.0, TypeRung::Caption.line_height()), Sense::click());
                     paint_text(ui.painter(), pos2(r.min.x, r.min.y), Align2::LEFT_TOP, s, &font, track, t.text_dim);
-                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, s));
                     resp
                 };
                 if st(ui, &crate::i18n::fmt(tl!("Page {page} of {pages}"), &[("page", &page.to_string()), ("pages", &l.pages.len().to_string())]))
@@ -578,27 +526,7 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                 }
                 // The language at the caret; a click sets the proofing language (Review › Language).
                 let lang = crate::ribbon::caret_language(app);
-                let missing = crate::ribbon::caret_missing_dictionary(app);
-                let unreadable = crate::ribbon::caret_unreadable_dictionary(app);
-                let shown = if unreadable.is_some() {
-                    crate::i18n::fmt(tl!("{language} (dictionary unreadable)"), &[("language", &lang)])
-                } else if missing.is_some() {
-                    crate::i18n::fmt(tl!("{language} (no dictionary)"), &[("language", &lang)])
-                } else {
-                    lang.clone()
-                };
-                let tip = match (&unreadable, missing) {
-                    (Some((file, reason)), _) => crate::i18n::fmt(
-                        tl!("The spelling dictionary for {language} couldn't be read, so it isn't checked. File: {file}. Reason: {reason}"),
-                        &[("language", &lang), ("file", &file.to_string_lossy()), ("reason", reason)],
-                    ),
-                    (None, Some(name)) => crate::i18n::fmt(
-                        tl!("No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations."),
-                        &[("language", &lang), ("name", name)],
-                    ),
-                    (None, None) => tl!("Language").to_string(),
-                };
-                let resp = st(ui, &shown).on_hover_text(tip);
+                let resp = st(ui, &lang).on_hover_text(tl!("Language"));
                 egui::Popup::menu(&resp).show(|ui| {
                     ui.set_min_width(200.0);
                     crate::ribbon::language_menu(ui, app);
@@ -623,11 +551,8 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                     let zfont = TypeRung::Caption.regular();
                     let ztrack = TypeRung::Caption.tracking();
                     let zw = text_width(ui.painter(), &ztxt, &zfont, ztrack, t.text_dim);
-                    // A fixed width for three digits plus a small reserve, so the controls to the
-                    // left don't shift as the percentage gains or loses digits (#1975).
-                    let zslot = text_width(ui.painter(), "000%", &zfont, ztrack, t.text_dim) + 4.0;
-                    let (zr, zresp) = ui.allocate_exact_size(vec2(zw.max(zslot) + 1.0, TypeRung::Caption.line_height()), Sense::click());
-                    paint_text(ui.painter(), pos2(zr.max.x - 1.0, zr.min.y), Align2::RIGHT_TOP, &ztxt, &zfont, ztrack, t.text_dim);
+                    let (zr, zresp) = ui.allocate_exact_size(vec2(zw + 1.0, TypeRung::Caption.line_height()), Sense::click());
+                    paint_text(ui.painter(), pos2(zr.min.x, zr.min.y), Align2::LEFT_TOP, &ztxt, &zfont, ztrack, t.text_dim);
                     if zresp.clicked() && !reading {
                         let _ = app.run("ui.dialog", json!({ "name": "zoom" }));
                     }
@@ -656,10 +581,10 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                     ui.add_space(10.0);
                     let mode = app.session.view.mode;
                     let read = app.session.view.read_mode;
-                    for (icon, id, name, on) in [
-                        ("webLayout", "view.webLayout", tl!("Web Layout"), mode == wordcraft_layout::ViewMode::Web),
-                        ("printLayout", "view.printLayout", tl!("Print Layout"), mode == wordcraft_layout::ViewMode::Print && !read),
-                        ("readMode", "view.readMode", tl!("Read Mode"), read),
+                    for (icon, id, on) in [
+                        ("webLayout", "view.webLayout", mode == wordcraft_layout::ViewMode::Web),
+                        ("printLayout", "view.printLayout", mode == wordcraft_layout::ViewMode::Print && !read),
+                        ("readMode", "view.readMode", read),
                     ] {
                         let (r, resp) = ui.allocate_exact_size(vec2(22.0, 20.0), Sense::click());
                         if on {
@@ -668,8 +593,7 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                             ui.painter().rect_filled(r, 3.0, t.hover);
                         }
                         icons::paint(ui.painter(), r.shrink(3.0), icon, t.icon, t.accent);
-                        resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, name));
-                        if resp.on_hover_text(name).clicked() {
+                        if resp.on_hover_text(id.trim_start_matches("view.")).clicked() {
                             let _ = app.run(id, json!({}));
                         }
                     }
@@ -695,11 +619,21 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                         ftrack,
                         t.text_dim,
                     );
-                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, focus));
                     if resp.clicked() {
                         let _ = app.run("view.focus", json!({}));
                     }
                 });
+                // A cloud read or write in flight. The File view is usually closed by now, and a
+                // transfer nobody can see looks like a frozen window.
+                if let Some(busy) = app.cloud.busy.as_ref().map(crate::cloud::Busy::text) {
+                    ui.add_space(12.0);
+                    ui.add(egui::Spinner::new().size(12.0));
+                    ui.add_space(4.0);
+                    let font = TypeRung::Caption.regular();
+                    let track = TypeRung::Caption.tracking();
+                    paint_text(ui.painter(), pos2(ui.cursor().min.x, ui.cursor().min.y), Align2::LEFT_TOP, &busy, &font, track, t.text_dim);
+                    ui.allocate_space(vec2(text_width(ui.painter(), &busy, &font, track, t.text_dim) + 1.0, TypeRung::Caption.line_height()));
+                }
                 if let Some((msg, at)) = &app.status_msg
                     && crate::now_ms() - at < 6000.0
                 {
@@ -934,7 +868,6 @@ mod tests {
         // `egui::Margin` is in `i8`.
         assert!(MAC_CONTENT_LEFT <= f32::from(i8::MAX));
     }
-
     #[test]
     fn mac_title_bar_follows_the_measured_lights() {
         // The standard lights give the standard bar.
