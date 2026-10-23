@@ -1,10 +1,10 @@
 # Where WordCraft falls short of Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-22 · **Change:** trivial (gap 10: group connector rerouting preserves transformed free and unresolved endpoints; obstacle routing still missing; readiness estimates unchanged) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-22 · **Change:** trivial (gap 10: group connector rerouting preserves transformed free and unresolved endpoints under nonuniform scaling; obstacle routing still missing; readiness estimates unchanged) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 Recovery discovery no longer interrupts an explicitly created or opened document. Older copies remain in File › Recover, whose buttons use the interface palette. See [local recovery](recovery.md).
 
-Group connectors (gap 10): re-routing preserves rotated and flipped free endpoints, including ends whose target shape or site cannot be resolved. Glued endpoints still follow their sites. Deterministic model regressions cover this geometry; routing around shapes remains missing, with no new native Word comparison.
+Group connectors (gap 10): re-routing preserves displayed rotated and flipped free endpoints after unit, uniform or nonuniform group scaling, including ends whose target shape or site cannot be resolved. Glued endpoints still use their existing connection-site path. Degenerate display scales that cannot be inverted, or fallback spans exceeding the renderer's 4000 pt child-size cap, leave connectors needing fallback endpoints unchanged; fully resolved connectors still reroute. Invalid child extents retain the renderer's unit-scale fallback. Model and engine regressions cover this geometry and guard against nonfinite coordinate writes and repeated shrinkage at the display cap; routing around shapes remains missing, with no new native Word comparison.
 
 > **Printing update:** 2026-10-12 · direct desktop printing through craft-print; details below.
 
@@ -127,7 +127,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-22 | trivial | Gap 10: group connector rerouting preserves rotated/flipped free and unresolved endpoints; routing around shapes and readiness estimates unchanged |
+| 2026-10-22 | trivial | Gap 10: group connector rerouting preserves rotated/flipped free and unresolved endpoints under nonuniform scaling, with safe degenerate-dimension and display-size-cap handling; routing around shapes and readiness estimates unchanged |
 | 2026-10-18 | trivial | Explicit New/Open is not interrupted by startup recovery discovery; older copies stay available and Recover follows the interface theme. |
 | 2026-10-21 | trivial | Bullets and Numbering toggle off style-inherited lists at their effective level, including basedOn chains and numbered ListParagraph styles; other paragraphs and list definitions stay unchanged (related to #3459) |
 | 2026-10-21 | trivial | #3172: the ribbon's font name and size boxes, and the dropdown arrows beside them, say what they are to a screen reader |
