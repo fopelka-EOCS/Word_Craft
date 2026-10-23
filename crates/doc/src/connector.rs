@@ -215,7 +215,11 @@ pub fn reroute_group(children: &mut [GroupChild]) -> bool {
         if !kind.is_connector() || (extra.start.is_none() && extra.end.is_none()) {
             continue;
         }
-        let (s0, e0) = ends(c.x, c.y, *w, *h, float.flip_h, float.flip_v);
+        // Preserve free or unresolved ends in group space before clearing the connector's spin.
+        let spin = float.spin();
+        let (cx, cy) = (c.x + *w / 2.0, c.y + *h / 2.0);
+        let s0 = spin.apply(cx, cy, c.x, c.y);
+        let e0 = spin.apply(cx, cy, c.x + *w, c.y + *h);
         let (s, e) = (find(extra.start).unwrap_or(s0), find(extra.end).unwrap_or(e0));
         let f = route(s, e);
         let same = (f.x - c.x).abs() < 0.01 && (f.y - c.y).abs() < 0.01 && (f.w - *w).abs() < 0.01 && (f.h - *h).abs() < 0.01;
@@ -276,6 +280,75 @@ mod tests {
     }
 
     #[test]
+    fn rerouting_preserves_transformed_free_and_unresolved_ends() {
+        for kind in [ShapeKind::StraightConnector, ShapeKind::ElbowConnector, ShapeKind::CurvedConnector] {
+            for rot in [0.0_f32, 30.0, 90.0, 180.0, 270.0, -90.0, 450.0] {
+                for (flip_h, flip_v) in [(false, false), (true, false), (false, true), (true, true)] {
+                    for free in [None, Some(ConnEnd { id: 404, site: 0 }), Some(ConnEnd { id: 7, site: 99 })] {
+                        for free_start in [false, true] {
+                            let attached = Some(ConnEnd { id: 7, site: 3 });
+                            let (start, end) = if free_start { (free, attached) } else { (attached, free) };
+                            let mut obj = shape(kind, 40.0, 20.0, ShapeExtra { start, end, ..Default::default() });
+                            let InlineObject::Shape { float, .. } = &mut obj else { panic!() };
+                            float.rot = rot;
+                            float.flip_h = flip_h;
+                            float.flip_v = flip_v;
+                            // Frame (10, 30, 40, 20), centre (30, 40): mirror, then rotate
+                            // clockwise in y-down group space. Do not use the routing transform
+                            // to compute the expectation.
+                            let sign = if free_start { -1.0 } else { 1.0 };
+                            let dx = sign * if flip_h { -20.0 } else { 20.0 };
+                            let dy = sign * if flip_v { -10.0 } else { 10.0 };
+                            let (sin, cos) = rot.to_radians().sin_cos();
+                            let expected = (30.0 + dx * cos - dy * sin, 40.0 + dx * sin + dy * cos);
+                            let mut kids = vec![
+                                GroupChild {
+                                    x: 100.0,
+                                    y: 200.0,
+                                    obj: shape(ShapeKind::Rectangle, 40.0, 20.0, ShapeExtra { id: 7, ..Default::default() }),
+                                },
+                                GroupChild { x: 10.0, y: 30.0, obj },
+                            ];
+                            assert!(reroute_group(&mut kids));
+                            let c = &kids[1];
+                            let InlineObject::Shape { w, h, float, .. } = &c.obj else { panic!() };
+                            let (start, end) = ends(c.x, c.y, *w, *h, float.flip_h, float.flip_v);
+                            let (free, attached) = if free_start { (start, end) } else { (end, start) };
+                            assert!(
+                                (free.0 - expected.0).abs() < 0.001 && (free.1 - expected.1).abs() < 0.001,
+                                "{kind:?}, {rot}, {flip_h}, {flip_v}, {free_start}: {free:?} != {expected:?}"
+                            );
+                            assert_eq!(attached, (140.0, 210.0));
+                            assert_eq!(float.rot, 0.0);
+                            assert!(!reroute_group(&mut kids), "rerouting must settle");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn rerouting_preserves_both_unresolved_ends() {
+        let extra = ShapeExtra { start: Some(ConnEnd { id: 404, site: 0 }), end: Some(ConnEnd { id: 7, site: 99 }), ..Default::default() };
+        let mut obj = shape(ShapeKind::StraightConnector, 40.0, 20.0, extra);
+        let InlineObject::Shape { float, .. } = &mut obj else { panic!() };
+        float.rot = 90.0;
+        let mut kids = vec![
+            GroupChild { x: 100.0, y: 200.0, obj: shape(ShapeKind::Rectangle, 40.0, 20.0, ShapeExtra { id: 7, ..Default::default() }) },
+            GroupChild { x: 10.0, y: 30.0, obj },
+        ];
+        assert!(reroute_group(&mut kids));
+        let c = &kids[1];
+        let InlineObject::Shape { w, h, float, .. } = &c.obj else { panic!() };
+        let (start, end) = ends(c.x, c.y, *w, *h, float.flip_h, float.flip_v);
+        assert!((start.0 - 40.0).abs() < 0.001 && (start.1 - 20.0).abs() < 0.001);
+        assert!((end.0 - 20.0).abs() < 0.001 && (end.1 - 60.0).abs() < 0.001);
+        assert_eq!(float.rot, 0.0);
+        assert!(!reroute_group(&mut kids));
+    }
+
+    #[test]
     fn group_connectors_follow_their_shapes() {
         let a = ShapeExtra { id: 7, ..Default::default() };
         let b = ShapeExtra { id: 9, ..Default::default() };
@@ -285,6 +358,12 @@ mod tests {
             GroupChild { x: 100.0, y: 50.0, obj: shape(ShapeKind::Ellipse, 20.0, 10.0, b) },
             GroupChild { x: 0.0, y: 0.0, obj: shape(ShapeKind::ElbowConnector, 1.0, 1.0, link) },
         ];
+        // Fully resolved endpoints must still come from their sites, regardless of the
+        // connector's old rotation and flips.
+        let InlineObject::Shape { float, .. } = &mut kids[2].obj else { panic!() };
+        float.rot = 90.0;
+        float.flip_h = true;
+        float.flip_v = true;
         assert!(reroute_group(&mut kids));
         // From the rectangle's right side (20, 5) to the ellipse's left side (100, 55).
         let c = &kids[2];
