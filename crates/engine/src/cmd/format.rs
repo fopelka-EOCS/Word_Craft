@@ -270,8 +270,11 @@ fn resolved(s: &Session) -> Vec<ResolvedChar> {
         }
     }
     if out.is_empty() {
-        let style = s.doc.para_at(&a).and_then(|p| p.props.style.clone());
-        out.push(s.doc.styles.resolve_char(style.as_deref(), &s.typing_props()));
+        let p = s.doc.para_at(&a);
+        let style = p.and_then(|p| p.props.style.clone());
+        // An empty selected text box has only its paragraph mark, which is what gets formatted.
+        let empty_box = selected_text_box(s).and(p).map(|p| &p.mark);
+        out.push(s.doc.styles.resolve_char(style.as_deref(), empty_box.unwrap_or(&s.typing_props())));
     }
     out
 }
@@ -402,8 +405,13 @@ fn highlight(s: &mut Session, v: &Value) -> CmdResult {
 }
 
 fn change_case(s: &mut Session, v: &Value) -> CmdResult {
-    let (a, b) = s.sel.ordered();
-    let (a, b) = if a == b { target(s).unwrap_or((a, b)) } else { (a, b) };
+    let (a, b) = match selected_text_box(s) {
+        Some(all) => all,
+        None => {
+            let (a, b) = s.sel.ordered();
+            if a == b { target(s).unwrap_or((a, b)) } else { (a, b) }
+        }
+    };
     if a == b {
         return sel_result(s);
     }
@@ -639,7 +647,7 @@ fn convert_chars(src: &str, mode: &str, para_start: bool) -> Vec<String> {
 }
 
 fn clear(s: &mut Session, _: &Value) -> CmdResult {
-    match target(s) {
+    match selected_text_box(s).or_else(|| target(s)) {
         Some((a, b)) => {
             s.doc.format_range(&a, &b, &|c| *c = c.cleared())?;
             // Clear Formatting also resets the paragraph to Normal.
@@ -660,7 +668,7 @@ fn clear(s: &mut Session, _: &Value) -> CmdResult {
 
 /// Remove direct character formatting, keeping the paragraph and any character style.
 fn reset_char(s: &mut Session, _: &Value) -> CmdResult {
-    match target(s) {
+    match selected_text_box(s).or_else(|| target(s)) {
         Some((a, b)) => s.doc.format_range(&a, &b, &|c| *c = CharProps { style: c.style.clone(), ..c.cleared() })?,
         None => s.pending = Some(CharProps::default()),
     }
