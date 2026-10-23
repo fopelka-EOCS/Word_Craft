@@ -5079,13 +5079,19 @@ mod tests {
             out.drop_without_applying_deltas();
             (reply, sent)
         };
-        for bad in [json!({"width": -5, "height": 600}), json!({"width": 0, "height": 0}), json!({"width": 1200, "height": -1})] {
+        // 1e300 is past f32: infinite once read, so refused too.
+        for bad in [
+            json!({"width": -5, "height": 600}),
+            json!({"width": 0, "height": 0}),
+            json!({"width": 1200, "height": -1}),
+            json!({"width": 1e300, "height": 600}),
+        ] {
             let (v, sent) = resize(bad.clone());
             assert_eq!(v["ok"], false, "{bad} is refused: {v}");
             assert!(sent.is_empty(), "{bad} sends no size: {sent:?}");
         }
         let max = ctx.input(|i| i.max_texture_side) as f32 / ctx.pixels_per_point();
-        let (v, sent) = resize(json!({"width": 1e300, "height": 600}));
+        let (v, sent) = resize(json!({"width": 1e9, "height": 600}));
         assert_eq!(sent, [egui::vec2(max, 600.0)], "{v}");
         assert_eq!(v["result"], json!({"width": max, "height": 600.0}));
         let (v, sent) = resize(json!({"width": 10, "height": 10}));
