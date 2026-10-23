@@ -277,8 +277,8 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
         app.canvas.paste_mods = Some(held);
     }
     for e in events {
-        // A shortcut opened a modal dialog: the keys after it in this frame are the dialog's.
-        if crate::modal::open(app) {
+        // A shortcut opened a dialog: the keys after it in this frame are the dialog's.
+        if crate::modal::opened_unseen(app, ctx) {
             break;
         }
         // Which presses reached the canvas, and the modifiers held with Mod, in event order: Mod
@@ -719,6 +719,10 @@ pub fn global_shortcuts(app: &mut WordApp, ctx: &egui::Context) {
     }
     let events = ctx.input(|i| i.events.clone());
     for e in events {
+        // A shortcut opened a dialog: the shortcuts after it in this frame are the dialog's.
+        if crate::modal::opened_unseen(app, ctx) {
+            break;
+        }
         if let egui::Event::Key { key, pressed: true, modifiers, .. } = e {
             if leave_full_screen(app, key, modifiers, false) {
                 continue;

@@ -1495,7 +1495,7 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
         ui.set_min_width(340.0);
         close = body(app, ui, &mut d);
     });
-    crate::modal::give_back(ctx, page_keys);
+    crate::modal::give_back(app, ctx, page_keys, close);
     if let Some(shown) = &shown {
         if let Dialog::SaveChanges { name, message, .. } = &d {
             let question = crate::i18n::fmt(tl!("Do you want to save changes to {name}?"), &[("name", name)]);
@@ -3896,7 +3896,9 @@ fn goto_body(app: &mut WordApp, ui: &mut Ui, what: &mut GoToWhat, target: &mut S
             GoToWhat::Page => {
                 ui.label(tl!("Enter page number:"));
                 let r = ui.add(egui::TextEdit::singleline(target).desired_width(220.0));
-                if !r.has_focus() {
+                // Not from the page: Find and Replace is modeless, and a click on the page gives
+                // the page the keyboard with the dialog open (`crate::modal`).
+                if !r.has_focus() && !app.canvas.focused {
                     r.request_focus();
                 }
                 ui.label(egui::RichText::new(tl!("Type +2 or -1 to move from the page you are on.")).weak());

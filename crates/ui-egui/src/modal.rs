@@ -26,8 +26,22 @@ pub fn open(app: &WordApp) -> bool {
     app.colors.is_some() || app.dialog.as_ref().is_some_and(|d| !modeless(d))
 }
 
-/// Whether a modal dialog was open at the start of this frame's dialogs: one that has just closed
-/// on a key (Mod+Enter is also Enter, its OK) still took that key.
+/// A modal dialog is open, or a dialog [`keyboard`] hasn't seen yet: a shortcut among this
+/// frame's keys opened it, modal or modeless, and the keys after it are the dialog's, which takes
+/// the keyboard as [`keyboard`] sees it. Dialogs are compared by name, as there, so Mod+H on the
+/// Find tab counts too (it turns to Replace).
+pub fn opened_unseen(app: &WordApp, ctx: &egui::Context) -> bool {
+    open(app) || app.dialog.as_ref().is_some_and(|d| Some(d.name()) != last_shown(ctx))
+}
+
+/// The dialog [`keyboard`] saw last.
+fn last_shown(ctx: &egui::Context) -> Option<&'static str> {
+    ctx.data(|d| d.get_temp::<Option<&'static str>>(shown_id())).flatten()
+}
+
+/// Whether this frame's keys are taken: a modal dialog was open at the start of this frame's
+/// dialogs (one that has just closed on a key, Mod+Enter being also Enter, its OK, still took
+/// that key), or the page read them before a dialog took the keyboard from it.
 pub fn held_this_frame(ctx: &egui::Context) -> bool {
     let pass = ctx.cumulative_pass_nr();
     ctx.data(|d| d.get_temp::<u64>(held_id())) == Some(pass)
@@ -56,13 +70,21 @@ pub fn keyboard(app: &mut WordApp, ctx: &egui::Context) {
         ctx.data_mut(|d| d.insert_temp(held_id(), pass));
     }
     let shown = app.dialog.as_ref().map(Dialog::name);
-    let was = ctx.data(|d| d.get_temp::<Option<&'static str>>(shown_id())).flatten();
+    let was = last_shown(ctx);
     ctx.data_mut(|d| d.insert_temp(shown_id(), shown));
     let Some((page, _)) = app.canvas.widget_id else { return };
     let page_focused = ctx.memory(|m| m.has_focus(page));
     if page_focused && (modal || (shown.is_some() && shown != was)) {
         ctx.memory_mut(|m| m.surrender_focus(page));
-        ctx.data_mut(|d| d.insert_temp(took_focus_id(), true));
+        // The page reads next frame's keys before it looks at its focus again: it has lost the
+        // keyboard now, or a key right after a modeless dialog's shortcut still reaches it. It read
+        // this frame's keys already, so no shortcut after the dialogs runs them again.
+        app.canvas.focused = false;
+        let pass = ctx.cumulative_pass_nr();
+        ctx.data_mut(|d| {
+            d.insert_temp(took_focus_id(), true);
+            d.insert_temp(held_id(), pass);
+        });
     } else if shown.is_none() && app.colors.is_none() && ctx.data(|d| d.get_temp::<bool>(took_focus_id())).is_some() {
         if !page_focused && ctx.memory(|m| m.focused().is_none()) {
             app.canvas.want_focus = true;
@@ -99,7 +121,9 @@ pub fn block_behind(app: &WordApp, ctx: &egui::Context, d: &Dialog, layer: egui:
 /// document's: the dialog doesn't see them (Enter starts a paragraph rather than finding the next
 /// match, and Escape doesn't close the dialog). Returns the keys taken out, for [`give_back`].
 pub fn keys_for_page(app: &WordApp, ctx: &egui::Context, d: &Dialog) -> Vec<egui::Event> {
-    if !modeless(d) || !app.canvas.focused {
+    // Also in the frame the dialog took the keyboard from the page: the page has read the keys
+    // before the shortcut that opened it (Escape, Enter), and the dialog doesn't see them again.
+    if !modeless(d) || !(app.canvas.focused || held_this_frame(ctx)) {
         return Vec::new();
     }
     ctx.input_mut(|i| {
@@ -109,10 +133,27 @@ pub fn keys_for_page(app: &WordApp, ctx: &egui::Context, d: &Dialog) -> Vec<egui
     })
 }
 
-/// Puts back the keys [`keys_for_page`] took out, for what runs after the dialogs.
-pub fn give_back(ctx: &egui::Context, keys: Vec<egui::Event>) {
+/// After the dialog's body: puts back the keys [`keys_for_page`] took out, for what runs after the
+/// dialogs, and settles who has the keyboard next frame, which the page reads before it looks at
+/// its focus again. A field of the dialog that has just taken the keyboard from the page (one
+/// that takes it as the dialog opens, opened again by its shortcut) has it then, as in
+/// [`keyboard`]; once the dialog closes by its own buttons or keys (`closed`), with no other
+/// dialog in its place, the page has it, so the first key typed after OK isn't lost.
+pub fn give_back(app: &mut WordApp, ctx: &egui::Context, keys: Vec<egui::Event>, closed: bool) {
     if !keys.is_empty() {
         ctx.input_mut(|i| i.events.extend(keys));
+    }
+    let Some((page, pass)) = app.canvas.widget_id else { return };
+    let (page_focused, other_focused) = ctx.memory(|m| (m.has_focus(page), m.focused().is_some_and(|f| f != page)));
+    // Only a page this pass drew: behind the File page (Options › Customize Keyboard, About) the
+    // page isn't drawn and wouldn't look at its focus again, leaving the shortcuts off there.
+    let page_shown = pass == ctx.cumulative_pass_nr() && !app.ui.backstage;
+    if closed && page_shown && app.dialog.is_none() && app.colors.is_none() && !app.file_dialog_open() {
+        app.canvas.focused = true;
+    } else if app.canvas.focused && !page_focused && other_focused {
+        app.canvas.focused = false;
+        let pass = ctx.cumulative_pass_nr();
+        ctx.data_mut(|d| d.insert_temp(held_id(), pass));
     }
 }
 
@@ -224,8 +265,9 @@ mod tests {
         assert_eq!(body(&h), format!("{TEXT}yz"));
     }
 
-    /// Keys that come right after the dialog's shortcut, in the same frame or the next, before
-    /// the page has given up the keyboard, are the dialog's: Enter is its OK, a letter is lost.
+    /// Keys that come in the frames right after the dialog's shortcut (`Harness::event` gives each
+    /// its own frame; the same frame is `a_letter_in_the_shortcuts_own_frame_goes_to_the_dialog`)
+    /// are the dialog's: Enter is its OK, a letter is lost.
     #[test]
     fn keys_right_after_the_shortcut_go_to_the_dialog() {
         let mut h = harness();
@@ -246,6 +288,167 @@ mod tests {
         type_letter(&mut h, Key::X, "x");
         assert!(h.state().dialog.is_some());
         assert_eq!(body(&h), TEXT, "a letter in the next frame doesn't either");
+    }
+
+    /// Keys that arrive together, in one frame (`Harness::event` gives each event a frame of its
+    /// own), then two frames for what they opened.
+    fn one_frame(h: &mut Harness<'static, WordApp>, events: impl IntoIterator<Item = Event>) {
+        h.input_mut().events.extend(events);
+        h.step();
+        h.run_steps(2);
+    }
+
+    fn letter(key: Key, text: &str) -> [Event; 3] {
+        let [down, up] = key_events(key, Modifiers::NONE);
+        [down, Event::Text(text.into()), up]
+    }
+
+    /// A letter in the very frame of the shortcut that opens a dialog is the dialog's, for a
+    /// modal dialog (Mod+D, Font) and a modeless one (Mod+H, Find and Replace).
+    #[test]
+    fn a_letter_in_the_shortcuts_own_frame_goes_to_the_dialog() {
+        let mut h = harness();
+        one_frame(&mut h, key_events(Key::D, mod_key()).into_iter().chain(letter(Key::X, "x")));
+        assert!(matches!(h.state().dialog, Some(Dialog::Font { .. })), "Mod+D opens Font");
+        assert_eq!(body(&h), TEXT, "the letter doesn't reach the document behind Font");
+        press(&mut h, Key::Escape, Modifiers::NONE);
+        assert!(h.state().dialog.is_none());
+
+        one_frame(&mut h, key_events(Key::H, mod_key()).into_iter().chain(letter(Key::X, "x")));
+        assert!(matches!(h.state().dialog, Some(Dialog::Find { .. })), "Mod+H opens Find and Replace");
+        assert_eq!(body(&h), TEXT, "the letter doesn't reach the document behind Find");
+    }
+
+    /// The frame after Mod+H, before the page has looked at its focus again, its keys are Find's:
+    /// a letter isn't typed, and Enter doesn't start a paragraph as well as act in the dialog.
+    #[test]
+    fn keys_in_the_frame_after_a_modeless_dialogs_shortcut_go_to_the_dialog() {
+        let mut h = harness();
+        h.input_mut().events.extend(key_events(Key::H, mod_key()));
+        h.step();
+        assert!(matches!(h.state().dialog, Some(Dialog::Find { .. })), "Mod+H opens Find and Replace");
+        one_frame(&mut h, letter(Key::X, "x"));
+        assert_eq!(body(&h), TEXT, "the letter isn't typed");
+        press(&mut h, Key::Escape, Modifiers::NONE);
+        assert!(h.state().dialog.is_none(), "Escape closes Find");
+
+        h.input_mut().events.extend(key_events(Key::H, mod_key()));
+        h.step();
+        one_frame(&mut h, key_events(Key::Enter, Modifiers::NONE));
+        assert_eq!(body(&h), TEXT, "Enter starts no paragraph");
+    }
+
+    /// Mod+H with Replace open and the page holding the keyboard opens Replace again, whose box
+    /// takes the keyboard: a letter in the very next frame goes into the box, not the document.
+    #[test]
+    fn a_modeless_dialog_opened_again_by_its_shortcut_takes_the_keyboard() {
+        let mut h = harness();
+        press(&mut h, Key::H, mod_key());
+        let p = on_the_page(&h);
+        click(&mut h, p);
+        assert!(h.state().canvas.focused, "a click on the page gives it the keyboard");
+        h.input_mut().events.extend(key_events(Key::H, mod_key()));
+        h.step();
+        one_frame(&mut h, letter(Key::X, "x"));
+        assert_eq!(body(&h), TEXT, "the letter isn't typed");
+        assert!(matches!(&h.state().dialog, Some(Dialog::Find { query, .. }) if query.ends_with('x')), "it is in Find what");
+    }
+
+    /// The first key typed in the frame right after OK reaches the document.
+    #[test]
+    fn a_letter_right_after_ok_reaches_the_document() {
+        let mut h = harness();
+        press(&mut h, Key::D, mod_key());
+        h.input_mut().events.extend(key_events(Key::Enter, Modifiers::NONE));
+        h.step();
+        assert!(h.state().dialog.is_none(), "Enter is OK");
+        one_frame(&mut h, letter(Key::Y, "y"));
+        assert_eq!(body(&h), format!("{TEXT}y"));
+    }
+
+    /// A dialog closed by OK over the File page, where the page isn't drawn, leaves the page
+    /// without the keyboard, so the shortcuts that run without it still work there.
+    #[test]
+    fn ok_over_the_file_page_leaves_the_page_without_the_keyboard() {
+        let mut h = harness();
+        h.state_mut().ui.backstage = true;
+        h.state_mut().canvas.focused = false;
+        h.state_mut().run("ui.dialog", json!({"name": "paragraph"})).unwrap();
+        h.run_steps(2);
+        h.input_mut().events.extend(key_events(Key::Enter, Modifiers::NONE));
+        h.step();
+        assert!(h.state().dialog.is_none(), "Enter is OK");
+        assert!(!h.state().canvas.focused, "the page isn't shown, so it doesn't take the keyboard");
+    }
+
+    /// Escape or Enter the page has already handled, in the frame of the shortcut that opens Find,
+    /// don't reach Find too: Escape doesn't close it, Enter doesn't find the next match.
+    #[test]
+    fn keys_the_page_read_before_a_modeless_dialogs_shortcut_dont_reach_the_dialog() {
+        let mut h = harness();
+        one_frame(&mut h, key_events(Key::Escape, Modifiers::NONE).into_iter().chain(key_events(Key::H, mod_key())));
+        assert!(matches!(h.state().dialog, Some(Dialog::Find { .. })), "Escape doesn't close Find as it opens");
+        press(&mut h, Key::Escape, Modifiers::NONE);
+        assert!(h.state().dialog.is_none());
+
+        one_frame(&mut h, key_events(Key::Enter, Modifiers::NONE).into_iter().chain(key_events(Key::H, mod_key())));
+        assert_eq!(body(&h), format!("{TEXT}\n"), "Enter was the page's");
+        assert!(matches!(&h.state().dialog, Some(Dialog::Find { message, .. }) if message.is_empty()), "and Find didn't search");
+    }
+
+    /// With nothing holding the keyboard, a shortcut in the frame of the one that opened a dialog
+    /// doesn't change the document behind it: Mod+D, then Mod+B.
+    #[test]
+    fn a_shortcut_right_after_a_dialogs_shortcut_doesnt_reach_the_document() {
+        let mut h = harness();
+        h.state_mut().run("select.all", json!({})).unwrap();
+        let (page, _) = h.state().canvas.widget_id.expect("the page is shown");
+        h.ctx.memory_mut(|m| m.surrender_focus(page));
+        h.run_steps(2);
+        let depth = h.state().session.undo_depth();
+        one_frame(&mut h, key_events(Key::D, mod_key()).into_iter().chain(key_events(Key::B, mod_key())));
+        assert!(matches!(h.state().dialog, Some(Dialog::Font { .. })), "Mod+D opens Font");
+        assert_eq!(h.state().session.undo_depth(), depth, "Mod+B formatted nothing");
+    }
+
+    /// The page read the frame's keys before Mark Index Entry (Alt+Shift+X) took the keyboard:
+    /// the shortcuts that run without the page don't read them again, so Mod+B after it formats
+    /// nothing (Mark Index Entry asks for no field's focus, so nothing else holds the keyboard).
+    #[test]
+    fn the_pages_keys_arent_read_again_once_a_dialog_takes_the_keyboard() {
+        if cfg!(target_os = "macos") {
+            return; // Alt+Shift+X is the key everywhere else.
+        }
+        let mut h = harness();
+        h.state_mut().run("select.all", json!({})).unwrap();
+        h.run_steps(2);
+        assert!(h.state().canvas.focused);
+        let depth = h.state().session.undo_depth();
+        let alt_shift = Modifiers { alt: true, shift: true, ..Modifiers::NONE };
+        one_frame(&mut h, key_events(Key::X, alt_shift).into_iter().chain(key_events(Key::B, mod_key())));
+        assert!(matches!(h.state().dialog, Some(Dialog::Refs(_))), "Alt+Shift+X opens Mark Index Entry");
+        assert_eq!(h.state().session.undo_depth(), depth, "Mod+B formatted nothing");
+    }
+
+    /// Go To's page box takes the keyboard as the tab opens, but a click on the page gives the
+    /// page the keyboard with the dialog still open: the box doesn't take it back.
+    #[test]
+    fn the_go_to_box_leaves_the_keyboard_to_the_page() {
+        let mut h = harness();
+        h.state_mut().run("ui.dialog", json!({"name": "goto"})).unwrap();
+        h.run_steps(3);
+        assert!(!h.state().canvas.focused, "Go To takes the keyboard");
+        type_letter(&mut h, Key::Num2, "2");
+        assert!(matches!(&h.state().dialog, Some(Dialog::Find { goto_target, .. }) if goto_target == "2"), "the digit is in the box");
+        let p = on_the_page(&h);
+        let dialog = h.ctx.memory(|m| m.area_rect(egui::Id::new(("dialog", "Find and Replace")))).expect("the dialog is shown");
+        assert!(!dialog.contains(p), "{p:?} is outside the dialog {dialog:?}");
+        click(&mut h, p);
+        h.run_steps(2);
+        assert!(h.state().canvas.focused, "a click on the page gives it the keyboard");
+        type_letter(&mut h, Key::Y, "y");
+        assert!(h.state().dialog.is_some(), "Go To stays open");
+        assert_eq!(body(&h), format!("{TEXT}y"), "the letter is typed into the document");
     }
 
     /// Mod+Enter in a modal dialog is its OK (Enter), and the document behind it gets no page
