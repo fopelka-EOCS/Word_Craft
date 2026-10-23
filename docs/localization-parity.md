@@ -39,7 +39,7 @@ native-speaker review (human).
 - Document scripts: shaping via HarfRust (HarfBuzz port) for every script; bidi (UAX #9) and Arabic
   shaping tested (#207); IME on all desktop platforms (winit fixes pending, #155–#164).
 
-## The twelve key languages
+## The thirteen key languages
 
 Status: `full` = every user-visible string translated and the script renders and edits correctly;
 `partial`; `menus only`; `none`. Hours are to `full`, Opus 5.5 agent wall-clock, excluding the
