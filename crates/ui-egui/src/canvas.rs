@@ -4448,6 +4448,18 @@ mod tests {
         assert!(g.iter().all(|(_, x)| *x <= 200.0), "{g:?}");
     }
 
+    /// #3382: a balloon's text stops at ten lines and ends in "…", in either direction.
+    #[test]
+    fn a_long_balloon_ends_in_an_ellipsis() {
+        for word in ["Line", "سطر"] {
+            let text = (1..=200).map(|i| format!("{word} {i}")).collect::<Vec<_>>().join("\n");
+            let Some(g) = balloon_glyphs(&text, 260.0) else { return };
+            let shown: String = g.iter().map(|(ch, _)| *ch).collect();
+            assert!(shown.contains('…'), "{word}: the balloon ends in an ellipsis: {shown}");
+            assert!(!shown.contains("200"), "{word}: the last lines aren't drawn: {shown}");
+        }
+    }
+
     #[test]
     fn balloon_rows_put_right_to_left_words_in_display_order() {
         let row = |text: &str| {
