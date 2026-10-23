@@ -759,6 +759,10 @@
 	Spacing (pt):	Vahe (pt):
 	Kerning for fonts:	Fondi märgipaaride tihendus:
 	Points and above	punkti ja rohkem
+	Ligatures:	Ligatuurid:
+	Standard only	Ainult standardsed
+	Standard and contextual	Standardsed ja kontekstipõhised
+	Historical and discretional	Ajaloolised ja valikulised
 	Speech	Kõne
 	Spelling	Õigekiri
 	Spelling & Grammar	Õigekiri ja grammatika

@@ -707,6 +707,10 @@
 	Spacing (pt):	Интервал (пт):
 	Kerning for fonts:	Кернинг шрифтов:
 	Points and above	пт и более
+	Ligatures:	Лигатуры:
+	Standard only	Только стандартные
+	Standard and contextual	Стандартные и контекстные
+	Historical and discretional	Исторические и дискреционные
 	Speech	Речь
 	Spelling & Grammar	Орфография и грамматика
 	Spelling &\nGrammar	Орфография\nи грамматика

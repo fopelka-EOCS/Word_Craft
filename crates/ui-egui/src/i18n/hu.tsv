@@ -706,6 +706,10 @@
 	Spacing (pt):	Térköz (pt):
 	Kerning for fonts:	Alávágás betűtípusoknál:
 	Points and above	pont és nagyobb
+	Ligatures:	Ligatúrák:
+	Standard only	Csak normál
+	Standard and contextual	Normál és környezetfüggő
+	Historical and discretional	Történeti és választható
 	Speech	Beszéd
 	Spelling & Grammar	Helyesírás és nyelvhelyesség
 	Spelling &\nGrammar	Helyesírás és\nnyelvhelyesség
