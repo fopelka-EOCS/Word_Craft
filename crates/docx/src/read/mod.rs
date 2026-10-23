@@ -991,6 +991,34 @@ impl Reader<'_> {
         if sheet.default_para.numbering.is_some_and(|n| n.num == props::LEVEL_ONLY) {
             sheet.default_para.numbering = None;
         }
+        // Built-in styles the file leaves latent but shows in Word's gallery (`w:qFormat`, not
+        // `w:semiHidden`): Word writes a style out only once it is used (#3909).
+        if let Some(l) = root.child("w:latentStyles") {
+            let on = |e: &El, k: &str, default: bool| e.attr(k).map_or(default, |v| !matches!(v.trim(), "0" | "false" | "off"));
+            let (quick, hidden) = (on(l, "w:defQFormat", false), on(l, "w:defSemiHidden", false));
+            let priority = l.attr("w:defUIPriority").and_then(u32_of);
+            let exceptions: Vec<&El> = l.children("w:lsdException").take(10_000).collect();
+            let prio_of = |e: &El| e.attr("w:uiPriority").and_then(u32_of).or(priority);
+            // A style the file defines without `w:uiPriority` (Word's Normal) takes the latent one.
+            for st in sheet.styles.iter_mut().filter(|s| s.priority.is_none()) {
+                if let Some(e) = exceptions.iter().find(|e| e.attr("w:name").is_some_and(|n| n.eq_ignore_ascii_case(&st.name))) {
+                    st.priority = prio_of(e);
+                }
+            }
+            // Each built-in style: the latent defaults, overridden by its own exception if any.
+            let builtin = StyleSheet::builtin();
+            let gallery: Vec<(String, Option<u32>)> = builtin
+                .styles
+                .iter()
+                .filter(|b| b.kind != StyleKind::Table)
+                .filter_map(|b| {
+                    let e = exceptions.iter().find(|e| e.attr("w:name").is_some_and(|n| n.eq_ignore_ascii_case(&b.name)));
+                    let shown = e.map_or(quick, |e| on(e, "w:qFormat", quick)) && !e.map_or(hidden, |e| on(e, "w:semiHidden", hidden));
+                    shown.then(|| (b.name.clone(), e.map_or(priority, |e| prio_of(e))))
+                })
+                .collect();
+            sheet.add_latent_gallery(&gallery);
+        }
         // A producer that never writes `w:qFormat` (LibreOffice) still gets Word's usual gallery.
         if !sheet.styles.iter().any(|s| s.quick) {
             sheet.add_default_gallery();
