@@ -2762,3 +2762,59 @@ template	Letter	Scrisoare
 	cm	cm
 	mm	mm
 	pi	pi
+# Network printer destination (File > Print): machine-drafted by an AI agent from the plain meaning of the English, clean room; needs a native speaker's review.
+	Printer address:	Adresa imprimantei:
+	Only IP addresses on this network are accepted (private, link-local or loopback), not host names. ipp:// or an /ipp/ path means IPP; anything else is WS-Print.	Sunt acceptate doar adrese IP din această rețea (private, link-local sau loopback), nu nume de gazdă. ipp:// sau o cale /ipp/ înseamnă IPP; orice altceva este WS-Print.
+	Query printer	Interoghează imprimanta
+	Asking the printer…	Se interoghează imprimanta…
+	Query the printer first to see what it supports.	Interogați mai întâi imprimanta pentru a vedea ce acceptă.
+	Printer status: {state}	Starea imprimantei: {state}
+	Reasons: {reasons}	Motive: {reasons}
+	The printer accepts none of the formats this document can be sent in	Imprimanta nu acceptă niciunul dintre formatele în care poate fi trimis acest document
+	Copies:	Copii:
+	Two-sided:	Față-verso:
+	Flip on long edge	Întoarcere pe latura lungă
+	Flip on short edge	Întoarcere pe latura scurtă
+	Printer orientation:	Orientarea imprimantei:
+	Reverse portrait	Portret inversat
+	Reverse landscape	Peisaj inversat
+	Quality:	Calitate:
+	High	Ridicată
+	Photo	Fotografie
+	Resolution:	Rezoluție:
+	This printer does not take a copies setting.	Această imprimantă nu acceptă setarea numărului de copii.
+	This printer only prints one-sided.	Această imprimantă tipărește doar pe o față.
+	This printer does not take an orientation setting.	Această imprimantă nu acceptă setarea orientării.
+	This printer does not take a quality setting.	Această imprimantă nu acceptă setarea calității.
+	This printer only prints in grayscale.	Această imprimantă tipărește doar în tonuri de gri.
+	This printer does not take a resolution setting.	Această imprimantă nu acceptă setarea rezoluției.
+	Not confirmed by the printer	Neconfirmat de imprimantă
+	I confirm sending this document to this printer	Confirm trimiterea acestui document la această imprimantă
+	Sending to {printer}…	Se trimite la {printer}…
+	Canceling…	Se anulează…
+	Sent to {printer}	Trimis la {printer}
+	Accepted by {printer}	Acceptat de {printer}
+	Waiting in the printer's queue	Așteaptă în coada imprimantei
+	Held by the printer	Reținut de imprimantă
+	The printer is printing it	Imprimanta îl tipărește
+	The printer paused the job; it needs attention	Imprimanta a întrerupt lucrarea; necesită atenție
+	Sheets printed: {n}	Coli tipărite: {n}
+	Sheets printed: {done} of {total}	Coli tipărite: {done} din {total}
+	Printed with warnings	Tipărit cu avertismente
+	Printed with errors	Tipărit cu erori
+	The job was canceled	Lucrarea a fost anulată
+	The printer stopped the job	Imprimanta a oprit lucrarea
+	The printer no longer lists the job; it most likely finished	Imprimanta nu mai listează lucrarea; cel mai probabil s-a terminat
+	Still printing; the job continues on the printer	Se tipărește încă; lucrarea continuă pe imprimantă
+	Sent. The printer can't say whether it printed.	Trimis. Imprimanta nu poate spune dacă a tipărit.
+	The printer may have received the document. Check the printer before sending again.	Este posibil ca imprimanta să fi primit documentul. Verificați imprimanta înainte de a trimite din nou.
+	The printer address was refused	Adresa imprimantei a fost refuzată
+	Couldn't reach the printer	Imprimanta nu a putut fi contactată
+	The printer's reply couldn't be understood	Răspunsul imprimantei nu a putut fi înțeles
+	The printer refused the request	Imprimanta a refuzat cererea
+	The printer doesn't support this setting	Imprimanta nu acceptă această setare
+	The document couldn't be prepared	Documentul nu a putut fi pregătit
+	A setting isn't valid	O setare nu este validă
+	The print job stopped unexpectedly	Lucrarea de tipărire s-a oprit neașteptat
+	Network printer…	Imprimantă de rețea…
+	Sending to the network printer…	Se trimite la imprimanta de rețea…
