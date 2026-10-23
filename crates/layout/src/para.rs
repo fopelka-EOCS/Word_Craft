@@ -791,19 +791,42 @@ fn east_asian(c: char) -> bool {
 /// as roman (measured in Word; Calibri otherwise, which our own substitutes already match).
 const MISSING_ROMAN_FONT: &str = "Cambria";
 
-/// The family to look `font` up as: [`MISSING_ROMAN_FONT`] for a missing roman font, else `font`.
-/// A missing Thai font keeps its name: it is drawn in a Thai face, not in Cambria (#1549).
-/// A font with substitutes of its own keeps them: Times New Roman is roman in every font table,
-/// and where it isn't installed Liberation Serif has its metrics; Word never meets it missing.
-fn lookup_family<'f>(doc: &Document, font: &'f str) -> &'f str {
+/// The family to look `font` up as. A font that isn't installed is drawn, as Word draws it
+/// (measured in Word 2024, #2702):
+/// 1. in the alternate the font table names for it (`w:altName`), when that one can be drawn:
+///    installed, or a font one of whose own substitutes is installed. That comes before the
+///    family class: a roman font with an installed alternate is drawn in the alternate;
+/// 2. in [`MISSING_ROMAN_FONT`] when the font table classes it as roman, unless it is a Thai
+///    font (drawn in a Thai face, #1549), a symbol font, or a font with substitutes of its own
+///    (Times New Roman is roman in every font table, and where it isn't installed Liberation
+///    Serif has its metrics; Word never meets it missing);
+/// 3. else as `font`, which [`wordcraft_fonts::word::resolve`] substitutes.
+fn lookup_family<'f>(doc: &'f Document, font: &'f str) -> &'f str {
+    let settings = &doc.settings;
+    let alternate = settings.font_alt_names.iter().find(|(f, _)| f.eq_ignore_ascii_case(font)).map(|(_, alt)| alt.as_str());
+    let roman = settings.roman_fonts.iter().any(|f| f.eq_ignore_ascii_case(font));
+    if alternate.is_none() && !roman {
+        return font;
+    }
     let db = wordcraft_fonts::FontDb::global();
-    let roman = doc.settings.roman_fonts.iter().any(|f| f.eq_ignore_ascii_case(font));
+    let installed = |f: &str| db.has_family(f) || db.has_family(wordcraft_fonts::word::charset_base_family(f));
+    if installed(font) {
+        return font;
+    }
+    // Calibri has no list of its own because the generic sans list is its (Carlito first).
+    let drawable =
+        |f: &&str| !f.is_empty() && (installed(f) || wordcraft_fonts::word::has_installed_substitute(f) || f.eq_ignore_ascii_case("Calibri"));
+    // ECMA-376 calls the alternate a comma-separated list, but Word reads the whole value as one
+    // name (MS-OE376 2.1.264), so a value with a comma names a font that isn't there.
+    if let Some(alt) = alternate.map(str::trim).filter(drawable) {
+        return alt;
+    }
+    // Thai, symbol and fonts with substitutes of their own keep their name: those substitutes
+    // draw them, Cambria wouldn't.
     if roman
         && !wordcraft_fonts::word::is_thai_family(font)
         && !wordcraft_doc::symbol_fonts::is_symbol_font(font)
         && !wordcraft_fonts::word::has_named_substitutes(font)
-        && !db.has_family(font)
-        && !db.has_family(wordcraft_fonts::word::charset_base_family(font))
     {
         MISSING_ROMAN_FONT
     } else {
@@ -813,9 +836,10 @@ fn lookup_family<'f>(doc: &Document, font: &'f str) -> &'f str {
 
 /// One face for a run in a Thai font that isn't installed (#1549): Word substitutes one font
 /// (Cordia New) for the whole run, so the Latin letters, digits and ฿ keep the Thai letters' face
-/// and size. `None` unless `font` is a Thai family, it was substituted, and its substitute
-/// `primary` lacks some of the run's Thai or Latin characters; then the first face covering all of
-/// them, if one does. Other families keep Latin text in their own substitute, as Word does.
+/// and size. `None` unless `font` is a Thai family, it was substituted (or drawn in its font
+/// table alternate, #2702), and its stand-in `primary` lacks some of the run's Thai or Latin
+/// characters; then the first face covering all of them, if one does. Other families keep Latin
+/// text in their own substitute, as Word does.
 pub(crate) fn thai_run_face(font: &str, substituted: bool, primary: FaceRef, text: &str, bold: bool, italic: bool) -> Option<FaceRef> {
     if !substituted || !wordcraft_fonts::word::is_thai_family(font) {
         return None;
@@ -915,19 +939,23 @@ impl<'a> Builder<'a> {
         // Complex-script characters (Persian, Arabic…) use the run's complex-script font, size,
         // bold and italic.
         let rc_cs: Option<Arc<ResolvedChar>> = text.chars().any(|c| rc.uses_complex(c)).then(|| Arc::new(rc.complex()));
-        let resolved = wordcraft_fonts::word::resolve(lookup_family(self.env.doc, &rc.font), rc.bold, rc.italic);
+        let family = lookup_family(self.env.doc, &rc.font);
+        let resolved = wordcraft_fonts::word::resolve(family, rc.bold, rc.italic);
+        // The requested font is missing when it was substituted, or when another family stands in
+        // for it: its font table alternate (#2702), which may itself be installed.
+        let requested_missing = resolved.substituted || !family.eq_ignore_ascii_case(&rc.font);
         let primary = resolved.face;
         // Symbol-font characters are laid out as their Unicode equivalents.
         let sym = SymbolRun::of(&rc.font, &resolved);
         let show = |c: char| sym.map_or(c, |m| m.show(c));
         let primary_cs = rc_cs.as_ref().map(|r| wordcraft_fonts::word::resolve(lookup_family(self.env.doc, &r.font), r.bold, r.italic).face);
         // Chinese, Japanese and Korean characters use the run's East Asian font (`w:eastAsia`) when
-        // it is installed and has them.
+        // it, or the font table alternate it is drawn in (#2702), is installed and has them.
         let primary_ea = rc
             .font_ea
             .as_ref()
             .filter(|f| !f.eq_ignore_ascii_case(&rc.font) && text.chars().any(east_asian))
-            .map(|f| wordcraft_fonts::word::resolve(f, rc.bold, rc.italic))
+            .map(|f| wordcraft_fonts::word::resolve(lookup_family(self.env.doc, f), rc.bold, rc.italic))
             .filter(|r| !r.substituted)
             .map(|r| r.face);
         // The levels by byte of `text`, from `lbase` on.
@@ -941,7 +969,7 @@ impl<'a> Builder<'a> {
         // A missing Thai font: one face for the run's Thai and Latin text (#1549). A run with its
         // own complex-script font keeps that font for the Thai letters.
         let run_face: Option<FaceRef> = if primary_cs.is_none_or(|f| f.id() == primary.id()) {
-            thai_run_face(&rc.font, resolved.substituted, primary, text, rc.bold, rc.italic)
+            thai_run_face(&rc.font, requested_missing, primary, text, rc.bold, rc.italic)
         } else {
             None
         };

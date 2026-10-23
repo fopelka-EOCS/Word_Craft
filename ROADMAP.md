@@ -215,6 +215,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-14 | A bulleted or numbered list item that starts with a lower-case word no longer gets the grammar squiggle for a missing sentence capital (#1741): list items are often fragments, so the sentence-capital rule (every proofed language) skips the first word of a list paragraph (own or style numbering); later sentences in the item are still checked |
 | 2026-10-15 | The caret, clicks and selection edges fall between the letters of a ligature (fi, ffi, lam-alef), as in Word: the glyph's advance is shared evenly among its letters, mirrored in right-to-left text (#1974) |
 | 2026-10-16 | The Spike, as in Word: Ctrl+F3 (⌘F3 on macOS) cuts the selection and adds it to the end of the Spike, each piece followed by a paragraph mark; Ctrl+Shift+F3 (⌘⇧F3) inserts everything collected, in order and with its formatting, and empties the Spike. The clipboard is left alone; each is one undo step. The Spike is the AutoText entry "Spike", so Insert › Quick Parts inserts it without emptying it. It lasts for the session (Word keeps it in Normal.dotm) |
+| 2026-10-17 | A font that isn't installed is drawn in the alternate its font table names (`w:altName`), as Word does, before the roman-font rule and the generic substitutes (#2702). A guide set in Museo Sans 300 with Calibri as its alternate was drawn in Arial and ran to 53 pages against Word's 26; it now uses Calibri |
 | 2026-10-17 | Home › Underline's drop-down shows each underline as a sample of its line, adds Dot-dot-dash, None and More Underlines…, and an Underline Color submenu backed by the new `format.underlineColor` command (catalog 490/505) (#2738) |
 | 2026-10-16 | Update Field is offered on a table of contents after a save and reopen, and repeated save and update adds no blank line (#2182; the flow in that report already worked since #1197) |
 | 2026-10-16 | DOCX two lines in one and horizontal in vertical (`w:eastAsianLayout`: id, combine, brackets, vert, vertCompress) are read and kept on save, in runs and character styles, instead of being dropped. Layout doesn't apply them yet. |
@@ -578,6 +579,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-17 | trivial | Progress log: a missing font is drawn in its font table's alternate (#2702) |
 | 2026-10-22 | minor | Compare's new and revised untitled results clear the previous document's version snapshots; a rejected protected comparison or mailing result preserves the snapshots and file identity. |
 | 2026-10-20 | minor | The Document Inspector's removals are refused while the document tracks changes (they delete straight from the document, so the text would go with no revision to show for it and the revision trail would be broken behind the user's back), and a version snapshot belongs to the document it was taken from |
 | 2026-10-22 | minor | The CLI author flag and the Options user name field cannot change the session name after protection starts (#3279 follow-up). |
