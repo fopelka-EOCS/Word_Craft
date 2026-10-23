@@ -23,9 +23,9 @@ pub enum ProofLang {
     /// Polish (`pl`, `pl-PL`): the installed Hunspell dictionary (when there is one), the Polish grammar rules and the Polish
     /// hyphenation patterns.
     Pl,
-    /// Bulgarian (`bg`, `bg-BG`): hyphenation by the Bulgarian syllable rules ([`crate::bg`]).
-    /// There is no Bulgarian dictionary or grammar yet, so, as for [`ProofLang::Other`], no
-    /// spelling or grammar marks.
+    /// Bulgarian (`bg`, `bg-BG`): the installed Hunspell dictionary (when there is one, through
+    /// [`crate::generic`]) and hyphenation by the Bulgarian syllable rules ([`crate::bg`]). No
+    /// grammar rules.
     Bg,
     /// Portuguese (`pt`, `pt-BR`, `pt-PT`): the installed Hunspell dictionary (VERO and
     /// friends, when there is one), the Portuguese grammar rules and the Portuguese hyphenation
@@ -53,6 +53,17 @@ pub enum ProofLang {
     /// spelling). There is no German dictionary or grammar yet, so, as for [`ProofLang::Other`],
     /// no spelling or grammar marks.
     De,
+    /// Romanian (`ro`, `ro-RO`, `ro-MD`; also ISO 639-2 `ron` and `rum`): the installed Hunspell
+    /// dictionary ([`crate::generic`]); no grammar rules, English fallback hyphenation.
+    Ro,
+    /// Slovenian (`sl`, `sl-SI`, `slv`): as [`ProofLang::Ro`].
+    Sl,
+    /// Albanian (`sq`, `sq-AL`, `sqi`, `alb`): as [`ProofLang::Ro`].
+    Sq,
+    /// Lithuanian (`lt`, `lt-LT`, `lit`): as [`ProofLang::Ro`].
+    Lt,
+    /// Bosnian (`bs`, `bs-BA`, `bos`; the Latin script): as [`ProofLang::Ro`].
+    Bs,
     /// A language without proofing tools here (`fr-FR`, `ja-JP`, `x-none`…). Like Word without
     /// the language's proofing tools: no spelling or grammar marks, so its words are never
     /// flagged as English misspellings. Hyphenation keeps using the English patterns, as before
@@ -62,7 +73,7 @@ pub enum ProofLang {
 
 impl ProofLang {
     /// Every language with a spelling dictionary, in display order.
-    pub const PROOFED: [ProofLang; 11] = [
+    pub const PROOFED: [ProofLang; 17] = [
         ProofLang::En,
         ProofLang::EnGb,
         ProofLang::EnCa,
@@ -74,6 +85,12 @@ impl ProofLang {
         ProofLang::Ru,
         ProofLang::Cs,
         ProofLang::Id,
+        ProofLang::Bg,
+        ProofLang::Ro,
+        ProofLang::Sl,
+        ProofLang::Sq,
+        ProofLang::Lt,
+        ProofLang::Bs,
     ];
 
     /// The proofing language of a BCP 47 tag (`pl-PL`, `en_GB`, `PL`…). The primary subtag
@@ -104,6 +121,16 @@ impl ProofLang {
             ProofLang::Id
         } else if ["de", "deu", "ger"].iter().any(|c| primary.eq_ignore_ascii_case(c)) {
             ProofLang::De
+        } else if ["ro", "ron", "rum"].iter().any(|c| primary.eq_ignore_ascii_case(c)) {
+            ProofLang::Ro
+        } else if primary.eq_ignore_ascii_case("sl") || primary.eq_ignore_ascii_case("slv") {
+            ProofLang::Sl
+        } else if ["sq", "sqi", "alb"].iter().any(|c| primary.eq_ignore_ascii_case(c)) {
+            ProofLang::Sq
+        } else if primary.eq_ignore_ascii_case("lt") || primary.eq_ignore_ascii_case("lit") {
+            ProofLang::Lt
+        } else if primary.eq_ignore_ascii_case("bs") || primary.eq_ignore_ascii_case("bos") {
+            ProofLang::Bs
         } else {
             ProofLang::Other
         }
@@ -133,7 +160,7 @@ impl ProofLang {
         matches!(self, ProofLang::En | ProofLang::EnGb | ProofLang::EnCa)
     }
 
-    /// The primary language subtag (`en`, `pl`, `bg`, `tr`, `ru`, `cs`, `id`, `de`); empty for [`ProofLang::Other`].
+    /// The primary language subtag (`en`, `pl`, `bg`, `tr`, `ru`, `cs`, `id`, `de`, `ro`…); empty for [`ProofLang::Other`].
     pub fn code(self) -> &'static str {
         match self {
             ProofLang::En | ProofLang::EnGb | ProofLang::EnCa => "en",
@@ -147,6 +174,11 @@ impl ProofLang {
             ProofLang::Cs => "cs",
             ProofLang::Id => "id",
             ProofLang::De => "de",
+            ProofLang::Ro => "ro",
+            ProofLang::Sl => "sl",
+            ProofLang::Sq => "sq",
+            ProofLang::Lt => "lt",
+            ProofLang::Bs => "bs",
             ProofLang::Other => "",
         }
     }
@@ -286,15 +318,27 @@ mod tests {
             assert_eq!(ProofLang::from_tag(Some(t)), ProofLang::De, "{t}");
         }
         assert!(!ProofLang::De.is_proofed());
-        for t in ["fr-FR", "dex", "x-none", "ja-JP", "plx", "bgx", "trx", "csx", "idx", "inx", "e", "-"] {
+        for t in ["fr-FR", "dex", "x-none", "ja-JP", "plx", "bgx", "trx", "csx", "idx", "inx", "rox", "sr", "mk", "e", "-"] {
             assert_eq!(ProofLang::from_tag(Some(t)), ProofLang::Other, "{t}");
         }
         assert_eq!(ProofLang::from_tag(None), ProofLang::En);
         assert_eq!(ProofLang::from_tag(Some("")), ProofLang::En);
         assert_eq!(ProofLang::from_tag(Some("  ")), ProofLang::En);
         assert!(ProofLang::Pl.is_proofed() && !ProofLang::Other.is_proofed());
-        // Bulgarian has hyphenation only: no spelling or grammar marks.
-        assert!(!ProofLang::Bg.is_proofed());
+        // Bulgarian is spelled with its Hunspell dictionary.
+        assert!(ProofLang::Bg.is_proofed());
+        for (lang, tags) in [
+            (ProofLang::Ro, ["ro", "ro-RO", "ro_MD", "RON", "rum"]),
+            (ProofLang::Sl, ["sl", "sl-SI", "SL_si", "slv", "sl_SI.UTF-8"]),
+            (ProofLang::Sq, ["sq", "sq-AL", "sq-XK", "sqi", "alb"]),
+            (ProofLang::Lt, ["lt", "lt-LT", "LT_lt", "lit", "lt_LT.UTF-8"]),
+            (ProofLang::Bs, ["bs", "bs-BA", "bs-Latn-BA", "BS_ba", "bos"]),
+        ] {
+            for t in tags {
+                assert_eq!(ProofLang::from_tag(Some(t)), lang, "{t}");
+            }
+            assert!(lang.is_proofed() && lang.code() == tags[0]);
+        }
         assert_eq!(ProofLang::Bg.code(), "bg");
         assert!(ProofLang::Pt.is_proofed() && !ProofLang::Other.is_proofed());
         assert!(ProofLang::Tr.is_proofed());
