@@ -91,6 +91,12 @@ pub enum Inline {
         linear: String,
         display: bool,
     },
+    /// A field (`PAGE`, `NUMPAGES`…) with its last result.
+    Field {
+        instr: String,
+        result: String,
+        fmt: Fmt,
+    },
     /// Ruby (phonetic guide): `ruby` text (furigana, pinyin…) over `base` text, in the formatting
     /// of the run it sits in (#1681). Formats without ruby write the base text
     /// ([`ruby_as_text`]).
@@ -169,6 +175,8 @@ pub struct Para {
     pub spacing: Spacing,
     /// Borders the source puts on the paragraph itself (RTF `\brdrb`…).
     pub borders: Option<wordcraft_doc::props::Borders>,
+    /// Tab stops the source gives the paragraph (ODT paragraph styles); `None` = the defaults.
+    pub tabs: Option<Vec<wordcraft_doc::props::TabStop>>,
     /// The section this paragraph ends (RTF `\sect`), as the document's last paragraph of it.
     pub section: Option<Box<wordcraft_doc::SectionProps>>,
     /// Tracked insertion of the paragraph mark.
@@ -204,7 +212,9 @@ impl Para {
         let mut s = String::new();
         for i in &self.inlines {
             match i {
-                Inline::Text(t, _) | Inline::Equation { linear: t, .. } | Inline::Ruby { base: t, .. } => s.push_str(t),
+                Inline::Text(t, _) | Inline::Equation { linear: t, .. } | Inline::Field { result: t, .. } | Inline::Ruby { base: t, .. } => {
+                    s.push_str(t)
+                }
                 Inline::Image(_) | Inline::Anchor(_) | Inline::Figure(_) => {}
             }
         }
@@ -220,7 +230,7 @@ impl Para {
                     Some(font) if wordcraft_doc::symbol_fonts::is_symbol_font(font) => s.push_str(&wordcraft_doc::symbol_fonts::map_text(font, t)),
                     _ => s.push_str(t),
                 },
-                Inline::Equation { linear: t, .. } | Inline::Ruby { base: t, .. } => s.push_str(t),
+                Inline::Equation { linear: t, .. } | Inline::Field { result: t, .. } | Inline::Ruby { base: t, .. } => s.push_str(t),
                 Inline::Image(_) | Inline::Anchor(_) | Inline::Figure(_) => {}
             }
         }
@@ -376,17 +386,17 @@ pub struct Flow {
     pub meta: Meta,
 }
 
-/// `inlines` with equations as their linear text (default formatting), for formats that have no
-/// equations.
+/// `inlines` with equations as their linear text (default formatting) and fields as their result,
+/// for formats that have neither.
 pub fn equations_as_text(inlines: &[Inline]) -> std::borrow::Cow<'_, [Inline]> {
-    if !inlines.iter().any(|i| matches!(i, Inline::Equation { .. })) {
+    if !inlines.iter().any(|i| matches!(i, Inline::Equation { .. } | Inline::Field { .. })) {
         return std::borrow::Cow::Borrowed(inlines);
     }
     let mut p = Para::default();
     for i in inlines {
         match i {
             Inline::Equation { linear, .. } => p.push_text(linear, &Fmt::default()),
-            Inline::Text(t, f) => p.push_text(t, f),
+            Inline::Text(t, f) | Inline::Field { result: t, fmt: f, .. } => p.push_text(t, f),
             other => p.inlines.push(other.clone()),
         }
     }
@@ -489,6 +499,9 @@ fn para_props(p: &Para, list_num: Option<u32>) -> ParaProps {
         },
         ..Default::default()
     };
+    if p.tabs.is_some() {
+        out.tabs.clone_from(&p.tabs);
+    }
     if p.kind == Kind::Rule {
         out.borders = Some(rule_borders());
     } else if p.borders.is_some() {
@@ -601,6 +614,11 @@ impl<'a> Builder<'a> {
                     let (w, h) = (finite_or(img.w, 72.0).clamp(1.0, 1584.0), finite_or(img.h, 72.0).clamp(1.0, 1584.0));
                     let obj = InlineObject::Image { media: key, w, h, alt: img.alt.clone(), float: Default::default(), crop: [0.0; 4], ole: None };
                     append(&mut out, "", &CharProps::default(), Some(obj));
+                }
+                Inline::Field { instr, result, fmt } => {
+                    let result = clean_text(result);
+                    let obj = InlineObject::Field { instr: instr.clone(), result, locked: false, dirty: false, code: false, form: String::new() };
+                    append(&mut out, "", &char_props(fmt), Some(obj));
                 }
                 Inline::Anchor(name) => {
                     append(&mut out, "", &CharProps::default(), Some(InlineObject::BookmarkStart { name: name.clone() }));
@@ -970,6 +988,7 @@ fn flow_paras_in(doc: &Document, p: &Paragraph, tracked: bool) -> Vec<Para> {
         inlines: Vec::new(),
         spacing: Spacing::default(),
         borders,
+        tabs: p.props.tabs.clone(),
         section: None,
         mark_ins: None,
         mark_del: None,
@@ -1001,6 +1020,7 @@ fn flow_paras_in(doc: &Document, p: &Paragraph, tracked: bool) -> Vec<Para> {
                         inlines: Vec::new(),
                         spacing: Spacing::default(),
                         borders,
+                        tabs: p.props.tabs.clone(),
                         section: None,
                         mark_ins: None,
                         mark_del: None,

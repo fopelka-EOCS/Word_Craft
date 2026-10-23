@@ -875,3 +875,15 @@ fn hidden_drawings_are_left_out_of_exports() {
     // Two pictures, one hidden: one comes out.
     assert_eq!(crate::html::export(&d).matches("<img").count(), 1);
 }
+
+#[test]
+fn flow_keeps_tab_stops_from_a_document() {
+    use wordcraft_doc::props::TabStop;
+    let tabs = vec![TabStop { pos: 90.0, align: Default::default(), leader: Default::default() }];
+    let mut p = model::Para { tabs: Some(tabs.clone()), ..Default::default() };
+    p.push_text("a\tb", &Default::default());
+    let doc = model::to_doc(&model::Flow { blocks: vec![FBlock::Para(p)], ..Default::default() });
+    let back = model::from_doc(&doc);
+    let Some(FBlock::Para(q)) = back.blocks.first() else { panic!("{:?}", back.blocks) };
+    assert_eq!(q.tabs.as_ref(), Some(&tabs));
+}

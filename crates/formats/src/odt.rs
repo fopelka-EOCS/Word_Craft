@@ -8,7 +8,9 @@
 //! Quotations, Preformatted Text, page layout) and `meta.xml`.
 //!
 //! Import reads the same subset back from `content.xml` / `styles.xml` (style inheritance
-//! resolved, both automatic and common styles), skipping notes, annotations, text boxes and drawing shapes.
+//! resolved, both automatic and common styles), plus the master pages' headers and footers
+//! (`page_parts`) and page number / page count fields; notes, annotations, text boxes and drawing
+//! shapes are skipped.
 //!
 //! Tracked changes (ODF 1.3 Part 3 §5.5) go both ways: `text:tracked-changes` holds one
 //! `text:changed-region` per change; an insertion is the body text between
@@ -23,6 +25,7 @@ use std::io::{Cursor, Read, Write};
 use quick_xml::XmlVersion;
 use quick_xml::events::{BytesStart, Event};
 use wordcraft_doc::props::VAlign;
+use wordcraft_doc::props::{TabAlign, TabLeader, TabStop};
 use wordcraft_doc::section::{Columns, SectionStart};
 use wordcraft_doc::{Align, Document, RevisionKind, Rgb, SectionProps};
 
@@ -40,6 +43,8 @@ const MAX_REGIONS: usize = 10_000;
 const MAX_OPEN_INSERTIONS: usize = 64;
 /// Longest change author or date kept, in characters.
 const MAX_INFO_CHARS: usize = 256;
+/// Most tab stops kept per paragraph style.
+const MAX_TAB_STOPS: usize = 64;
 
 mod page_parts;
 
@@ -431,7 +436,7 @@ impl Writer {
                 Inline::Anchor(a) => out.push_str(&format!("<text:bookmark text:name=\"{}\"/>", x(a))),
                 // Read as its base text by `ruby_as_text` above.
                 Inline::Ruby { .. } => {}
-                Inline::Figure(_) | Inline::Equation { .. } => {}
+                Inline::Figure(_) | Inline::Equation { .. } | Inline::Field { .. } => {}
             }
         }
     }
@@ -1084,6 +1089,35 @@ struct StyleInfo {
     page_number: Option<Option<u32>>,
     /// `style:columns` of a section style.
     columns: Option<Columns>,
+    /// `style:tab-stops` of a paragraph style: they replace the parent style's.
+    tabs: Option<Vec<TabStop>>,
+}
+
+/// A `style:tab-stop` (ODF 1.3 §17.8): position, kind and leader; `None` without a usable
+/// position. Positions are from the paragraph's left edge (LibreOffice's "tabs relative to
+/// indent"; the reader keeps no indents, so both readings agree).
+fn tab_stop(a: &Attrs) -> Option<TabStop> {
+    let pos = get(a, "style:position").and_then(length).filter(|v| *v >= 0.0)?.min(1584.0);
+    let align = match get(a, "style:type") {
+        Some("center") => TabAlign::Center,
+        Some("right") => TabAlign::Right,
+        Some("char") => TabAlign::Decimal,
+        _ => TabAlign::Left,
+    };
+    let leader = match get(a, "style:leader-text").and_then(|t| t.chars().next()) {
+        Some('.') | Some('…') => TabLeader::Dot,
+        Some('-') => TabLeader::Hyphen,
+        Some('_') => TabLeader::Underscore,
+        Some('·') => TabLeader::MiddleDot,
+        Some(' ') => TabLeader::None,
+        _ => match get(a, "style:leader-style") {
+            Some("dotted") => TabLeader::Dot,
+            Some("dash" | "long-dash" | "dot-dash" | "dot-dot-dash") => TabLeader::Hyphen,
+            Some("solid") => TabLeader::Underscore,
+            _ => TabLeader::None,
+        },
+    };
+    Some(TabStop { pos, align, leader })
 }
 
 /// Columns of a `style:columns` element (ODF 1.3 §17.12): count and gap, clamped as the RTF and
@@ -1250,6 +1284,8 @@ fn read_formula(xml: &[u8]) -> Option<(String, bool)> {
 struct Styles {
     map: HashMap<String, StyleInfo>,
     lists: HashMap<String, Vec<bool>>,
+    /// Default tab interval of the paragraph default style (`style:tab-stop-distance`), points.
+    default_tab: Option<f32>,
     /// Font of `style:default-style` for paragraphs (the document default, ODF 1.3 §16.4).
     default_font: Option<String>,
 }
@@ -1263,6 +1299,12 @@ impl Styles {
         events(xml, |ev| match ev {
             Ev::Start(q, a) => match local(&q) {
                 "automatic-styles" => in_auto = true,
+                "paragraph-properties" if in_default => {
+                    // Word's limits for the default tab interval: more than nothing, at most 22".
+                    if let Some(d) = get(&a, "style:tab-stop-distance").and_then(length).filter(|v| *v > 0.0) {
+                        self.default_tab = Some(d.min(1584.0));
+                    }
+                }
                 "style" if q.starts_with("style:") => {
                     if let Some(name) = get(&a, "style:name") {
                         let info = StyleInfo {
@@ -1342,6 +1384,20 @@ impl Styles {
                                 d.font = Some(fam);
                             }
                         }
+                    }
+                }
+                "tab-stops" if q.starts_with("style:") => {
+                    if let Some((_, s)) = &mut cur {
+                        s.tabs = Some(Vec::new());
+                    }
+                }
+                "tab-stop" if q.starts_with("style:") => {
+                    if let Some((_, s)) = &mut cur
+                        && let Some(tabs) = &mut s.tabs
+                        && tabs.len() < MAX_TAB_STOPS
+                        && let Some(t) = tab_stop(&a)
+                    {
+                        tabs.push(t);
                     }
                 }
                 "table-properties" => {
@@ -1507,6 +1563,11 @@ impl Styles {
     /// the style that gives the paragraph its kind and that style's ancestors: their formatting
     /// is the kind's own look (a heading's size and colour), not direct formatting. `Standard`,
     /// the default paragraph style, holds document defaults and is left out too.
+    /// The tab stops of paragraph style `name`: its own, or the nearest parent's.
+    fn tabs(&self, name: &str) -> Option<Vec<TabStop>> {
+        self.chain(name).iter().find_map(|(_, s)| s.tabs.clone())
+    }
+
     fn para(&self, name: &str) -> (Kind, Option<Align>, bool, bool, bool, Fmt) {
         let chain = self.chain(name);
         let mut kind = Kind::Normal;
@@ -1618,6 +1679,8 @@ struct Body<'a> {
     /// `(width, height, picture bytes, alt text, equation read from an embedded `draw:object`)`.
     frame: Option<(Option<f32>, Option<f32>, Option<Vec<u8>>, String, Option<(String, bool)>)>,
     in_desc: bool,
+    /// The field being read (`text:page-number`…): its instruction and saved result.
+    field: Option<(&'static str, String)>,
     /// The master pages' page setups.
     pages: &'a Pages,
     /// The current master page's setup (a column section's page, without its columns).
@@ -1648,6 +1711,8 @@ struct Body<'a> {
 }
 
 impl<'a> Body<'a> {
+    /// A reader starting on the first master page, resolving styles from `styles` and pictures
+    /// through `zip`.
     fn new(styles: &'a Styles, pages: &'a Pages, zip: &'a mut dyn FnMut(&str) -> Option<Vec<u8>>) -> Self {
         let page = pages.first.clone().unwrap_or_default();
         Body {
@@ -1668,6 +1733,7 @@ impl<'a> Body<'a> {
             depth: 0,
             frame: None,
             in_desc: false,
+            field: None,
             pages,
             sec: page.clone(),
             page,
@@ -1686,6 +1752,7 @@ impl<'a> Body<'a> {
         }
     }
 
+    /// Take the next XML event, ignoring what lies deeper than `MAX_XML_DEPTH`.
     fn feed(&mut self, ev: Ev) {
         match ev {
             Ev::Start(q, a) => {
@@ -1788,6 +1855,16 @@ impl Body<'_> {
         Some(SectionProps { start: SectionStart::NextPage, page_num_start: restart, ..page })
     }
 
+    /// Put `inline` at the end of the open paragraph, starting one if none is open.
+    fn push_inline(&mut self, inline: Inline) {
+        if self.para.is_none() {
+            self.start_para(None, None);
+        }
+        if let Some(p) = &mut self.para {
+            p.inlines.push(inline);
+        }
+    }
+
     fn start_para(&mut self, style: Option<&str>, heading: Option<u8>) {
         self.end_para();
         let (mut kind, align, mut pb, rule, keep_next, base) =
@@ -1801,7 +1878,8 @@ impl Body<'_> {
         if let Some(h) = heading {
             kind = Kind::Heading(h.clamp(1, 6));
         }
-        let mut p = Para { kind, align, page_break: pb, keep_next, ..Default::default() };
+        let tabs = style.and_then(|s| self.styles.tabs(s));
+        let mut p = Para { kind, align, page_break: pb, keep_next, tabs, ..Default::default() };
         if rule && kind == Kind::Normal {
             p.kind = Kind::Rule;
         }
@@ -1928,6 +2006,12 @@ impl Body<'_> {
             }
             return;
         }
+        if let Some((_, r)) = &mut self.field {
+            if r.len() < MAX_INFO_CHARS {
+                r.push_str(t);
+            }
+            return;
+        }
         let Some(p) = &self.para else {
             return;
         };
@@ -2035,6 +2119,9 @@ impl Body<'_> {
                 if q.starts_with("draw:") =>
             {
                 self.skip = 1;
+            }
+            "page-number" | "page-count" if q.starts_with("text:") => {
+                self.field = Some((if local(q) == "page-number" { "PAGE" } else { "NUMPAGES" }, String::new()));
             }
             "p" | "h" if !self.in_desc => {
                 let h =
@@ -2372,6 +2459,12 @@ impl Body<'_> {
         }
         match local(q) {
             "p" | "h" if !self.in_desc => self.end_para(),
+            "page-number" | "page-count" if q.starts_with("text:") => {
+                if let Some((instr, result)) = self.field.take() {
+                    let fmt = self.cur_fmt();
+                    self.push_inline(Inline::Field { instr: instr.to_string(), result: result.trim().to_string(), fmt });
+                }
+            }
             "span" | "a" if self.fmt.len() > usize::from(self.para.is_some()) => {
                 self.fmt.pop();
             }
@@ -2437,12 +2530,7 @@ impl Body<'_> {
                         None => img.and_then(|data| make_img(data, w, h, alt.trim())).map(Inline::Image),
                     };
                     if let Some(inline) = inline {
-                        if self.para.is_none() {
-                            self.start_para(None, None);
-                        }
-                        if let Some(p) = &mut self.para {
-                            p.inlines.push(inline);
-                        }
+                        self.push_inline(inline);
                     }
                 }
                 self.frame = None;
@@ -2562,7 +2650,7 @@ fn parse_full(bytes: &[u8]) -> Result<(Flow, SectionProps), String> {
 }
 
 /// [`parse_full`], plus whether change tracking is on (`None`: the document has no tracked changes).
-fn parse_tracked(bytes: &[u8]) -> Result<(Flow, SectionProps, Option<bool>, Option<String>, page_parts::Parts), String> {
+fn parse_tracked(bytes: &[u8]) -> Result<(Flow, SectionProps, Option<bool>, page_parts::Parts, Option<f32>, Option<String>), String> {
     let mut z = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| format!("ODT: not a valid package ({e})"))?;
     if let Some(mt) = read_entry(&mut z, "mimetype") {
         let mt = String::from_utf8_lossy(&mt);
@@ -2602,18 +2690,21 @@ fn parse_tracked(bytes: &[u8]) -> Result<(Flow, SectionProps, Option<bool>, Opti
         blocks.push(FBlock::Para(Para::default()));
     }
     let track = body.track;
-    Ok((Flow { blocks, meta }, last, track, styles.doc_font(), parts))
+    Ok((Flow { blocks, meta }, last, track, parts, styles.default_tab, styles.doc_font()))
 }
 
 /// Parse an `.odt` package into a document.
 pub fn import(bytes: &[u8]) -> Result<Document, String> {
-    let (flow, last, track, font, parts) = parse_tracked(bytes)?;
+    let (flow, last, track, parts, default_tab, font) = parse_tracked(bytes)?;
     let mut doc = model::to_doc(&flow);
     if font.is_some() {
         doc.styles.default_chr.font = font;
     }
     doc.last_section = last;
     page_parts::add(&mut doc, parts);
+    if let Some(t) = default_tab {
+        doc.settings.default_tab = t;
+    }
     if let Some(t) = track {
         doc.settings.track_changes = t;
     }
@@ -2627,11 +2718,16 @@ struct Pages {
     masters: HashMap<String, SectionProps>,
     first: Option<SectionProps>,
     first_name: Option<String>,
+    /// Height of each master page's header and footer areas (`style:header-style`,
+    /// `style:footer-style`), points, by master page name.
+    hf: HashMap<String, [Option<f32>; 2]>,
 }
 
 fn read_pages(xml: &[u8]) -> Pages {
-    let mut layouts: HashMap<String, (Attrs, Option<Columns>)> = HashMap::new();
+    let mut layouts: HashMap<String, (Attrs, Option<Columns>, [Option<f32>; 2])> = HashMap::new();
     let mut cur: Option<String> = None;
+    // Inside the page layout's `style:header-style` (false) or `style:footer-style` (true).
+    let mut hf: Option<bool> = None;
     let mut masters: Vec<(String, String)> = Vec::new();
     events(xml, |ev| match ev {
         Ev::Start(q, a) => match local(&q) {
@@ -2640,7 +2736,18 @@ fn read_pages(xml: &[u8]) -> Pages {
                 if let Some(n) = &cur
                     && layouts.len() < MAX_SECTIONS
                 {
-                    layouts.insert(n.clone(), (a, None));
+                    layouts.insert(n.clone(), (a, None, [None; 2]));
+                }
+            }
+            "header-style" | "footer-style" if q.starts_with("style:") => hf = Some(local(&q) == "footer-style"),
+            "header-footer-properties" => {
+                if let (Some(footer), Some(l)) = (hf, cur.as_ref().and_then(|n| layouts.get_mut(n))) {
+                    // The area's height: its fixed height, or its least height; both include
+                    // the spacing to the body text (as LibreOffice lays them out).
+                    let h = get(&a, "svg:height").or_else(|| get(&a, "fo:min-height")).and_then(length).filter(|v| *v >= 0.0);
+                    if let Some(slot) = l.2.get_mut(usize::from(footer)) {
+                        *slot = h.map(|v| v.min(1584.0));
+                    }
                 }
             }
             "columns" if q.starts_with("style:") => {
@@ -2660,16 +2767,17 @@ fn read_pages(xml: &[u8]) -> Pages {
             }
             _ => {}
         },
-        Ev::End(q) => {
-            if local(&q) == "page-layout" {
-                cur = None;
-            }
-        }
+        Ev::End(q) => match local(&q) {
+            "page-layout" => cur = None,
+            "header-style" | "footer-style" => hf = None,
+            _ => {}
+        },
         Ev::Text(_) => {}
     });
     let mut pages = Pages::default();
     for (name, layout) in masters {
-        let Some((a, cols)) = layouts.get(&layout) else { continue };
+        let Some((a, cols, hf)) = layouts.get(&layout) else { continue };
+        pages.hf.entry(name.clone()).or_insert(*hf);
         let mut sec = SectionProps::default();
         apply_layout(a, &mut sec);
         // A one-column layout keeps the default columns (and their gap).
@@ -2724,6 +2832,7 @@ fn apply_layout(a: &Attrs, sec: &mut SectionProps) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wordcraft_doc::para::InlineObject;
 
     #[test]
     fn lengths() {
@@ -3130,6 +3239,7 @@ mod tests {
         package(&content, Some(&styles))
     }
 
+    /// The plain text of header or footer part `id`.
     fn part_text(d: &Document, id: Option<u32>) -> String {
         d.plain_text(wordcraft_doc::StoryRef::Part(id.expect("part")))
     }
@@ -3709,6 +3819,61 @@ mod tests {
         assert_eq!(marks(&back).len(), 1);
     }
 
+    const NS_D: &str = r#"xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:loext="urn:org:documentfoundation:names:experimental:office:xmlns:loext:1.0""#;
+
+    /// A master page "Standard" with `header` and `footer` (inside `style:header`/`style:footer`
+    /// when not empty), graphic styles `graphic`, and a body of `body`.
+    fn with_master_page(graphic: &str, header: &str, footer: &str, body: &str) -> Vec<u8> {
+        let hf = |tag: &str, inner: &str| if inner.is_empty() { String::new() } else { format!("<style:{tag}>{inner}</style:{tag}>") };
+        let styles = format!(
+            r#"<office:document-styles {NS_T} {NS_D}><office:automatic-styles>{graphic}
+            <style:page-layout style:name="pm1"><style:page-layout-properties fo:page-width="210mm" fo:page-height="297mm" fo:margin-top="12.5mm" fo:margin-bottom="12.5mm" fo:margin-left="20mm" fo:margin-right="20mm"/>
+            <style:header-style><style:header-footer-properties fo:min-height="17.5mm" fo:margin-bottom="16.5mm"/></style:header-style>
+            <style:footer-style><style:header-footer-properties fo:min-height="10mm" fo:margin-top="5mm"/></style:footer-style></style:page-layout>
+            </office:automatic-styles><office:master-styles><style:master-page style:name="Standard" style:page-layout-name="pm1">{}{}</style:master-page></office:master-styles></office:document-styles>"#,
+            hf("header", header),
+            hf("footer", footer)
+        );
+        let content = format!(
+            r#"<office:document-content {NS_T} {NS_D}><office:body><office:text>{body}</office:text></office:body></office:document-content>"#
+        );
+        package(&content, Some(&styles))
+    }
+
+    /// The paragraphs of part `id`.
+    fn part_paras(d: &Document, id: Option<u32>) -> Vec<wordcraft_doc::Paragraph> {
+        let Some(part) = id.and_then(|i| d.parts.get(&i)) else { return Vec::new() };
+        part.blocks.iter().filter_map(|b| if let wordcraft_doc::Block::Para(p) = &**b { Some(p.clone()) } else { None }).collect()
+    }
+
+    #[test]
+    fn header_area_sets_header_distance_and_top_margin() {
+        let mm = |v: f32| v * 72.0 / 25.4;
+        let d = import(&with_master_page("", "<text:p>Head</text:p>", "<text:p>Foot</text:p>", "<text:p>Body</text:p>")).unwrap();
+        let s = &d.last_section;
+        assert!((s.header - mm(12.5)).abs() < 0.01 && (s.margin_top - mm(30.0)).abs() < 0.01, "{} {}", s.header, s.margin_top);
+        assert!((s.footer - mm(12.5)).abs() < 0.01 && (s.margin_bottom - mm(22.5)).abs() < 0.01, "{} {}", s.footer, s.margin_bottom);
+        // Without a header or footer the margins are the page layout's.
+        let d = import(&with_master_page("", "", "", "<text:p>Body</text:p>")).unwrap();
+        assert!((d.last_section.margin_top - mm(12.5)).abs() < 0.01);
+        assert!((d.last_section.margin_bottom - mm(12.5)).abs() < 0.01);
+    }
+
+    #[test]
+    fn footer_page_number_and_count_are_fields() {
+        let footer =
+            r#"<text:p>Page <text:page-number text:select-page="current">4</text:page-number> of <text:page-count>9</text:page-count></text:p>"#;
+        let d = import(&with_master_page("", "", footer, "<text:p>Body</text:p>")).unwrap();
+        let ps = part_paras(&d, d.last_section.footers.default);
+        let fields: Vec<(&str, &str)> = ps[0]
+            .objects
+            .iter()
+            .filter_map(|o| if let InlineObject::Field { instr, result, .. } = o { Some((instr.as_str(), result.as_str())) } else { None })
+            .collect();
+        assert_eq!(fields, [("PAGE", "4"), ("NUMPAGES", "9")]);
+        assert_eq!(ps[0].text.replace(wordcraft_doc::para::OBJ, "#"), "Page # of #");
+    }
+
     #[test]
     fn spaces_after_a_tab_survive_a_round_trip() {
         for src in ["a\t b", "a\t  b", "a\t   éa", "é\t 😀a", "a\t\t b"] {
@@ -3716,6 +3881,53 @@ mod tests {
             let back = import(&export(&doc).unwrap()).unwrap();
             assert_eq!(back.plain_text(wordcraft_doc::StoryRef::Body).trim_end(), src, "{src:?}");
         }
+    }
+
+    #[test]
+    fn paragraph_style_tab_stops_and_default_interval_are_read() {
+        let styles = format!(
+            r#"<office:document-styles {NS_T}><office:styles>
+            <style:default-style style:family="paragraph"><style:paragraph-properties style:tab-stop-distance="23mm"/></style:default-style>
+            <style:style style:name="Footer" style:family="paragraph"><style:paragraph-properties><style:tab-stops><style:tab-stop style:position="82.55mm" style:type="center"/><style:tab-stop style:position="165.1mm" style:type="right" style:leader-text="."/></style:tab-stops></style:paragraph-properties></style:style>
+            <style:style style:name="Child" style:family="paragraph" style:parent-style-name="Footer"/>
+            <style:style style:name="None" style:family="paragraph" style:parent-style-name="Footer"><style:paragraph-properties><style:tab-stops/></style:paragraph-properties></style:style>
+            </office:styles></office:document-styles>"#
+        );
+        let content = format!(
+            r#"<office:document-content {NS_T}><office:body><office:text><text:p text:style-name="Child">A<text:tab/>B</text:p><text:p text:style-name="None">C</text:p><text:p>D</text:p></office:text></office:body></office:document-content>"#
+        );
+        let d = import(&package(&content, Some(&styles))).unwrap();
+        let mm = |v: f32| v * 72.0 / 25.4;
+        assert!((d.settings.default_tab - mm(23.0)).abs() < 0.01);
+        let tabs: Vec<Option<Vec<TabStop>>> =
+            d.body.iter().filter_map(|b| if let wordcraft_doc::Block::Para(p) = &**b { Some(p.props.tabs.clone()) } else { None }).collect();
+        let Some(Some(inherited)) = tabs.first() else { panic!("{tabs:?}") };
+        assert_eq!(
+            inherited.iter().map(|t| (t.align, t.leader)).collect::<Vec<_>>(),
+            [(TabAlign::Center, TabLeader::None), (TabAlign::Right, TabLeader::Dot)]
+        );
+        assert!((inherited[1].pos - mm(165.1)).abs() < 0.01);
+        // An empty `style:tab-stops` clears the parent's; no style keeps the defaults.
+        assert_eq!(tabs.get(1), Some(&Some(Vec::new())));
+        assert_eq!(tabs.get(2), Some(&None));
+    }
+
+    #[test]
+    fn hostile_tab_stops_are_bounded() {
+        let stops = r#"<style:tab-stop style:position="1e30mm" style:type="right"/><style:tab-stop style:position="-5mm"/><style:tab-stop style:position="NaNmm"/>"#.to_string()
+            + &r#"<style:tab-stop style:position="1in"/>"#.repeat(1000);
+        let styles = format!(
+            r#"<office:document-styles {NS_T}><office:styles><style:default-style style:family="paragraph"><style:paragraph-properties style:tab-stop-distance="1e30in"/></style:default-style><style:style style:name="T" style:family="paragraph"><style:paragraph-properties><style:tab-stops>{stops}</style:tab-stops></style:paragraph-properties></style:style></office:styles></office:document-styles>"#
+        );
+        let content = format!(
+            r#"<office:document-content {NS_T}><office:body><office:text><text:p text:style-name="T">x</text:p></office:text></office:body></office:document-content>"#
+        );
+        let d = import(&package(&content, Some(&styles))).unwrap();
+        assert!(d.settings.default_tab <= 1584.0);
+        let Some(wordcraft_doc::Block::Para(p)) = d.body.first().map(|b| &**b) else { panic!("no paragraph") };
+        let tabs = p.props.tabs.clone().unwrap_or_default();
+        assert_eq!(tabs.len(), MAX_TAB_STOPS);
+        assert!(tabs.iter().all(|t| t.pos.is_finite() && (0.0..=1584.0).contains(&t.pos)));
     }
 
     #[test]
