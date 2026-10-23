@@ -2802,3 +2802,29 @@ template	Letter	Brev
 	More tabs	Fler flikar
 # #3013: Insert Table of Figures
 	Include label and number	Ta med etikett och nummer
+# #2917: Modify Style formatting row, preview and Format menu; Font › Advanced; line spacing box
+	Style type:	Stiltyp:
+	Style for following paragraph:	Stil för nästa stycke:
+	Previous Paragraph	Föregående stycke
+	Sample Text	Exempeltext
+	Following Paragraph	Nästa stycke
+	Scale:	Skala:
+	By:	Med:
+	Expanded	Utökat
+	Condensed	Komprimerat
+	Raised	Upphöjt
+	Lowered	Nedsänkt
+	At:	Värde:
+	Single spacing	Enkelt
+	1.5 lines	1,5 rader
+	Double spacing	Dubbelt
+	Multiple	Flera
+	Line spacing: Multiple {lines} li	Radavstånd: flera {lines} rader
+	Line spacing: At least {pt} pt	Radavstånd: minst {pt} pt
+	Line spacing: Exactly {pt} pt	Radavstånd: exakt {pt} pt
+	Expanded by {pt} pt	Utökat med {pt} pt
+	Condensed by {pt} pt	Komprimerat med {pt} pt
+	Scale: {percent}%	Skala: {percent} %
+	Raised by {pt} pt	Upphöjt med {pt} pt
+	Lowered by {pt} pt	Nedsänkt med {pt} pt
+	Character spacing:	Teckenavstånd:

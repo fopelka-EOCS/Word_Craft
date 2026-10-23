@@ -2366,3 +2366,29 @@
 	More tabs	Weitere Registerkarten
 # #3013: Insert Table of Figures
 	Include label and number	Bezeichnung und Nummer einbeziehen
+# #2917: Modify Style formatting row, preview and Format menu; Font › Advanced; line spacing box
+	Style type:	Formatvorlagentyp:
+	Style for following paragraph:	Formatvorlage für den folgenden Absatz:
+	Previous Paragraph	Vorheriger Absatz
+	Sample Text	Beispieltext
+	Following Paragraph	Folgender Absatz
+	Scale:	Skalierung:
+	By:	Um:
+	Expanded	Erweitert
+	Condensed	Verdichtet
+	Raised	Angehoben
+	Lowered	Abgesenkt
+	At:	Wert:
+	Single spacing	Einfach
+	1.5 lines	1,5 Zeilen
+	Double spacing	Doppelt
+	Multiple	Mehrfach
+	Line spacing: Multiple {lines} li	Zeilenabstand: Mehrfach {lines} Zeilen
+	Line spacing: At least {pt} pt	Zeilenabstand: Mindestens {pt} pt
+	Line spacing: Exactly {pt} pt	Zeilenabstand: Genau {pt} pt
+	Expanded by {pt} pt	Erweitert um {pt} pt
+	Condensed by {pt} pt	Verdichtet um {pt} pt
+	Scale: {percent}%	Skalierung: {percent} %
+	Raised by {pt} pt	Angehoben um {pt} pt
+	Lowered by {pt} pt	Abgesenkt um {pt} pt
+	Character spacing:	Zeichenabstand:

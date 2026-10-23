@@ -2773,3 +2773,29 @@ preview	Title	Пример
 	More tabs	Другие вкладки
 # #3013: Insert Table of Figures
 	Include label and number	Включить подпись и номер
+# #2917: Modify Style formatting row, preview and Format menu; Font › Advanced; line spacing box
+	Style type:	Тип стиля:
+	Style for following paragraph:	Стиль следующего абзаца:
+	Previous Paragraph	Предыдущий абзац
+	Sample Text	Образец текста
+	Following Paragraph	Следующий абзац
+	Scale:	Масштаб:
+	By:	На:
+	Expanded	Разреженный
+	Condensed	Уплотнённый
+	Raised	Приподнятый
+	Lowered	Опущенный
+	At:	Значение:
+	Single spacing	Одинарный
+	1.5 lines	1,5 строки
+	Double spacing	Двойной
+	Multiple	Множитель
+	Line spacing: Multiple {lines} li	Межстрочный интервал: множитель {lines} стр.
+	Line spacing: At least {pt} pt	Межстрочный интервал: минимум {pt} пт
+	Line spacing: Exactly {pt} pt	Межстрочный интервал: точно {pt} пт
+	Expanded by {pt} pt	Разреженный на {pt} пт
+	Condensed by {pt} pt	Уплотнённый на {pt} пт
+	Scale: {percent}%	Масштаб: {percent}%
+	Raised by {pt} pt	Приподнятый на {pt} пт
+	Lowered by {pt} pt	Опущенный на {pt} пт
+	Character spacing:	Межзнаковый интервал:

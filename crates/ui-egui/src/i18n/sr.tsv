@@ -2381,3 +2381,29 @@
 	More tabs	Још картица
 # #3013: Insert Table of Figures
 	Include label and number	Укључи ознаку и број
+# #2917: Modify Style formatting row, preview and Format menu; Font › Advanced; line spacing box
+	Style type:	Тип стила:
+	Style for following paragraph:	Стил следећег пасуса:
+	Previous Paragraph	Претходни пасус
+	Sample Text	Пример текста
+	Following Paragraph	Следећи пасус
+	Scale:	Размера:
+	By:	За:
+	Expanded	Проширено
+	Condensed	Сабијено
+	Raised	Подигнуто
+	Lowered	Спуштено
+	At:	Вредност:
+	Single spacing	Једноструко
+	1.5 lines	1,5 реда
+	Double spacing	Дупло
+	Multiple	Вишеструко
+	Line spacing: Multiple {lines} li	Проређеност: вишеструко {lines} р.
+	Line spacing: At least {pt} pt	Проређеност: најмање {pt} пт
+	Line spacing: Exactly {pt} pt	Проређеност: тачно {pt} пт
+	Expanded by {pt} pt	Проширено за {pt} пт
+	Condensed by {pt} pt	Сабијено за {pt} пт
+	Scale: {percent}%	Размера: {percent}%
+	Raised by {pt} pt	Подигнуто за {pt} пт
+	Lowered by {pt} pt	Спуштено за {pt} пт
+	Character spacing:	Размак између знакова:

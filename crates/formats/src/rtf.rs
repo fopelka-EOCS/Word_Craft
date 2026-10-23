@@ -109,6 +109,9 @@ struct Writer {
     sections: Vec<wordcraft_doc::SectionProps>,
     /// The section being written.
     sect_i: usize,
+    /// The Normal style's size when it isn't RTF's 12 pt: `\plain` resets to 12 pt, so normal
+    /// paragraphs and the `\s0` entry state it (#1264).
+    normal_size: Option<f32>,
 }
 
 /// `\sectd` and a section's formatting, in the words the reader reads back.
@@ -453,7 +456,10 @@ impl Writer {
         } else {
             out.push(' ');
         }
-        self.base = style_fmt(p.kind);
+        self.base = match p.kind {
+            Kind::Normal => Fmt { size: self.normal_size, ..Fmt::default() },
+            kind => style_fmt(kind),
+        };
         self.inlines(&p.inlines, out);
         self.base = Fmt::default();
         // A tracked paragraph mark is the `\par` inside the revision's group.
@@ -500,9 +506,14 @@ impl Writer {
                 out.push_str(&format!("\\sb240\\sa80\\keepn\\b\\fs{}", (sz * 2.0) as i32));
             }
             Kind::Title => out.push_str("\\sa80\\fs56"),
-            Kind::Normal => {}
+            Kind::Normal => out.push_str(&self.normal_fs()),
         }
         out
+    }
+
+    /// `\fs` of the Normal style's size, when it isn't RTF's 12 pt.
+    fn normal_fs(&self) -> String {
+        self.normal_size.map(|s| format!("\\fs{}", (s * 2.0).round().clamp(2.0, 3276.0) as i32)).unwrap_or_default()
     }
 
     fn blocks(&mut self, blocks: &[FBlock], intbl: bool, last_end: &str, out: &mut String, depth: usize) {
@@ -734,14 +745,17 @@ pub fn iso_to_dttm(s: &str) -> Option<u32> {
 /// RTF text of a document.
 pub fn export(doc: &Document) -> String {
     let flow = model::from_doc_tracked(doc);
-    let base_font = doc.styles.default_chr.font.clone().unwrap_or_else(|| wordcraft_doc::styles::BODY_FONT.to_string());
+    // The default font (font 0) and size are what text in the Normal style shows in, its own
+    // font and size included, not just the document defaults (#1264).
+    let normal = doc.styles.resolve_char(Some("Normal"), &wordcraft_doc::CharProps::default());
     let mut w = Writer {
-        t: Tables { fonts: vec![base_font], colors: Vec::new() },
+        t: Tables { fonts: vec![normal.font], colors: Vec::new() },
         lists: Vec::new(),
         authors: None,
         base: Fmt::default(),
         sections: Vec::new(),
         sect_i: 0,
+        normal_size: (normal.size != 12.0).then_some(normal.size),
     };
     let mut body = String::new();
     // Every section starts with its own `\sectd`; `\sect` breaks only where there are several.
@@ -766,7 +780,9 @@ fn export_with(m: &Meta, w: &Writer, body: &str, sec: &wordcraft_doc::SectionPro
     for c in &w.t.colors {
         out.push_str(&format!("\\red{}\\green{}\\blue{};", c.0, c.1, c.2));
     }
-    out.push_str("}\n{\\*\\generator WordCraft;}\n{\\stylesheet{\\s0\\snext0 Normal;}");
+    out.push_str("}\n{\\*\\generator WordCraft;}\n{\\stylesheet{\\s0\\snext0");
+    out.push_str(&w.normal_fs());
+    out.push_str(" Normal;}");
     for n in 1..=6u32 {
         let sz = HEAD_SIZES.get(n as usize - 1).copied().unwrap_or(12.0);
         out.push_str(&format!("{{\\s{n}\\sbasedon0\\snext0\\outlinelevel{}\\keepn\\b\\fs{} heading {n};}}", n - 1, (sz * 2.0) as i32));
@@ -2602,6 +2618,8 @@ struct Parsed {
     /// The last section's properties (the others are on the paragraphs that end them).
     last_section: wordcraft_doc::SectionProps,
     default_font: Option<String>,
+    /// The font and size the `\s0` (Normal) stylesheet entry sets (#1264).
+    normal: (Option<String>, Option<f32>),
     /// Each section's headers and footers, in order, the last section's last.
     headers_footers: Vec<Vec<(HeaderFooter, Vec<FBlock>)>>,
 }
@@ -2805,8 +2823,12 @@ fn parse_full(bytes: &[u8]) -> Result<Parsed, String> {
     if blocks.is_empty() {
         blocks.push(FBlock::Para(Para::default()));
     }
-    let default_font = r.fonts.get(&r.deff).filter(|n| !model::is_mono(n)).cloned();
-    Ok(Parsed { flow: Flow { blocks, meta: r.meta }, page: r.page, last_section, default_font, headers_footers })
+    // A monospaced default font is the text's font like any other (#1264); runs that pick a
+    // monospaced font themselves are still code.
+    let default_font = r.fonts.get(&r.deff).cloned();
+    let s0 = r.style_defs.get(&0).copied().unwrap_or_default();
+    let normal = (s0.font.and_then(|i| r.fonts.get(&i)).cloned(), s0.size);
+    Ok(Parsed { flow: Flow { blocks, meta: r.meta }, page: r.page, last_section, default_font, normal, headers_footers })
 }
 
 /// The column grid of a table from its rows' cell right edges: every distinct edge starts a grid
@@ -2848,7 +2870,7 @@ fn column_grid(rows: &mut [Vec<Cell>], rights: &[Vec<i32>]) -> Vec<f32> {
 
 /// Parse RTF bytes into a document.
 pub fn import(bytes: &[u8]) -> Result<Document, String> {
-    let Parsed { flow, last_section, default_font, headers_footers, .. } = parse_full(bytes)?;
+    let Parsed { flow, last_section, default_font, normal, headers_footers, .. } = parse_full(bytes)?;
     let mut doc = model::to_doc_in(&flow, last_section);
     // Each section's own headers and footers; those it leaves out stay linked to the previous.
     let mut sets = Vec::with_capacity(headers_footers.len());
@@ -2888,6 +2910,12 @@ pub fn import(bytes: &[u8]) -> Result<Document, String> {
     dp.line_spacing = Some(wordcraft_doc::props::LineSpacing::Multiple(1.0));
     if default_font.is_some() {
         doc.styles.default_chr.font = default_font;
+    }
+    // The Normal style's own font and size, from its stylesheet entry (#1264).
+    if let Some(st) = doc.styles.get_mut("Normal") {
+        let (font, size) = normal;
+        st.chr.font = font.or(st.chr.font.take());
+        st.chr.size = size.or(st.chr.size);
     }
     Ok(doc)
 }
@@ -3862,6 +3890,7 @@ mod tests {
             base: Fmt::default(),
             sections: Vec::new(),
             sect_i: 0,
+            normal_size: None,
         };
         let mut out = String::new();
         w.para(&p, false, None, "\\par", &mut out);

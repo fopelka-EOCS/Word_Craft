@@ -10688,3 +10688,38 @@ fn layout_cache_invalidates_on_changed_filepath() {
     let text_b = shown(&l_b);
     assert_eq!(text_b, "/path/two/a.docx", "second layout with same cache shows /path/two/a.docx");
 }
+
+#[test]
+fn selection_and_highlight_height_ignore_line_spacing() {
+    // #3468: extra line spacing is leading below the text; selection and highlight heights stay the height of the font.
+    use wordcraft_doc::props::{Highlight, LineSpacing};
+    let metrics = |spacing: Option<LineSpacing>| {
+        let mut d = Document::new();
+        let chr = wordcraft_doc::CharProps {
+            font: Some("Source Sans 3".into()),
+            size: Some(12.0),
+            highlight: Some(Highlight::Yellow),
+            ..Default::default()
+        };
+        let mut p = wordcraft_doc::Paragraph::with_text("Alpha probe", chr);
+        p.props = ParaProps { line_spacing: spacing, ..Default::default() };
+        d.body = vec![wordcraft_doc::para_block(p)];
+        let l = lay(&d);
+        let sel_h = l.selection_rects(&d, &Pos::body(0, 0), &Pos::body(0, 5), 0)[0].1.h;
+        let draws = display::page_display(&d, &l.pages[0], &Default::default());
+        let hl_h = draws
+            .iter()
+            .find_map(|draw| match draw {
+                display::Draw::Fill { rect, text_bg: true, .. } => Some(rect.h),
+                _ => None,
+            })
+            .unwrap();
+        (sel_h, hl_h)
+    };
+    let (single_sel, single_hl) = metrics(Some(LineSpacing::Multiple(1.0)));
+    for spacing in [LineSpacing::Multiple(2.0), LineSpacing::AtLeast(40.0), LineSpacing::Exactly(40.0)] {
+        let (wide_sel, wide_hl) = metrics(Some(spacing));
+        assert!((single_sel - wide_sel).abs() < 0.01, "selection {spacing:?}: single {single_sel}, wide {wide_sel}");
+        assert!((single_hl - wide_hl).abs() < 0.01, "highlight {spacing:?}: single {single_hl}, wide {wide_hl}");
+    }
+}

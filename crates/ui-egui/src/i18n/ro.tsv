@@ -2762,3 +2762,29 @@ template	Letter	Scrisoare
 	cm	cm
 	mm	mm
 	pi	pi
+# #2917: Modify Style formatting row, preview and Format menu; Font › Advanced; line spacing box
+	Style type:	Tip stil:
+	Style for following paragraph:	Stil pentru paragraful următor:
+	Previous Paragraph	Paragraf anterior
+	Sample Text	Text exemplu
+	Following Paragraph	Paragraf următor
+	Scale:	Scală:
+	By:	Cu:
+	Expanded	Extins
+	Condensed	Comprimat
+	Raised	Ridicat
+	Lowered	Coborât
+	At:	Valoare:
+	Single spacing	Simplu
+	1.5 lines	1,5 rânduri
+	Double spacing	Dublu
+	Multiple	Multiplu
+	Line spacing: Multiple {lines} li	Spațiere între rânduri: multiplu {lines} rânduri
+	Line spacing: At least {pt} pt	Spațiere între rânduri: cel puțin {pt} pt
+	Line spacing: Exactly {pt} pt	Spațiere între rânduri: exact {pt} pt
+	Expanded by {pt} pt	Extins cu {pt} pt
+	Condensed by {pt} pt	Comprimat cu {pt} pt
+	Scale: {percent}%	Scală: {percent}%
+	Raised by {pt} pt	Ridicat cu {pt} pt
+	Lowered by {pt} pt	Coborât cu {pt} pt
+	Character spacing:	Spațiere între caractere:

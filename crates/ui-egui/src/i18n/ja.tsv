@@ -2367,3 +2367,29 @@
 	More tabs	その他のタブ
 # #3013: Insert Table of Figures
 	Include label and number	ラベルと番号を含める
+# #2917: Modify Style formatting row, preview and Format menu; Font › Advanced; line spacing box
+	Style type:	スタイルの種類:
+	Style for following paragraph:	次の段落のスタイル:
+	Previous Paragraph	前の段落
+	Sample Text	サンプル テキスト
+	Following Paragraph	次の段落
+	Scale:	倍率:
+	By:	幅:
+	Expanded	広く
+	Condensed	狭く
+	Raised	上げる
+	Lowered	下げる
+	At:	値:
+	Single spacing	1 行
+	1.5 lines	1.5 行
+	Double spacing	2 行
+	Multiple	倍数
+	Line spacing: Multiple {lines} li	行間: 倍数 {lines} 行
+	Line spacing: At least {pt} pt	行間: 最小値 {pt} pt
+	Line spacing: Exactly {pt} pt	行間: 固定値 {pt} pt
+	Expanded by {pt} pt	{pt} pt 広く
+	Condensed by {pt} pt	{pt} pt 狭く
+	Scale: {percent}%	倍率: {percent}%
+	Raised by {pt} pt	{pt} pt 上げる
+	Lowered by {pt} pt	{pt} pt 下げる
+	Character spacing:	文字間隔:

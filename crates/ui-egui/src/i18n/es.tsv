@@ -2729,3 +2729,29 @@ preview	Title	Título
 	More tabs	Más pestañas
 # #3013: Insert Table of Figures
 	Include label and number	Incluir rótulo y número
+# #2917: Modify Style formatting row, preview and Format menu; Font › Advanced; line spacing box
+	Style type:	Tipo de estilo:
+	Style for following paragraph:	Estilo del párrafo siguiente:
+	Previous Paragraph	Párrafo anterior
+	Sample Text	Texto de ejemplo
+	Following Paragraph	Párrafo siguiente
+	Scale:	Escala:
+	By:	En:
+	Expanded	Expandido
+	Condensed	Comprimido
+	Raised	Elevado
+	Lowered	Rebajado
+	At:	Valor:
+	Single spacing	Sencillo
+	1.5 lines	1,5 líneas
+	Double spacing	Doble
+	Multiple	Múltiple
+	Line spacing: Multiple {lines} li	Interlineado: múltiple {lines} lín.
+	Line spacing: At least {pt} pt	Interlineado: al menos {pt} pt
+	Line spacing: Exactly {pt} pt	Interlineado: exactamente {pt} pt
+	Expanded by {pt} pt	Expandido en {pt} pt
+	Condensed by {pt} pt	Comprimido en {pt} pt
+	Scale: {percent}%	Escala: {percent} %
+	Raised by {pt} pt	Elevado {pt} pt
+	Lowered by {pt} pt	Rebajado {pt} pt
+	Character spacing:	Espaciado entre caracteres:

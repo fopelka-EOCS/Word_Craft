@@ -667,25 +667,36 @@ fn char_style(s: &mut Session, v: &Value) -> CmdResult {
 
 fn set(s: &mut Session, v: &Value) -> CmdResult {
     let mut props: CharProps = serde_json::from_value(v.get("props").cloned().unwrap_or(Value::Null)).map_err(|e| CmdError::Params(e.to_string()))?;
-    // The font dialog and callers supplying one value format both scripts. Explicit
-    // complex-script values still take precedence; importing a DOCX never uses this command.
+    both_scripts(&mut props);
+    apply(s, &|c| c.overlay(&props))
+}
+
+/// The font dialog and callers supplying one value format both scripts. Explicit complex-script
+/// values still take precedence; importing a DOCX never goes through here.
+pub(crate) fn both_scripts(props: &mut CharProps) {
     props.size_cs = props.size_cs.or(props.size);
     props.bold_cs = props.bold_cs.or(props.bold);
     props.italic_cs = props.italic_cs.or(props.italic);
-    apply(s, &|c| c.overlay(&props))
 }
 
 /// What the ribbon shows: the formatting at the selection (mixed values are null).
 pub fn state(s: &Session) -> Value {
-    let all = resolved(s);
+    let mut st = char_state(&resolved(s));
+    let style = s.doc.para_at(&s.sel.focus).and_then(|p| p.props.style.clone()).unwrap_or_else(|| "Normal".into());
+    st["styleName"] = json!(s.doc.styles.get(&style).map(|st| st.name.clone()).unwrap_or(style.clone()));
+    st["style"] = json!(style);
+    st
+}
+
+/// The Font dialog's view of some text's formatting, as [`state`] reports it: the values all of
+/// `all` share (mixed ones are null). A style's formatting is one resolved run.
+pub fn char_state(all: &[ResolvedChar]) -> Value {
     let first = all.first().cloned();
     let same = |f: &dyn Fn(&ResolvedChar) -> Value| -> Value {
         let Some(r) = &first else { return Value::Null };
         let v0 = f(r);
         if all.iter().all(|r| f(r) == v0) { v0 } else { Value::Null }
     };
-    let style = s.doc.para_at(&s.sel.focus).and_then(|p| p.props.style.clone()).unwrap_or_else(|| "Normal".into());
-    let style_name = s.doc.styles.get(&style).map(|st| st.name.clone()).unwrap_or(style.clone());
     json!({
         "font": same(&|r| json!(r.font)),
         "fontEastAsia": same(&|r| json!(r.font_ea)),
@@ -702,12 +713,13 @@ pub fn state(s: &Session) -> Value {
         "caps": all.iter().all(|r| r.caps),
         "hidden": all.iter().all(|r| r.hidden),
         "spacing": same(&|r| json!(r.spacing)),
+        // Horizontal scale, percent, and raised (+) / lowered (−) position, points.
+        "scale": same(&|r| json!(r.scale)),
+        "position": same(&|r| json!(r.position)),
         // Kerning for fonts: the smallest kerned size, points; 0 = off.
         "kern": same(&|r| json!(r.kern)),
         "color": same(&|r| json!(match r.color { TextColor::Auto => "auto".to_string(), TextColor::Rgb(c) => c.hex() })),
         "highlight": same(&|r| json!(r.highlight.map(|c| c.hex()))),
-        "style": style,
-        "styleName": style_name,
         // The proofing language (a BCP 47 tag; null when mixed or unset) and "Do not check".
         "lang": same(&|r| json!(r.lang)),
         "noProof": all.iter().all(|r| r.no_proof),

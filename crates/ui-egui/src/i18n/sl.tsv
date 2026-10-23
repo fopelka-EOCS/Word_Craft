@@ -2763,3 +2763,29 @@ preview	Title	Naslov
 	{names} and {n} more	{names} and {n} more
 	{name} options	{name} options
 	{width} × {height} pixels	{width} × {height} pixels
+# #2917: Modify Style formatting row, preview and Format menu; Font › Advanced; line spacing box
+	Style type:	Vrsta sloga:
+	Style for following paragraph:	Slog naslednjega odstavka:
+	Previous Paragraph	Prejšnji odstavek
+	Sample Text	Vzorčno besedilo
+	Following Paragraph	Naslednji odstavek
+	Scale:	Merilo:
+	By:	Za:
+	Expanded	Razširjeno
+	Condensed	Zgoščeno
+	Raised	Dvignjeno
+	Lowered	Spuščeno
+	At:	Vrednost:
+	Single spacing	Enojno
+	1.5 lines	1,5 vrstice
+	Double spacing	Dvojno
+	Multiple	Večkratno
+	Line spacing: Multiple {lines} li	Razmik vrstic: večkratno {lines} vrst.
+	Line spacing: At least {pt} pt	Razmik vrstic: najmanj {pt} pt
+	Line spacing: Exactly {pt} pt	Razmik vrstic: natančno {pt} pt
+	Expanded by {pt} pt	Razširjeno za {pt} pt
+	Condensed by {pt} pt	Zgoščeno za {pt} pt
+	Scale: {percent}%	Merilo: {percent} %
+	Raised by {pt} pt	Dvignjeno za {pt} pt
+	Lowered by {pt} pt	Spuščeno za {pt} pt
+	Character spacing:	Razmik med znaki:

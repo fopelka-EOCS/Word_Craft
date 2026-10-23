@@ -2814,3 +2814,29 @@ template	Letter	Thư
 	More tabs	Các tab khác
 # #3013: Insert Table of Figures
 	Include label and number	Bao gồm nhãn và số
+# #2917: Modify Style formatting row, preview and Format menu; Font › Advanced; line spacing box
+	Style type:	Loại kiểu:
+	Style for following paragraph:	Kiểu cho đoạn tiếp theo:
+	Previous Paragraph	Đoạn trước
+	Sample Text	Văn bản mẫu
+	Following Paragraph	Đoạn tiếp theo
+	Scale:	Tỷ lệ:
+	By:	Mức:
+	Expanded	Giãn rộng
+	Condensed	Thu hẹp
+	Raised	Nâng lên
+	Lowered	Hạ xuống
+	At:	Giá trị:
+	Single spacing	Đơn
+	1.5 lines	1,5 dòng
+	Double spacing	Gấp đôi
+	Multiple	Bội số
+	Line spacing: Multiple {lines} li	Giãn dòng: bội số {lines} dòng
+	Line spacing: At least {pt} pt	Giãn dòng: tối thiểu {pt} pt
+	Line spacing: Exactly {pt} pt	Giãn dòng: chính xác {pt} pt
+	Expanded by {pt} pt	Giãn rộng {pt} pt
+	Condensed by {pt} pt	Thu hẹp {pt} pt
+	Scale: {percent}%	Tỷ lệ: {percent}%
+	Raised by {pt} pt	Nâng lên {pt} pt
+	Lowered by {pt} pt	Hạ xuống {pt} pt
+	Character spacing:	Khoảng cách ký tự:

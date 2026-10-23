@@ -908,8 +908,8 @@ fn toc_styles_ui(app: &mut WordApp, ui: &mut Ui, f: &mut TocForm, level: &mut u8
     if ui.button(tl!("Modify…")).clicked()
         && let Some(mut d) = Dialog::modify_style(app, &format!("TOC{level}"))
     {
-        if let Dialog::ModifyStyle { resume, .. } = &mut d {
-            *resume = Some(Box::new(Dialog::Refs(Box::new(RefsDialog::TocStyles { form: f.clone(), level: *level }))));
+        if let Dialog::ModifyStyle(m) = &mut d {
+            m.resume = Some(Box::new(Dialog::Refs(Box::new(RefsDialog::TocStyles { form: f.clone(), level: *level }))));
         }
         app.dialog = Some(d);
         return Next::Close;

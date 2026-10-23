@@ -2764,3 +2764,29 @@
 	More tabs	Още раздели
 # #3013: Insert Table of Figures
 	Include label and number	Включване на етикета и номера
+# #2917: Modify Style formatting row, preview and Format menu; Font › Advanced; line spacing box
+	Style type:	Тип на стила:
+	Style for following paragraph:	Стил за следващия абзац:
+	Previous Paragraph	Предишен абзац
+	Sample Text	Примерен текст
+	Following Paragraph	Следващ абзац
+	Scale:	Мащаб:
+	By:	С:
+	Expanded	Разширено
+	Condensed	Сгъстено
+	Raised	Повдигнато
+	Lowered	Понижено
+	At:	Стойност:
+	Single spacing	Единично
+	1.5 lines	1,5 реда
+	Double spacing	Двойно
+	Multiple	Кратно
+	Line spacing: Multiple {lines} li	Междуредие: кратно {lines} реда
+	Line spacing: At least {pt} pt	Междуредие: най-малко {pt} пт
+	Line spacing: Exactly {pt} pt	Междуредие: точно {pt} пт
+	Expanded by {pt} pt	Разширено с {pt} пт
+	Condensed by {pt} pt	Сгъстено с {pt} пт
+	Scale: {percent}%	Мащаб: {percent}%
+	Raised by {pt} pt	Повдигнато с {pt} пт
+	Lowered by {pt} pt	Понижено с {pt} пт
+	Character spacing:	Разстояние между знаците:

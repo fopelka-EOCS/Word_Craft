@@ -2669,3 +2669,29 @@ preview	Title	Titel
 	Full Screen View	Full Screen View
 	Personal Templates	Personal Templates
 	Underline Color	Underline Color
+# #2917: Modify Style formatting row, preview and Format menu; Font › Advanced; line spacing box
+	Style type:	Stijltype:
+	Style for following paragraph:	Stijl voor volgende alinea:
+	Previous Paragraph	Vorige alinea
+	Sample Text	Voorbeeldtekst
+	Following Paragraph	Volgende alinea
+	Scale:	Schaal:
+	By:	Met:
+	Expanded	Breder
+	Condensed	Smaller
+	Raised	Verhoogd
+	Lowered	Verlaagd
+	At:	Waarde:
+	Single spacing	Enkel
+	1.5 lines	1,5 regel
+	Double spacing	Dubbel
+	Multiple	Meerdere
+	Line spacing: Multiple {lines} li	Regelafstand: meerdere {lines} rg
+	Line spacing: At least {pt} pt	Regelafstand: minimaal {pt} pt
+	Line spacing: Exactly {pt} pt	Regelafstand: precies {pt} pt
+	Expanded by {pt} pt	Breder met {pt} pt
+	Condensed by {pt} pt	Smaller met {pt} pt
+	Scale: {percent}%	Schaal: {percent}%
+	Raised by {pt} pt	Verhoogd met {pt} pt
+	Lowered by {pt} pt	Verlaagd met {pt} pt
+	Character spacing:	Tekenafstand:

@@ -2795,3 +2795,29 @@ preview	Title	Tytuł
 	This document has no bookmarks.	This document has no bookmarks.
 	Type a page number, or +2 / -1.	Type a page number, or +2 / -1.
 	Wait for the print job to finish submitting before closing.	Wait for the print job to finish submitting before closing.
+# #2917: Modify Style formatting row, preview and Format menu; Font › Advanced; line spacing box
+	Style type:	Typ stylu:
+	Style for following paragraph:	Styl następnego akapitu:
+	Previous Paragraph	Poprzedni akapit
+	Sample Text	Przykładowy tekst
+	Following Paragraph	Następny akapit
+	Scale:	Skala:
+	By:	O:
+	Expanded	Rozstrzelone
+	Condensed	Zagęszczone
+	Raised	Podniesione
+	Lowered	Obniżone
+	At:	Wartość:
+	Single spacing	Pojedyncze
+	1.5 lines	1,5 wiersza
+	Double spacing	Podwójne
+	Multiple	Wielokrotne
+	Line spacing: Multiple {lines} li	Interlinia: wielokrotna {lines} wiersza
+	Line spacing: At least {pt} pt	Interlinia: co najmniej {pt} pt
+	Line spacing: Exactly {pt} pt	Interlinia: dokładnie {pt} pt
+	Expanded by {pt} pt	Rozstrzelone o {pt} pt
+	Condensed by {pt} pt	Zagęszczone o {pt} pt
+	Scale: {percent}%	Skala: {percent}%
+	Raised by {pt} pt	Podniesione o {pt} pt
+	Lowered by {pt} pt	Obniżone o {pt} pt
+	Character spacing:	Odstępy między znakami:

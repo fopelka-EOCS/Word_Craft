@@ -2617,3 +2617,29 @@ preview	Title	제목
 	More tabs	탭 더 보기
 # #3013: Insert Table of Figures
 	Include label and number	레이블 및 번호 포함
+# #2917: Modify Style formatting row, preview and Format menu; Font › Advanced; line spacing box
+	Style type:	스타일 종류:
+	Style for following paragraph:	다음 단락 스타일:
+	Previous Paragraph	이전 단락
+	Sample Text	샘플 텍스트
+	Following Paragraph	다음 단락
+	Scale:	배율:
+	By:	크기:
+	Expanded	넓게
+	Condensed	좁게
+	Raised	올림
+	Lowered	내림
+	At:	값:
+	Single spacing	1줄
+	1.5 lines	1.5줄
+	Double spacing	2줄
+	Multiple	배수
+	Line spacing: Multiple {lines} li	줄 간격: 배수 {lines}줄
+	Line spacing: At least {pt} pt	줄 간격: 최소 {pt} pt
+	Line spacing: Exactly {pt} pt	줄 간격: 정확히 {pt} pt
+	Expanded by {pt} pt	{pt} pt 넓게
+	Condensed by {pt} pt	{pt} pt 좁게
+	Scale: {percent}%	배율: {percent}%
+	Raised by {pt} pt	{pt} pt 올림
+	Lowered by {pt} pt	{pt} pt 내림
+	Character spacing:	문자 간격:

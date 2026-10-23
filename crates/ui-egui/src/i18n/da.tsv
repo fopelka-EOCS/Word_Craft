@@ -2599,3 +2599,29 @@ preview	Title	Titel
 	Full Screen View	Full Screen View
 	Personal Templates	Personal Templates
 	Underline Color	Underline Color
+# #2917: Modify Style formatting row, preview and Format menu; Font › Advanced; line spacing box
+	Style type:	Stiltype:
+	Style for following paragraph:	Stil for næste afsnit:
+	Previous Paragraph	Forrige afsnit
+	Sample Text	Eksempeltekst
+	Following Paragraph	Næste afsnit
+	Scale:	Skalering:
+	By:	Med:
+	Expanded	Udvidet
+	Condensed	Komprimeret
+	Raised	Hævet
+	Lowered	Sænket
+	At:	Værdi:
+	Single spacing	Enkelt
+	1.5 lines	1,5 linjer
+	Double spacing	Dobbelt
+	Multiple	Flere
+	Line spacing: Multiple {lines} li	Linjeafstand: flere {lines} linjer
+	Line spacing: At least {pt} pt	Linjeafstand: mindst {pt} pt
+	Line spacing: Exactly {pt} pt	Linjeafstand: nøjagtigt {pt} pt
+	Expanded by {pt} pt	Udvidet med {pt} pt
+	Condensed by {pt} pt	Komprimeret med {pt} pt
+	Scale: {percent}%	Skalering: {percent} %
+	Raised by {pt} pt	Hævet med {pt} pt
+	Lowered by {pt} pt	Sænket med {pt} pt
+	Character spacing:	Tegnafstand:

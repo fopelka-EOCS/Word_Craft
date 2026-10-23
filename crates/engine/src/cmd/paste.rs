@@ -362,6 +362,14 @@ pub fn insert(s: &mut Session, mut frag: Fragment) -> Result<(), CmdError> {
         }
     }
     let end = s.doc.insert_fragment(&at, &frag)?;
+    // The first of several pasted paragraphs brings its paragraph mark and formatting.
+    if frag.blocks.len() > 1
+        && let Some(Block::Para(first)) = frag.blocks.first()
+    {
+        let p = s.doc.para_mut(at.story, &at.path)?;
+        p.props = first.props.clone();
+        p.touch();
+    }
     // The paragraph marks the paste added are inserted too, so rejecting it joins the
     // paragraphs again. The last paragraph ends with the original mark and keeps it.
     if let Some(r) = rid

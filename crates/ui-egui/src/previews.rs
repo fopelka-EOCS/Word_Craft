@@ -497,11 +497,45 @@ pub fn style_preview(app: &mut WordApp, ui: &mut Ui, id: &str, ty: &str, size: e
         };
         snippet_blocks(doc, vec![block], w, h, ppp, 4.0, None, false)
     });
+    draw_snippet(ui, r, tex, ppp, &t);
+}
+
+/// Modify Style's preview, as Word's: sample text in the style, with `chr` and `para` (the
+/// changes not applied yet) on top, between the previous and the following paragraph in grey,
+/// so the line spacing and the space before and after show.
+pub fn style_sample(app: &mut WordApp, ui: &mut Ui, id: &str, chr: &CharProps, para: &wordcraft_doc::props::ParaProps, size: egui::Vec2) {
+    let t = Tokens::get(ui.ctx());
+    let (r, _) = ui.allocate_exact_size(size, Sense::hover());
+    ui.painter().rect(r, 3.0, preview_tint(&t, false), Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
+    let rev = app.session.rev();
+    let skey = app.previews.styles_key(&app.session.doc, rev);
+    let ppp = ui.ctx().pixels_per_point();
+    let (w, h) = (size.x - 12.0, size.y - 8.0);
+    let changes = serde_json::to_string(&(chr, para)).unwrap_or_default();
+    let key = format!("sample:{id}:{changes}:{skey}:{ppp}:{w}x{h}");
+    let doc = &app.session.doc;
+    let character = doc.styles.get(id).is_some_and(|st| st.kind == wordcraft_doc::StyleKind::Character);
+    let words = |w: &str, n: usize| vec![w; n].join(" ");
+    let grey = CharProps { color: Some(wordcraft_doc::TextColor::Rgb(wordcraft_doc::Rgb(0xA6, 0xA6, 0xA6))), ..CharProps::default() };
+    let (before, sample, after) = (words(tl!("Previous Paragraph"), 8), words(tl!("Sample Text"), 14), words(tl!("Following Paragraph"), 8));
+    let tex = app.previews.get_or(ui.ctx(), &key, || {
+        let mut text = Paragraph::with_text(&sample, CharProps { style: character.then(|| id.to_string()), ..chr.clone() });
+        if !character {
+            text.props = wordcraft_doc::props::ParaProps { style: Some(id.to_string()), ..para.clone() };
+        }
+        let around = |s: &str| Block::Para(Paragraph::with_text(s, grey.clone()));
+        snippet_blocks(doc, vec![around(&before), Block::Para(text), around(&after)], w, h, ppp, 4.0, None, false)
+    });
+    draw_snippet(ui, r, tex, ppp, &t);
+}
+
+/// A rendered snippet in its box `r`, cut off where the box ends.
+fn draw_snippet(ui: &Ui, r: Rect, tex: Option<TextureHandle>, ppp: f32, t: &Tokens) {
     if let Some(hd) = tex {
         let sz = hd.size_vec2() / ppp;
         let ir = Rect::from_min_size(pos2(r.min.x + 2.0, r.min.y + 2.0), sz.min(r.size() - vec2(4.0, 4.0)));
         let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2((ir.width() / sz.x).min(1.0), (ir.height() / sz.y).min(1.0)));
-        ui.painter().with_clip_rect(r).image(hd.id(), ir, uv, preview_tint(&t, false));
+        ui.painter().with_clip_rect(r).image(hd.id(), ir, uv, preview_tint(t, false));
     }
 }
 

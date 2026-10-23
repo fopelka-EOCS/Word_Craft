@@ -2799,3 +2799,29 @@ template	Letter	Lettera
 	More tabs	Altre schede
 # #3013: Insert Table of Figures
 	Include label and number	Includi etichetta e numero
+# #2917: Modify Style formatting row, preview and Format menu; Font › Advanced; line spacing box
+	Style type:	Tipo di stile:
+	Style for following paragraph:	Stile del paragrafo successivo:
+	Previous Paragraph	Paragrafo precedente
+	Sample Text	Testo di esempio
+	Following Paragraph	Paragrafo successivo
+	Scale:	Scala:
+	By:	Di:
+	Expanded	Espansa
+	Condensed	Ridotta
+	Raised	Alzata
+	Lowered	Abbassata
+	At:	Valore:
+	Single spacing	Singola
+	1.5 lines	1,5 righe
+	Double spacing	Doppia
+	Multiple	Multipla
+	Line spacing: Multiple {lines} li	Interlinea: multipla {lines} righe
+	Line spacing: At least {pt} pt	Interlinea: almeno {pt} pt
+	Line spacing: Exactly {pt} pt	Interlinea: esatta {pt} pt
+	Expanded by {pt} pt	Espansa di {pt} pt
+	Condensed by {pt} pt	Ridotta di {pt} pt
+	Scale: {percent}%	Scala: {percent}%
+	Raised by {pt} pt	Alzata di {pt} pt
+	Lowered by {pt} pt	Abbassata di {pt} pt
+	Character spacing:	Spaziatura caratteri:

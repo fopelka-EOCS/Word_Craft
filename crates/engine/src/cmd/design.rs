@@ -79,6 +79,14 @@ pub fn specs() -> Vec<CommandSpec> {
             r#"{"kind"?: "box|none", "width"?: pt, "color"?: "RRGGBB", "style"?: "single|double|dotted|dashed|thick|triple|dotDash|wave", "sides"?: {"top"|"left"|"bottom"|"right": {"style"?, "width"?: pt, "color"?: "RRGGBB"} | null} (exactly these sides, instead of `kind`), "applyTo"?: "section|document"}"#,
         ),
         CommandSpec::new("design.setDefault", "Set as Default", "Design › Document Formatting", |s, _| {
+            // New documents' Normal style looks like this document's Normal paragraphs: its Normal
+            // style over its defaults, a Paragraph Spacing preset included (#1264, #1913).
+            let (para, mut chr) = s.doc.styles.para_style_props("Normal");
+            // Only a language Normal sets itself: an inherited one is the editing language's, which
+            // a new document gets from File › Options (#3777 review).
+            let own = s.doc.styles.get("Normal").map(|n| n.chr.clone()).unwrap_or_default();
+            (chr.lang, chr.lang_ea, chr.lang_bidi) = (own.lang, own.lang_ea, own.lang_bidi);
+            (s.prefs.normal_para, s.prefs.normal_chr) = (para, chr);
             s.status = "These settings will be used for new documents.".into();
             sel_result(s)
         })
@@ -190,9 +198,16 @@ fn para_spacing(s: &mut Session, v: &Value) -> CmdResult {
         "double" => (0.0, 8.0, 2.0),
         _ => (0.0, 8.0, 1.15),
     };
-    s.doc.styles.default_para.space_before = Some(before);
-    s.doc.styles.default_para.space_after = Some(after);
-    s.doc.styles.default_para.line_spacing = Some(LineSpacing::Multiple(line));
+    let styles = &mut s.doc.styles;
+    styles.default_para.space_before = Some(before);
+    styles.default_para.space_after = Some(after);
+    styles.default_para.line_spacing = Some(LineSpacing::Multiple(line));
+    // Normal paragraphs get the preset: spacing of the Normal style's own (common in documents
+    // from other programs) would hide it (#1913). Other styles keep theirs, a heading's space
+    // before say.
+    if let Some(normal) = styles.get_mut("Normal") {
+        (normal.para.space_before, normal.para.space_after, normal.para.line_spacing) = (None, None, None);
+    }
     sel_result(s)
 }
 

@@ -670,16 +670,20 @@ impl DocLayout {
                         continue;
                     }
                     let top = l.top - first.top;
+                    let (asc, desc) = para.caret_metrics(li);
+                    let base = top + (l.baseline - l.top);
+                    let sel_top = (base - asc).max(top);
+                    let sel_height = (base + desc - sel_top).max(0.0);
                     if !l.vis.is_empty() {
                         // Bidirectional line: the selected text can be several visual pieces.
                         for (x0, x1) in para.x_spans(li, from, to) {
-                            put(Rect::new(x0, top, (x1 - x0).max(0.0), l.height));
+                            put(Rect::new(x0, sel_top, (x1 - x0).max(0.0), sel_height));
                         }
                         // Selection continuing past the paragraph end shows the paragraph mark.
                         if li + 1 == para.lines.len() && path != b.path {
                             let ex = l.end_x();
                             let x0 = if l.rtl { ex - PARA_MARK_WIDTH } else { ex };
-                            put(Rect::new(x0, top, PARA_MARK_WIDTH, l.height));
+                            put(Rect::new(x0, sel_top, PARA_MARK_WIDTH, sel_height));
                         }
                         continue;
                     }
@@ -696,7 +700,7 @@ impl DocLayout {
                     if x1 <= x0 && !(last_line && path != b.path) {
                         continue;
                     }
-                    put(Rect::new(x0, top, (x1 - x0).max(0.0), l.height));
+                    put(Rect::new(x0, sel_top, (x1 - x0).max(0.0), sel_height));
                 }
             }
         }

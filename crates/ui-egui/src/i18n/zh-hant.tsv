@@ -2368,3 +2368,29 @@
 	More tabs	更多索引標籤
 # #3013: Insert Table of Figures
 	Include label and number	包含標籤和編號
+# #2917: Modify Style formatting row, preview and Format menu; Font › Advanced; line spacing box
+	Style type:	樣式類型：
+	Style for following paragraph:	下一段落樣式：
+	Previous Paragraph	上一段落
+	Sample Text	範例文字
+	Following Paragraph	下一段落
+	Scale:	縮放：
+	By:	數值：
+	Expanded	加寬
+	Condensed	緊縮
+	Raised	上移
+	Lowered	下移
+	At:	值：
+	Single spacing	單倍
+	1.5 lines	1.5 倍
+	Double spacing	雙倍
+	Multiple	多倍
+	Line spacing: Multiple {lines} li	行距：多倍 {lines} 行
+	Line spacing: At least {pt} pt	行距：最小 {pt} 點
+	Line spacing: Exactly {pt} pt	行距：固定 {pt} 點
+	Expanded by {pt} pt	加寬 {pt} 點
+	Condensed by {pt} pt	緊縮 {pt} 點
+	Scale: {percent}%	縮放：{percent}%
+	Raised by {pt} pt	上移 {pt} 點
+	Lowered by {pt} pt	下移 {pt} 點
+	Character spacing:	字元間距：

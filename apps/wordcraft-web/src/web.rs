@@ -68,9 +68,9 @@ pub fn start() {
                     // Preferences from an earlier visit (#2132), as the desktop app reads `ui.json`.
                     let stored = stored_prefs();
                     crate::prefs::restore(&mut app, stored.as_deref());
-                    // A region chosen in File › Options replaces the browser's for the first blank
-                    // document too (#838).
-                    if !sample && app.session.prefs.region.is_some() {
+                    // A region chosen in File › Options (#838) and Normal defaults saved by Set as Default
+                    // (#1264) shape the first blank document too.
+                    if !sample && app.session.prefs.shape_new_documents() {
                         let doc = app.session.blank_document();
                         app.session.set_document(doc);
                     }

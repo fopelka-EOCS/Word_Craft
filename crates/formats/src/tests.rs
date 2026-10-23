@@ -352,6 +352,40 @@ fn txt_round_trip() {
     assert_eq!(import("txt", &[0x63, 0x61, 0x66, 0xE9, 0x80]).unwrap().unwrap().plain_text(Default::default()), "café€");
 }
 
+/// #1264: a modified Normal style (font, size, no space after) round-trips through RTF: the
+/// text and new text typed in a Normal paragraph come back in Courier New 10 pt.
+#[test]
+fn rtf_round_trips_the_normal_style() {
+    use crate::{export, import};
+    let mut d = Document::from_text("Hello");
+    d.styles.get_mut("Normal").unwrap().chr.font = Some("Courier New".into());
+    d.styles.get_mut("Normal").unwrap().chr.size = Some(10.0);
+    d.styles.get_mut("Normal").unwrap().para.space_after = Some(0.0);
+    let bytes = export("rtf", &d).unwrap().unwrap();
+    let rtf = String::from_utf8_lossy(&bytes);
+    assert!(rtf.contains("\\f0\\fmodern\\fcharset0 Courier New;") && rtf.contains("{\\s0\\snext0\\fs20 Normal;}"), "{rtf}");
+    let back = import("rtf", &bytes).unwrap().unwrap();
+    let normal = back.styles.resolve_char(Some("Normal"), &wordcraft_doc::CharProps::default());
+    assert_eq!((normal.font.as_str(), normal.size), ("Courier New", 10.0), "a new Normal paragraph");
+    let p = back.body.first().and_then(|b| b.as_para()).unwrap();
+    let text = back.styles.resolve_char(p.props.style.as_deref(), p.props_of_char(0));
+    assert_eq!((text.font.as_str(), text.size), ("Courier New", 10.0), "the text");
+    let rp = back.styles.resolve_para(&wordcraft_doc::ParaProps { style: Some("Normal".into()), ..Default::default() });
+    assert_eq!(rp.space_after, 0.0);
+    // A default document's RTF doesn't change.
+    let plain = String::from_utf8(export("rtf", &Document::from_text("Hello")).unwrap().unwrap()).unwrap();
+    assert!(plain.contains("{\\stylesheet{\\s0\\snext0 Normal;}"), "{plain}");
+}
+
+/// #1264: a monospaced `\\deff` is a default like any other on import.
+#[test]
+fn rtf_import_keeps_a_monospaced_default_font() {
+    use crate::import;
+    let d = import("rtf", br"{\rtf1\ansi\deff0{\fonttbl{\f0\fmodern Courier New;}} Hello\par}").unwrap().unwrap();
+    assert_eq!(d.styles.default_chr.font.as_deref(), Some("Courier New"));
+    assert_eq!(d.plain_text(wordcraft_doc::StoryRef::Body).trim(), "Hello");
+}
+
 #[test]
 fn txt_export_writes_symbol_font_text_as_unicode() {
     let mut d = Document::from_text("Done J\u{F0FC}");

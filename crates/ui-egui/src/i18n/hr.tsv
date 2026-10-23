@@ -2774,3 +2774,29 @@ preview	Title	Naslov
 	More tabs	Više kartica
 # #3013: Insert Table of Figures
 	Include label and number	Uključi oznaku i broj
+# #2917: Modify Style formatting row, preview and Format menu; Font › Advanced; line spacing box
+	Style type:	Vrsta stila:
+	Style for following paragraph:	Stil sljedećeg odlomka:
+	Previous Paragraph	Prethodni odlomak
+	Sample Text	Ogledni tekst
+	Following Paragraph	Sljedeći odlomak
+	Scale:	Mjerilo:
+	By:	Za:
+	Expanded	Prošireno
+	Condensed	Sažeto
+	Raised	Podignuto
+	Lowered	Spušteno
+	At:	Vrijednost:
+	Single spacing	Jednostruko
+	1.5 lines	1,5 retka
+	Double spacing	Dvostruko
+	Multiple	Višestruko
+	Line spacing: Multiple {lines} li	Razmak redaka: višestruko {lines} r.
+	Line spacing: At least {pt} pt	Razmak redaka: najmanje {pt} pt
+	Line spacing: Exactly {pt} pt	Razmak redaka: točno {pt} pt
+	Expanded by {pt} pt	Prošireno za {pt} pt
+	Condensed by {pt} pt	Sažeto za {pt} pt
+	Scale: {percent}%	Mjerilo: {percent} %
+	Raised by {pt} pt	Podignuto za {pt} pt
+	Lowered by {pt} pt	Spušteno za {pt} pt
+	Character spacing:	Razmak znakova:

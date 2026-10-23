@@ -576,6 +576,19 @@ pub struct Prefs {
     /// in Word). A damaged saved value reads as the defaults.
     #[serde(deserialize_with = "crate::cmd::tools::lenient_autocorrect")]
     pub autocorrect: crate::cmd::tools::AutoCorrectPrefs,
+    /// Normal-template defaults for new documents (#1264): `design.setDefault` stores how the
+    /// open document's Normal paragraphs look here; `Session::blank_document` applies it.
+    pub normal_chr: wordcraft_doc::CharProps,
+    pub normal_para: wordcraft_doc::ParaProps,
+}
+
+impl Prefs {
+    /// A new blank document differs from the built-in one: a region chosen in File › Options
+    /// (#838) or Normal defaults saved by Set as Default (#1264). The app's first blank
+    /// document, made before the preferences are read, is then made again.
+    pub fn shape_new_documents(&self) -> bool {
+        self.region.is_some() || self.normal_chr != Default::default() || self.normal_para != Default::default()
+    }
 }
 
 impl Default for Prefs {
@@ -600,6 +613,8 @@ impl Default for Prefs {
             detect_language: true,
             default_language: None,
             autocorrect: Default::default(),
+            normal_chr: Default::default(),
+            normal_para: Default::default(),
         }
     }
 }
@@ -1191,7 +1206,13 @@ impl Session {
     /// A new blank document (the Normal template) on the region's paper: Letter in the US and
     /// other Letter regions, A4 elsewhere (#838). Margins stay 2.54 cm (1") all round.
     pub fn blank_document(&self) -> Document {
-        blank_document(&self.region())
+        let mut d = blank_document(&self.region());
+        // Normal-template defaults stored by `design.setDefault` (#1264).
+        if let Some(st) = d.styles.get_mut("Normal") {
+            st.chr.overlay(&self.prefs.normal_chr);
+            st.para.overlay(&self.prefs.normal_para);
+        }
+        d
     }
 
     /// Replace the document (open/new).

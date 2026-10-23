@@ -354,37 +354,58 @@ fn asian_typography(s: &mut Session, v: &Value) -> CmdResult {
 /// paragraph's own direction (once `props` is applied) saying which edge is its start.
 fn set_props(s: &mut Session, v: &Value) -> CmdResult {
     let props: ParaProps = serde_json::from_value(v.get("props").cloned().unwrap_or(Value::Null)).map_err(|e| CmdError::Params(e.to_string()))?;
-    let page = v.get("onPage").cloned().unwrap_or(Value::Null);
-    let align = match p::str(&page, "align") {
-        None => None,
-        Some("left") => Some(Align::Left),
-        Some("center") => Some(Align::Center),
-        Some("right") => Some(Align::Right),
-        Some("justify" | "both") => Some(Align::Justify),
-        Some("distribute") => Some(Align::Distribute),
-        Some(x) => return Err(CmdError::Params(format!("unknown alignment `{x}`"))),
-    };
-    let indent = |k: &str| p::f32(&page, k).map(|x| x.clamp(-1584.0, 1584.0));
-    let (left, right) = (indent("left"), indent("right"));
+    let page = OnPage::parse(v.get("onPage").unwrap_or(&Value::Null))?;
     let story = s.sel.focus.story;
     for path in super::selected_paths(s) {
         let Some(para) = s.doc.para(story, &path) else { continue };
         let rtl = s.doc.styles.resolve_para(&para.props.clone().overlaid(&props)).bidi;
         let para = s.doc.para_mut(story, &path)?;
         para.props.overlay(&props);
-        if let Some(a) = align {
-            para.props.align = Some(a.visual(rtl));
-        }
-        let (start, end) = if rtl { (right, left) } else { (left, right) };
-        if let Some(x) = start {
-            para.props.indent_left = Some(x);
-        }
-        if let Some(x) = end {
-            para.props.indent_right = Some(x);
-        }
+        page.set(&mut para.props, rtl);
         para.touch();
     }
     sel_result(s)
+}
+
+/// Alignment and indents as seen on the page (`para.set`'s `onPage`, the Paragraph dialog's
+/// fields): which edge is the paragraph's start depends on its direction.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct OnPage {
+    pub align: Option<Align>,
+    pub left: Option<f32>,
+    pub right: Option<f32>,
+}
+
+impl OnPage {
+    /// `{"align"?: "left|center|right|justify|distribute", "left"?: pt, "right"?: pt}`.
+    pub fn parse(page: &Value) -> Result<OnPage, CmdError> {
+        let align = match p::str(page, "align") {
+            None => None,
+            Some("left") => Some(Align::Left),
+            Some("center") => Some(Align::Center),
+            Some("right") => Some(Align::Right),
+            Some("justify" | "both") => Some(Align::Justify),
+            Some("distribute") => Some(Align::Distribute),
+            Some(x) => return Err(CmdError::Params(format!("unknown alignment `{x}`"))),
+        };
+        let indent = |k: &str| p::f32(page, k).map(|x| x.clamp(-1584.0, 1584.0));
+        Ok(OnPage { align, left: indent("left"), right: indent("right") })
+    }
+
+    /// Set them in the formatting of a paragraph (or paragraph style) that reads right to left
+    /// when `rtl`.
+    pub fn set(&self, props: &mut ParaProps, rtl: bool) {
+        if let Some(a) = self.align {
+            props.align = Some(a.visual(rtl));
+        }
+        let (start, end) = if rtl { (self.right, self.left) } else { (self.left, self.right) };
+        if let Some(x) = start {
+            props.indent_left = Some(x);
+        }
+        if let Some(x) = end {
+            props.indent_right = Some(x);
+        }
+    }
 }
 
 pub fn indent(s: &mut Session, _: &Value) -> CmdResult {
@@ -975,7 +996,8 @@ fn modify_style(s: &mut Session, v: &Value) -> CmdResult {
     let next = p::str(v, "next").map(str::to_string);
     let name = p::str(v, "name").map(str::to_string);
     let st = s.doc.styles.get_mut(&id).ok_or_else(|| CmdError::Params("no such style".into()))?;
-    if let Some(c) = chr {
+    if let Some(mut c) = chr {
+        super::format::both_scripts(&mut c);
         st.chr.overlay(&c);
     }
     if let Some(pp) = para {
@@ -1208,7 +1230,8 @@ pub fn manage_list(s: &Session, alphabetical: bool) -> Value {
 }
 
 /// The formatting a style sets itself (not what it inherits), for its description.
-fn own_format(st: &Style) -> Value {
+/// The formatting a style sets itself (not what it inherits), as its description lists it.
+pub fn own_format(st: &Style) -> Value {
     let mut f = serde_json::Map::new();
     let c = &st.chr;
     if let Some(x) = &c.font {
@@ -1225,6 +1248,12 @@ fn own_format(st: &Style) -> Value {
     if let Some(wordcraft_doc::TextColor::Rgb(rgb)) = c.color {
         f.insert("color".into(), json!(rgb.hex()));
     }
+    // Character spacing (expanded > 0, condensed < 0), scale, raised/lowered position.
+    for (k, v) in [("spacing", c.spacing), ("scale", c.scale), ("position", c.position)] {
+        if let Some(x) = v {
+            f.insert(k.into(), json!(x));
+        }
+    }
     let pp = &st.para;
     if let Some(a) = pp.align {
         f.insert("align".into(), json!(a));
@@ -1238,9 +1267,18 @@ fn own_format(st: &Style) -> Value {
     if let Some(x) = pp.indent_left {
         f.insert("indentLeft".into(), json!(x));
     }
-    if let Some(LineSpacing::Multiple(m)) = pp.line_spacing {
-        f.insert("lineSpacing".into(), json!(m));
+    for (k, v) in [("indentRight", pp.indent_right), ("indentFirst", pp.indent_first)] {
+        if let Some(x) = v {
+            f.insert(k.into(), json!(x));
+        }
     }
+    // A multiple of single spacing, or At least / Exactly so many points.
+    match pp.line_spacing {
+        Some(LineSpacing::Multiple(m)) => f.insert("lineSpacing".into(), json!(m)),
+        Some(LineSpacing::AtLeast(x)) => f.insert("lineAtLeast".into(), json!(x)),
+        Some(LineSpacing::Exactly(x)) => f.insert("lineExactly".into(), json!(x)),
+        None => None,
+    };
     Value::Object(f)
 }
 

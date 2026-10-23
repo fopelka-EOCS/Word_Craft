@@ -2379,3 +2379,29 @@
 	More tabs	Mais guias
 # #3013: Insert Table of Figures
 	Include label and number	Incluir rótulo e número
+# #2917: Modify Style formatting row, preview and Format menu; Font › Advanced; line spacing box
+	Style type:	Tipo de estilo:
+	Style for following paragraph:	Estilo do parágrafo seguinte:
+	Previous Paragraph	Parágrafo anterior
+	Sample Text	Texto de exemplo
+	Following Paragraph	Parágrafo seguinte
+	Scale:	Escala:
+	By:	Em:
+	Expanded	Expandido
+	Condensed	Condensado
+	Raised	Elevado
+	Lowered	Rebaixado
+	At:	Valor:
+	Single spacing	Simples
+	1.5 lines	1,5 linha
+	Double spacing	Duplo
+	Multiple	Múltiplo
+	Line spacing: Multiple {lines} li	Espaçamento entre linhas: múltiplo {lines} lin.
+	Line spacing: At least {pt} pt	Espaçamento entre linhas: pelo menos {pt} pt
+	Line spacing: Exactly {pt} pt	Espaçamento entre linhas: exatamente {pt} pt
+	Expanded by {pt} pt	Expandido em {pt} pt
+	Condensed by {pt} pt	Condensado em {pt} pt
+	Scale: {percent}%	Escala: {percent}%
+	Raised by {pt} pt	Elevado em {pt} pt
+	Lowered by {pt} pt	Rebaixado em {pt} pt
+	Character spacing:	Espaçamento entre caracteres:

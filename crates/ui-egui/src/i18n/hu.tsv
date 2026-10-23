@@ -2770,3 +2770,29 @@
 	More tabs	További lapok
 # #3013: Insert Table of Figures
 	Include label and number	Címkével és számmal
+# #2917: Modify Style formatting row, preview and Format menu; Font › Advanced; line spacing box
+	Style type:	Stílus típusa:
+	Style for following paragraph:	Következő bekezdés stílusa:
+	Previous Paragraph	Előző bekezdés
+	Sample Text	Mintaszöveg
+	Following Paragraph	Következő bekezdés
+	Scale:	Méretarány:
+	By:	Mérték:
+	Expanded	Ritkított
+	Condensed	Sűrített
+	Raised	Emelt
+	Lowered	Süllyesztett
+	At:	Érték:
+	Single spacing	Szimpla
+	1.5 lines	1,5 sor
+	Double spacing	Dupla
+	Multiple	Többszörös
+	Line spacing: Multiple {lines} li	Sorköz: többszörös {lines} sor
+	Line spacing: At least {pt} pt	Sorköz: legalább {pt} pt
+	Line spacing: Exactly {pt} pt	Sorköz: pontosan {pt} pt
+	Expanded by {pt} pt	Ritkított, {pt} pt
+	Condensed by {pt} pt	Sűrített, {pt} pt
+	Scale: {percent}%	Méretarány: {percent}%
+	Raised by {pt} pt	Emelt, {pt} pt
+	Lowered by {pt} pt	Süllyesztett, {pt} pt
+	Character spacing:	Karakterköz:

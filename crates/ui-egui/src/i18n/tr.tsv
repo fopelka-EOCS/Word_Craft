@@ -2772,3 +2772,29 @@ preview	Title	Örnek
 	More tabs	Diğer sekmeler
 # #3013: Insert Table of Figures
 	Include label and number	Etiketi ve numarayı ekle
+# #2917: Modify Style formatting row, preview and Format menu; Font › Advanced; line spacing box
+	Style type:	Stil türü:
+	Style for following paragraph:	Sonraki paragraf stili:
+	Previous Paragraph	Önceki paragraf
+	Sample Text	Örnek metin
+	Following Paragraph	Sonraki paragraf
+	Scale:	Ölçek:
+	By:	Miktar:
+	Expanded	Genişletilmiş
+	Condensed	Sıkıştırılmış
+	Raised	Yükseltilmiş
+	Lowered	Alçaltılmış
+	At:	Değer:
+	Single spacing	Tek
+	1.5 lines	1,5 satır
+	Double spacing	Çift
+	Multiple	Birden çok
+	Line spacing: Multiple {lines} li	Satır aralığı: birden çok {lines} satır
+	Line spacing: At least {pt} pt	Satır aralığı: en az {pt} pt
+	Line spacing: Exactly {pt} pt	Satır aralığı: tam {pt} pt
+	Expanded by {pt} pt	{pt} pt genişletilmiş
+	Condensed by {pt} pt	{pt} pt sıkıştırılmış
+	Scale: {percent}%	Ölçek: %{percent}
+	Raised by {pt} pt	{pt} pt yükseltilmiş
+	Lowered by {pt} pt	{pt} pt alçaltılmış
+	Character spacing:	Karakter aralığı:

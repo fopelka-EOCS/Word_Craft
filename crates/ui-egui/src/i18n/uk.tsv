@@ -2379,3 +2379,29 @@
 	More tabs	Інші вкладки
 # #3013: Insert Table of Figures
 	Include label and number	Додавати мітку й номер
+# #2917: Modify Style formatting row, preview and Format menu; Font › Advanced; line spacing box
+	Style type:	Тип стилю:
+	Style for following paragraph:	Стиль наступного абзацу:
+	Previous Paragraph	Попередній абзац
+	Sample Text	Зразок тексту
+	Following Paragraph	Наступний абзац
+	Scale:	Масштаб:
+	By:	На:
+	Expanded	Розріджений
+	Condensed	Ущільнений
+	Raised	Піднятий
+	Lowered	Опущений
+	At:	Значення:
+	Single spacing	Одинарний
+	1.5 lines	1,5 рядка
+	Double spacing	Подвійний
+	Multiple	Множник
+	Line spacing: Multiple {lines} li	Міжрядковий інтервал: множник {lines} ряд.
+	Line spacing: At least {pt} pt	Міжрядковий інтервал: принаймні {pt} пт
+	Line spacing: Exactly {pt} pt	Міжрядковий інтервал: точно {pt} пт
+	Expanded by {pt} pt	Розріджений на {pt} пт
+	Condensed by {pt} pt	Ущільнений на {pt} пт
+	Scale: {percent}%	Масштаб: {percent}%
+	Raised by {pt} pt	Піднятий на {pt} пт
+	Lowered by {pt} pt	Опущений на {pt} пт
+	Character spacing:	Міжсимвольний інтервал:

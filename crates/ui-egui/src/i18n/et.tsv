@@ -2401,3 +2401,29 @@
 	More tabs	Veel vahekaarte
 # #3013: Insert Table of Figures
 	Include label and number	Lisa silt ja number
+# #2917: Modify Style formatting row, preview and Format menu; Font › Advanced; line spacing box
+	Style type:	Stiili tüüp:
+	Style for following paragraph:	Järgmise lõigu stiil:
+	Previous Paragraph	Eelmine lõik
+	Sample Text	Näidistekst
+	Following Paragraph	Järgmine lõik
+	Scale:	Skaala:
+	By:	Võrra:
+	Expanded	Laiendatud
+	Condensed	Tihendatud
+	Raised	Tõstetud
+	Lowered	Langetatud
+	At:	Väärtus:
+	Single spacing	Ühekordne
+	1.5 lines	1,5 rida
+	Double spacing	Kahekordne
+	Multiple	Mitmekordne
+	Line spacing: Multiple {lines} li	Reavahe: mitmekordne {lines} rida
+	Line spacing: At least {pt} pt	Reavahe: vähemalt {pt} pt
+	Line spacing: Exactly {pt} pt	Reavahe: täpselt {pt} pt
+	Expanded by {pt} pt	Laiendatud {pt} pt võrra
+	Condensed by {pt} pt	Tihendatud {pt} pt võrra
+	Scale: {percent}%	Skaala: {percent}%
+	Raised by {pt} pt	Tõstetud {pt} pt võrra
+	Lowered by {pt} pt	Langetatud {pt} pt võrra
+	Character spacing:	Märgivahe:

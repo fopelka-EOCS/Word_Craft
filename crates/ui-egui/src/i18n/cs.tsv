@@ -2766,3 +2766,29 @@ preview	Title	Ukázka
 	More tabs	Další karty
 # #3013: Insert Table of Figures
 	Include label and number	Zahrnout popisek a číslo
+# #2917: Modify Style formatting row, preview and Format menu; Font › Advanced; line spacing box
+	Style type:	Typ stylu:
+	Style for following paragraph:	Styl následujícího odstavce:
+	Previous Paragraph	Předchozí odstavec
+	Sample Text	Ukázkový text
+	Following Paragraph	Následující odstavec
+	Scale:	Měřítko:
+	By:	O:
+	Expanded	Rozšířené
+	Condensed	Zúžené
+	Raised	Zvýšené
+	Lowered	Snížené
+	At:	Hodnota:
+	Single spacing	Jednoduché
+	1.5 lines	1,5 řádku
+	Double spacing	Dvojité
+	Multiple	Násobky
+	Line spacing: Multiple {lines} li	Řádkování: násobky {lines} ř.
+	Line spacing: At least {pt} pt	Řádkování: nejméně {pt} b.
+	Line spacing: Exactly {pt} pt	Řádkování: přesně {pt} b.
+	Expanded by {pt} pt	Rozšířené o {pt} b.
+	Condensed by {pt} pt	Zúžené o {pt} b.
+	Scale: {percent}%	Měřítko: {percent} %
+	Raised by {pt} pt	Zvýšené o {pt} b.
+	Lowered by {pt} pt	Snížené o {pt} b.
+	Character spacing:	Mezery mezi znaky:

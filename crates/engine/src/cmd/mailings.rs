@@ -948,7 +948,11 @@ fn finish(s: &mut Session, v: &Value) -> CmdResult {
     let directory = s.merge.kind == "directory";
     let hf: Vec<u32> =
         header_footer_ids(&s.doc).into_iter().filter(|id| s.doc.story(StoryRef::Part(*id)).is_some_and(|b| has_merge_fields(b, 0))).collect();
-    let per_record = !directory && !hf.is_empty();
+    // Each letter is its own section starting on a new page, as Word's Edit Individual Documents
+    // makes them: a page break in the previous letter's last paragraph carried that paragraph's
+    // space after onto the next page (#2564). Headers and footers with merge fields get a copy
+    // per letter.
+    let per_record = !directory;
     let mut out = s.doc.clone();
     out.body.clear();
     let mut next_id = s.doc.parts.keys().next_back().map_or(1, |k| k.saturating_add(1));
@@ -994,20 +998,15 @@ fn finish(s: &mut Session, v: &Value) -> CmdResult {
             let mut last = s.doc.last_section.clone();
             remap_headers(&mut last, &map, first);
             if let Some(prev) = prev_section.replace(last) {
-                if !matches!(out.body.last().map(|b| &**b), Some(Block::Para(_))) {
+                // A letter ending in a table or in a section break of its own gets a paragraph to
+                // end it, so that section keeps its properties.
+                if !matches!(out.body.last().map(|b| &**b), Some(Block::Para(p)) if p.section.is_none()) {
                     out.body.push(para_block(Paragraph::new()));
                 }
                 if let Some(Block::Para(p)) = out.body.last_mut().map(std::sync::Arc::make_mut) {
                     p.section = Some(Box::new(prev));
                 }
             }
-        } else if count > 0
-            && !directory
-            && let Some(Block::Para(p)) = out.body.last_mut().map(std::sync::Arc::make_mut)
-        {
-            let end = p.len();
-            let props = p.props_at(end).clone();
-            let _ = p.insert_text(end, "\u{000C}", &props);
         }
         out.body.extend(body);
         count += 1;
@@ -1460,6 +1459,41 @@ mod tests {
         let t = s.doc.plain_text(StoryRef::Body);
         assert!(t.contains("See you in London") && t.contains("Dear Alan Turing,"), "{t}");
         assert_eq!(s.layout().pages.len(), 2);
+    }
+
+    /// #2564: every merged letter starts where the first does, on its own page: the letter's last
+    /// paragraph's space after isn't carried onto the next page.
+    #[test]
+    fn merged_letters_start_at_the_same_height() {
+        let mut s = Session::new(Document::new());
+        s.run("mailings.recipients", &json!({"csv": "Name\nAda\nBo\nCy"})).unwrap();
+        s.run("text.insert", &json!({"text": "Hello "})).unwrap();
+        s.run("mailings.insertField", &json!({"field": "Name"})).unwrap();
+        s.run("text.newParagraph", &json!({})).unwrap();
+        s.run("text.insert", &json!({"text": "Regards"})).unwrap();
+        s.run("para.set", &json!({"props": {"spaceAfter": 24}})).unwrap();
+        assert_eq!(s.run("mailings.finish", &json!({})).unwrap()["records"], 3);
+        assert!(!s.doc.plain_text(StoryRef::Body).contains('\u{000C}'), "no page break characters");
+        let layout = s.layout();
+        let starts: Vec<(usize, f32)> = (0..3).filter_map(|i| layout.caret(&Pos::body(2 * i, 0))).map(|c| (c.page, c.top)).collect();
+        assert_eq!(starts.iter().map(|(page, _)| *page).collect::<Vec<_>>(), [0, 1, 2], "one letter per page");
+        assert!(starts.iter().all(|(_, top)| (top - starts[0].1).abs() < 0.01), "{starts:?}");
+    }
+
+    /// A template whose last paragraph ends a section of its own: every letter keeps that
+    /// section's properties (#3777 review).
+    #[test]
+    fn merged_letters_keep_a_section_the_template_ends_with() {
+        let mut s = Session::new(Document::new());
+        s.run("mailings.recipients", &json!({"csv": "Name\nAda\nBo"})).unwrap();
+        s.run("mailings.insertField", &json!({"field": "Name"})).unwrap();
+        let landscape = SectionProps { page_w: 842.0, page_h: 595.0, ..s.doc.last_section.clone() };
+        if let Some(Block::Para(p)) = s.doc.body.last_mut().map(std::sync::Arc::make_mut) {
+            p.section = Some(Box::new(landscape));
+        }
+        s.run("mailings.finish", &json!({})).unwrap();
+        let ends: Vec<f32> = s.doc.body.iter().filter_map(|b| b.as_para()?.section.as_ref().map(|sp| sp.page_w)).collect();
+        assert_eq!(ends.iter().filter(|w| **w == 842.0).count(), 2, "each letter's own section: {ends:?}");
     }
 
     /// A typed list (#240) keeps its column order, and rows may be arrays in that order.
