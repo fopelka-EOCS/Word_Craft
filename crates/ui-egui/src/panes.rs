@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use egui::{Stroke, Ui, vec2};
 use serde_json::{Value, json};
 use wordcraft_doc::numbering::{Counters, LevelSuffix};
-use wordcraft_doc::para::{COLUMN_BREAK, LINE_BREAK, OBJ, PAGE_BREAK};
+use wordcraft_doc::para::OBJ;
 use wordcraft_doc::section::NumFormat;
 use wordcraft_doc::{Document, Paragraph, Path, Pos, StoryRef};
 
@@ -246,25 +246,26 @@ fn visible_headings(levels: &[u8], collapsed: &[bool]) -> Vec<bool> {
 
 /// The text of `p` between byte offsets `from` and `to` as a one-line Results snippet: an inline
 /// object shows what it contributes to plain text (a field its result, a picture a blank), and
-/// line, page and column breaks become a space, so no control character reaches the font and the
-/// row never splits.
+/// every control character (line, page and column breaks, tabs) becomes a space, so none reaches
+/// the font and the row never splits.
 pub(crate) fn snippet_text(p: &Paragraph, from: usize, to: usize) -> String {
     let Some(slice) = p.text.get(from..to) else { return String::new() };
     // Objects are numbered by the placeholders before them, so count those left of `from`.
     let mut k = p.text.get(..from).map_or(0, |head| head.chars().filter(|&c| c == OBJ).count());
     let mut out = String::with_capacity(slice.len());
-    let mut push = |c: char| out.push(if matches!(c, LINE_BREAK | PAGE_BREAK | COLUMN_BREAK) { ' ' } else { c });
+    let mut push = |c: char| out.push(if c.is_control() { ' ' } else { c });
     for c in slice.chars() {
         if c == OBJ {
-            p.objects.get(k).map_or("", |o| o.plain_text()).chars().for_each(&mut push);
+            // An object with no text (a picture, found by `^g`) keeps a blank, so it still
+            // separates its neighbours and its hit stays marked.
+            match p.objects.get(k).map_or("", |o| o.plain_text()) {
+                "" => push(' '),
+                text => text.chars().for_each(&mut push),
+            }
             k += 1;
         } else {
             push(c);
         }
-    }
-    // An object with no text (a picture, found by `^g`) keeps a blank so its hit stays marked.
-    if out.is_empty() && !slice.is_empty() {
-        out.push(' ');
     }
     out
 }
@@ -957,6 +958,16 @@ mod tests {
         p.objects[0] = InlineObject::Opaque { format: "docx".into(), xml: String::new(), text: String::new() };
         assert_eq!(snippet_text(&p, 1, 1 + OBJ.len_utf8()), " ", "a textless object keeps a blank for its highlight");
         assert_eq!(snippet_text(&p, second, p.len()), "Zc", "the object index counts the placeholders before `from`");
+        assert_eq!(snippet_text(&p, 0, p.len()), "a bZc", "a textless object between letters stays a blank");
+    }
+
+    #[test]
+    fn results_snippet_turns_every_control_character_into_a_space() {
+        let mut p = Paragraph::with_text("a\tb", CharProps::default());
+        assert_eq!(snippet_text(&p, 0, p.len()), "a b");
+        p.text = format!("a{OBJ}b");
+        p.objects = vec![InlineObject::Opaque { format: "docx".into(), xml: String::new(), text: "x\ty\rz".into() }];
+        assert_eq!(snippet_text(&p, 0, p.len()), "ax y zb");
     }
 
     #[test]
