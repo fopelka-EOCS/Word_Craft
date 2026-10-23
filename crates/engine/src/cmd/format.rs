@@ -404,6 +404,8 @@ fn highlight(s: &mut Session, v: &Value) -> CmdResult {
     apply(s, &|x| x.highlight = Some(h))
 }
 
+/// `format.changeCase`: `mode` (lower, upper, title, sentence, toggle), or Shift+F3's cycle
+/// without one. Works on the selection, the word at the caret, or a selected text box's text.
 fn change_case(s: &mut Session, v: &Value) -> CmdResult {
     let (a, b) = match selected_text_box(s) {
         Some(all) => all,
@@ -646,6 +648,8 @@ fn convert_chars(src: &str, mode: &str, para_start: bool) -> Vec<String> {
     out
 }
 
+/// `format.clear` (Clear All Formatting): direct character formatting off and the paragraphs back
+/// to Normal, for the selection or a selected text box's text; at a caret, for what's typed next.
 fn clear(s: &mut Session, _: &Value) -> CmdResult {
     match selected_text_box(s).or_else(|| target(s)) {
         Some((a, b)) => {
@@ -700,7 +704,9 @@ pub fn state(s: &Session) -> Value {
         let v0 = f(r);
         if all.iter().all(|r| f(r) == v0) { v0 } else { Value::Null }
     };
-    let style = s.doc.para_at(&s.sel.focus).and_then(|p| p.props.style.clone()).unwrap_or_else(|| "Normal".into());
+    // A selected text box shows its own (first) paragraph's style, like its text's formatting.
+    let at = selected_text_box(s).map_or_else(|| s.sel.focus.clone(), |(a, _)| a);
+    let style = s.doc.para_at(&at).and_then(|p| p.props.style.clone()).unwrap_or_else(|| "Normal".into());
     let style_name = s.doc.styles.get(&style).map(|st| st.name.clone()).unwrap_or(style.clone());
     json!({
         "font": same(&|r| json!(r.font)),

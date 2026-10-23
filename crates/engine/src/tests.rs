@@ -3508,6 +3508,22 @@ fn case_and_clearing_commands_on_a_selected_text_box_work_on_its_text() {
 }
 
 #[test]
+fn a_selected_text_box_shows_its_own_paragraph_style() {
+    // Word, with a text box selected as an object, shows the style of the box's text, not of the
+    // body paragraph the box is anchored in, as it does for its font.
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Body "}));
+    let id = run(&mut s, "insert.textBox", json!({"text": "Title"}))["story"].as_u64().unwrap() as u32;
+    run(&mut s, "para.style", json!({"style": "Heading 1"}));
+    let inside = run(&mut s, "format.state", json!({}));
+    let anchor = s.doc.text_box_anchor(id).unwrap();
+    run(&mut s, "select.range", json!({"anchor": Pos { off: anchor.off - "\u{FFFC}".len(), ..anchor.clone() }, "focus": anchor}));
+    let selected = run(&mut s, "format.state", json!({}));
+    assert_ne!(inside["style"], json!("Normal"), "the box's paragraph has a style of its own: {inside}");
+    assert_eq!((&selected["style"], &selected["styleName"]), (&inside["style"], &inside["styleName"]));
+}
+
+#[test]
 fn commands_after_the_largest_ids_take_free_ones() {
     // A file can carry any ids, 0 and u32::MAX included: comments, notes, boxes and lists the
     // commands add take free ids, without overflowing or replacing what has the id they wrap to.
