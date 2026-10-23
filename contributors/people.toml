@@ -175,3 +175,7 @@ display_name = "Mulai"
 
 [people.Bortlesboat]
 real_name = "Andrew Barnes"
+
+[people.dpkruse]
+real_name = "Darren Kruse"
+sync_github_name = true
