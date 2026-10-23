@@ -3424,6 +3424,44 @@ fn text_box_insert_puts_the_caret_inside() {
 }
 
 #[test]
+fn font_commands_on_a_selected_text_box_format_all_its_text() {
+    // Word: with a text box selected as an object (its frame, not text in it), the Font group
+    // formats all the box's text. Select All doesn't reach a floating box's text, so this is how
+    // its font is changed (and the only way when the box sits behind text, where a click goes to
+    // the text over it).
+    let mut s = s();
+    run(&mut s, "text.insert", json!({"text": "Before "}));
+    let id = run(&mut s, "insert.textBox", json!({"text": "Box words"}))["story"].as_u64().unwrap() as u32;
+    let boxed = StoryRef::Part(id);
+    run(&mut s, "text.newParagraph", json!({}));
+    run(&mut s, "text.insert", json!({"text": "second"}));
+    run(&mut s, "select.range", json!({"anchor": Pos::body(0, "Before ".len()), "focus": Pos::body(0, "Before \u{FFFC}".len())}));
+    run(&mut s, "format.font", json!({"name": "TH Sarabun New"}));
+    run(&mut s, "format.size", json!({"size": 18}));
+    run(&mut s, "format.bold", json!({}));
+    let paths = s.doc.para_paths(boxed);
+    assert_eq!(paths.len(), 2);
+    for path in &paths {
+        for (_, c) in s.doc.para(boxed, path).unwrap().run_ranges() {
+            assert_eq!(c.font.as_deref(), Some("TH Sarabun New"));
+            assert_eq!(c.font_cs.as_deref(), Some("TH Sarabun New"));
+            assert_eq!(c.size, Some(18.0));
+            assert_eq!(c.bold, Some(true));
+        }
+    }
+    // The body text around the box is left as it was, and the box stays selected.
+    let body = s.doc.para(StoryRef::Body, &wordcraft_doc::Path::top(0)).unwrap();
+    assert!(body.run_ranges().all(|(_, c)| c.font.is_none() && c.bold.is_none()));
+    assert!(crate::cmd::objects::object_selection(&s).is_some());
+    // Bold reads the box's text, so pressing it again takes it off.
+    run(&mut s, "format.bold", json!({}));
+    assert!(s.doc.para(boxed, &paths[0]).unwrap().run_ranges().all(|(_, c)| c.bold == Some(false)));
+    // One undo step per command.
+    run(&mut s, "edit.undo", json!({}));
+    assert!(s.doc.para(boxed, &paths[0]).unwrap().run_ranges().all(|(_, c)| c.bold == Some(true)));
+}
+
+#[test]
 fn commands_after_the_largest_ids_take_free_ones() {
     // A file can carry any ids, 0 and u32::MAX included: comments, notes, boxes and lists the
     // commands add take free ids, without overflowing or replacing what has the id they wrap to.

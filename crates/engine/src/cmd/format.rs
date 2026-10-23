@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 use wordcraft_doc::eq::{EncloseShape, EncloseStyle, Enclosure};
 use wordcraft_doc::props::{Border, CharProps, Highlight, Rgb, TextColor, Underline, VertAlign};
 use wordcraft_doc::resolve::ResolvedChar;
-use wordcraft_doc::{Pos, RevisionKind};
+use wordcraft_doc::{InlineObject, PartKind, Pos, RevisionKind, StoryRef};
 
 use super::sel_result;
 use crate::{CmdError, CmdResult, CommandSpec, Session, p};
@@ -170,6 +170,14 @@ fn target(s: &Session) -> Option<(Pos, Pos)> {
     None
 }
 
+/// A text box selected as an object (its frame, not text in it): all its text, which Word's Font
+/// group formats then, instead of the box's anchor in the text around it.
+fn selected_text_box(s: &Session) -> Option<(Pos, Pos)> {
+    let (_, InlineObject::Shape { story: Some(id), .. }) = super::objects::object_selection(s)? else { return None };
+    let story = StoryRef::Part(*id);
+    s.doc.parts.get(id).filter(|p| p.kind == PartKind::TextBox).map(|_| (s.doc.start_of(story), s.doc.end_of(story)))
+}
+
 /// The non-empty rows of a column selection, if one is active. Of whole cells, every paragraph:
 /// an empty one's mark takes the formatting.
 fn column_rows(s: &Session) -> Option<Vec<(Pos, Pos)>> {
@@ -198,7 +206,7 @@ pub fn apply(s: &mut Session, f: &dyn Fn(&mut CharProps)) -> CmdResult {
         }
         return sel_result(s);
     }
-    match target(s) {
+    match selected_text_box(s).or_else(|| target(s)) {
         Some((a, b)) => {
             s.doc.format_range(&a, &b, f)?;
         }
@@ -242,7 +250,7 @@ fn resolved(s: &Session) -> Vec<ResolvedChar> {
             return out;
         }
     }
-    let Some((a, b)) = target(s) else {
+    let Some((a, b)) = selected_text_box(s).or_else(|| target(s)) else {
         let f = &s.sel.focus;
         let style = s.doc.para_at(f).and_then(|p| p.props.style.clone());
         out.push(s.doc.styles.resolve_char(style.as_deref(), &s.typing_props()));
