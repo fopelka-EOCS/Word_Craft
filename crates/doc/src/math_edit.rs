@@ -240,6 +240,7 @@ fn split_at(a: &mut Arg, off: usize) -> usize {
             let tail = r.text.split_off(b);
             let mut right = r.clone();
             right.text = tail;
+            right.brk = None;
             a.insert(i + 1, MNode::Run(right));
             i + 1
         }
@@ -394,6 +395,7 @@ fn merge_shallow(a: Arg) -> Arg {
             && prev.size == r.size
             && prev.color == r.color
             && prev.font == r.font
+            && r.brk.is_none()
         {
             prev.text.push_str(&r.text);
             continue;
@@ -1154,6 +1156,44 @@ pub fn set_limits(nodes: &mut Arg, loc: Option<LimLoc>) {
 mod tests {
     use super::*;
     use crate::math::parse_linear;
+
+    #[test]
+    fn tidy_preserves_manual_break_alignment() {
+        for alignment in [0, 2] {
+            let mut eq = vec![
+                MNode::Run(MRun { text: "a=b".into(), ..Default::default() }),
+                MNode::Run(MRun { text: "+c".into(), brk: Some(alignment), ..Default::default() }),
+                MNode::Run(MRun { text: "+d".into(), ..Default::default() }),
+            ];
+            tidy(&mut eq);
+            assert_eq!(eq.len(), 2);
+            let MNode::Run(first) = &eq[0] else { panic!("first run") };
+            let MNode::Run(second) = &eq[1] else { panic!("continuation run") };
+            assert_eq!(first.text, "a=b");
+            assert_eq!(first.brk, None);
+            assert_eq!(second.text, "+c+d");
+            assert_eq!(second.brk, Some(alignment));
+        }
+    }
+
+    #[test]
+    fn build_up_inside_continuation_does_not_duplicate_break() {
+        let mut eq = vec![
+            MNode::Run(MRun { text: "a=b".into(), size: Some(18.0), ..Default::default() }),
+            MNode::Run(MRun { text: "+cd".into(), brk: Some(1), ..Default::default() }),
+        ];
+        let caret = insert_text(&mut eq, &MathPos::new(vec![], 5), " ", TypeStyle::default());
+        assert_eq!(build_up(&mut eq, &caret, false), None);
+        let breaks: Vec<_> = eq
+            .iter()
+            .filter_map(|n| match n {
+                MNode::Run(r) => r.brk,
+                _ => None,
+            })
+            .collect();
+        assert_eq!(breaks, vec![1]);
+        assert_eq!(lin(&eq), "a=b+c d");
+    }
 
     fn lin(a: &Arg) -> String {
         to_linear(a)
