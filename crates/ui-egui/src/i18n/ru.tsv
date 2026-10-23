@@ -185,6 +185,9 @@
 	Default Paragraph Font	Шрифт абзаца по умолчанию
 	Define New Bullet	Определить новый маркер
 	Define New Number Format	Определить новый формат номера
+	Define New Number Format…	Определить новый формат номера…
+	Number style:	Вид нумерации:
+	Number format:	Формат номера:
 	Delete	Удалить
 	Delete Cells	Удалить ячейки
 	Delete Columns	Удалить столбцы
@@ -1590,6 +1593,18 @@ preview	Title	Пример
 	Color only	Только цвет
 	Define New Multilevel List	Определение нового многоуровневого списка
 	Define New Multilevel List…	Определить новый многоуровневый список…
+	Define New List Style	Определить новый стиль списка
+	Define New List Style…	Определить новый стиль списка…
+	List Styles	Стили списков
+	Style type:	Тип стиля:
+	Only in this document	Только в этом документе
+	New documents based on this template	Новые документы на основе этого шаблона
+	Border…	Граница…
+	Language…	Язык…
+	Frame…	Рамка…
+	Shortcut key…	Сочетание клавиш…
+	Text Effects…	Текстовые эффекты…
+	Type a name for the style.	Введите имя стиля.
 	Deletions:	Удаления:
 	Enter formatting for number:	Формат номера:
 	Follow number with:	Символ после номера:

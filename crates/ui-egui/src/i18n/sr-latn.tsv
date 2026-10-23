@@ -112,6 +112,18 @@
 	Draw Table	Nacrtaj tabelu
 	Define New Multilevel List	Definiši novu višenivosku listu
 	Define New Multilevel List…	Definiši novu višenivosku listu…
+	Define New List Style	Definiši novi stil liste
+	Define New List Style…	Definiši novi stil liste…
+	List Styles	Stilovi lista
+	Style type:	Tip stila:
+	Only in this document	Samo u ovom dokumentu
+	New documents based on this template	Novi dokumenti zasnovani na ovom šablonu
+	Border…	Ivica…
+	Language…	Jezik…
+	Frame…	Okvir…
+	Shortcut key…	Taster prečice…
+	Text Effects…	Efekti teksta…
+	Type a name for the style.	Unesite naziv stila.
 	Deletions:	Brisanja:
 	Edit Comment	Uredi komentar
 	Enter formatting for number:	Oblik broja:
@@ -376,6 +388,9 @@
 	Default	Podrazumevano
 	Define New Bullet	Definiši novu oznaku
 	Define New Number Format	Definiši novi format broja
+	Define New Number Format…	Definiši novi format broja…
+	Number style:	Stil broja:
+	Number format:	Format broja:
 	Delete	Obriši
 	Delete Cells	Obriši ćelije
 	Delete Columns	Obriši kolone

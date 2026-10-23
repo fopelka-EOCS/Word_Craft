@@ -82,6 +82,18 @@
 	Continue from previous section	Continuer depuis la section précédente
 	Define New Multilevel List	Définir une nouvelle liste à plusieurs niveaux
 	Define New Multilevel List…	Définir une nouvelle liste à plusieurs niveaux…
+	Define New List Style	Définir un nouveau style de liste
+	Define New List Style…	Définir un nouveau style de liste…
+	List Styles	Styles de liste
+	Style type:	Type de style :
+	Only in this document	Uniquement dans ce document
+	New documents based on this template	Nouveaux documents basés sur ce modèle
+	Border…	Bordure…
+	Language…	Langue…
+	Frame…	Cadre…
+	Shortcut key…	Touche de raccourci…
+	Text Effects…	Effets de texte…
+	Type a name for the style.	Tapez un nom pour le style.
 	Deletions:	Suppressions :
 	Enter formatting for number:	Entrez la mise en forme des numéros :
 	Follow number with:	Faire suivre le numéro de :
@@ -266,6 +278,9 @@
 	Default	Par défaut
 	Define New Bullet	Définir une nouvelle puce
 	Define New Number Format	Définir un nouveau format de numérotation
+	Define New Number Format…	Définir un nouveau format de numérotation…
+	Number style:	Style de numéros :
+	Number format:	Format des numéros :
 	Delete	Supprimer
 	Delete Cells	Supprimer les cellules
 	Delete Columns	Supprimer les colonnes

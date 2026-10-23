@@ -86,6 +86,18 @@
 	Draw Table	繪製表格
 	Define New Multilevel List	定義新的多層次清單
 	Define New Multilevel List…	定義新的多層次清單…
+	Define New List Style	定義新清單樣式
+	Define New List Style…	定義新清單樣式…
+	List Styles	清單樣式
+	Style type:	樣式類型：
+	Only in this document	僅限此文件
+	New documents based on this template	根據此範本的新文件
+	Border…	框線…
+	Language…	語言…
+	Frame…	框架…
+	Shortcut key…	快速鍵…
+	Text Effects…	文字效果…
+	Type a name for the style.	請輸入樣式名稱。
 	Deletions:	刪除內容：
 	Edit Comment	編輯註解
 	Enter formatting for number:	輸入編號的格式：
@@ -329,6 +341,9 @@
 	Default	預設
 	Define New Bullet	定義新的項目符號
 	Define New Number Format	定義新的編號格式
+	Define New Number Format…	定義新的編號格式…
+	Number style:	編號樣式：
+	Number format:	編號格式：
 	Delete	刪除
 	Delete Cells	刪除儲存格
 	Delete Columns	刪除欄

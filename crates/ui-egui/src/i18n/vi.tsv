@@ -84,6 +84,18 @@
 	Continue from previous section	Tiếp tục từ phần trước
 	Define New Multilevel List	Tạo danh sách đa cấp mới
 	Define New Multilevel List…	Tạo danh sách đa cấp mới…
+	Define New List Style	Tạo kiểu danh sách mới
+	Define New List Style…	Tạo kiểu danh sách mới…
+	List Styles	Kiểu danh sách
+	Style type:	Loại kiểu:
+	Only in this document	Chỉ trong tài liệu này
+	New documents based on this template	Tài liệu mới dựa trên mẫu này
+	Border…	Đường viền…
+	Language…	Ngôn ngữ…
+	Frame…	Khung…
+	Shortcut key…	Phím tắt…
+	Text Effects…	Hiệu ứng chữ…
+	Type a name for the style.	Nhập tên cho kiểu.
 	Deletions:	Phần xóa:
 	Enter formatting for number:	Nhập định dạng cho số:
 	Follow number with:	Theo sau số bằng:
@@ -262,6 +274,9 @@
 	Default	Mặc định
 	Define New Bullet	Tạo dấu đầu dòng mới
 	Define New Number Format	Tạo định dạng đánh số mới
+	Define New Number Format…	Tạo định dạng đánh số mới…
+	Number style:	Kiểu số:
+	Number format:	Định dạng số:
 	Delete	Xóa
 	Delete Cells	Xóa ô
 	Delete Columns	Xóa cột

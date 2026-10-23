@@ -87,6 +87,14 @@ pub struct AbstractNum {
     /// `None`: derived from the levels.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub multi_level_type: Option<String>,
+    /// The list style (a numbering style's id) this is the definition of (`w:styleLink`):
+    /// changing the style changes these levels.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style_link: Option<String>,
+    /// The list style (a numbering style's id) whose definition this list uses (`w:numStyleLink`):
+    /// its levels are a copy of the style's, kept in step by [`Numbering::sync_style`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub num_style_link: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
@@ -180,6 +188,21 @@ fn bullet_level(i: usize, c: char) -> Level {
     }
 }
 
+/// The label of a "none" level whose template is `text`: the text with every level's number
+/// (`%1`…`%9`) left out, as Word draws it.
+pub fn none_label(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '%' && chars.peek().is_some_and(|d| ('1'..='9').contains(d)) {
+            chars.next();
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// Nine levels for a list kind.
 pub fn levels_for(kind: ListKind) -> Vec<Level> {
     (0..9)
@@ -228,13 +251,31 @@ impl Numbering {
     /// Whether a paragraph in list `num` at `level` gets a label ([`Counters::next_label`] gives
     /// one), without counting it.
     pub fn shows_label(&self, num: u32, level: u8) -> bool {
-        self.abstract_of(num).is_some() && self.level(num, level.min(8)).is_some_and(|d| d.format != NumFormat::None)
+        self.abstract_of(num).is_some()
+            && self.level(num, level.min(8)).is_some_and(|d| d.format != NumFormat::None || !none_label(&d.text).is_empty())
     }
     pub fn level(&self, num: u32, level: u8) -> Option<&Level> {
         if let Some((_, l)) = self.num(num)?.level_overrides.iter().find(|(i, _)| *i == level) {
             return Some(l);
         }
         self.abstract_of(num)?.levels.get(level as usize)
+    }
+    /// The definition of list style `style` (the abstract list linked to it by `w:styleLink`).
+    pub fn style_definition(&self, style: &str) -> Option<&AbstractNum> {
+        self.abstracts.iter().find(|a| a.style_link.as_deref() == Some(style))
+    }
+    /// Give every list using list style `style` (`w:numStyleLink`) the style's levels again,
+    /// after the style's definition changed. Returns the `num` ids whose levels changed.
+    pub fn sync_style(&mut self, style: &str) -> Vec<u32> {
+        let Some(levels) = self.style_definition(style).map(|a| a.levels.clone()) else { return Vec::new() };
+        let mut changed = Vec::new();
+        for a in self.abstracts.iter_mut().filter(|a| a.num_style_link.as_deref() == Some(style) && a.style_link.is_none()) {
+            if a.levels != levels {
+                a.levels = levels.clone();
+                changed.push(a.id);
+            }
+        }
+        self.nums.iter().filter(|n| changed.contains(&n.abstract_id)).map(|n| n.id).collect()
     }
     /// Create a new list of `kind`; returns the `num` id. List ids run out only past `u32::MAX`
     /// lists, more than memory holds; then nothing is added and the id is 0, "no list".
@@ -318,9 +359,12 @@ impl Counters {
         // This list's own definition of a level wins over its abstract list's.
         let level_def = |k: usize| numbering.level(num, k as u8);
         let def = level_def(lv)?.clone();
-        // A "none" level shows no label at all (Word's numFmt none) — not even its text.
+        // A "none" level (Word's numFmt none) shows its text with the numbers left out, measured in
+        // Word 2024: "Note:" → "Note:", "%1." → ".", "(%1)" → "()", "" → no label (#2787). It
+        // counts nothing.
         if def.format == NumFormat::None {
-            return None;
+            let label = none_label(&def.text);
+            return (!label.is_empty()).then_some((label, def));
         }
         let st = self.state.entry(abs.id).or_insert([0; 9]);
         let fl = self.flags.entry(abs.id).or_default();
@@ -386,6 +430,25 @@ impl Counters {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #2787, measured in Word 2024 (`ListString` of each paragraph): a "none" level shows its text
+    /// with the numbers left out, the same on every paragraph; an empty one shows nothing.
+    #[test]
+    fn a_none_level_shows_its_text_without_the_number() {
+        for (text, want) in [("Note:", Some("Note:")), ("%1.", Some(".")), ("Part %1", Some("Part ")), ("(%1)", Some("()")), ("", None)] {
+            let mut n = Numbering::default();
+            let id = n.add_list(ListKind::Numbered);
+            if let Some(num) = n.nums.iter_mut().find(|x| x.id == id) {
+                num.level_overrides = vec![(0, Level { format: NumFormat::None, text: text.into(), ..Level::default() })];
+            }
+            assert_eq!(n.shows_label(id, 0), want.is_some(), "{text:?}");
+            let mut c = Counters::default();
+            for _ in 0..2 {
+                assert_eq!(c.next_label(&n, id, 0).map(|(l, _)| l), want.map(str::to_string), "{text:?}");
+            }
+        }
+        assert_eq!(none_label("%1.%2 – %10"), ". – 0");
+    }
 
     #[test]
     fn a_list_s_own_level_definitions_win() {

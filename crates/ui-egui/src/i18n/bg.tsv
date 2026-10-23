@@ -84,6 +84,18 @@
 	Continue from previous section	Продължаване от предишния раздел
 	Define New Multilevel List	Дефиниране на нов многостепенен списък
 	Define New Multilevel List…	Дефиниране на нов многостепенен списък…
+	Define New List Style	Дефиниране на нов стил на списък
+	Define New List Style…	Дефиниране на нов стил на списък…
+	List Styles	Стилове на списъци
+	Style type:	Тип на стила:
+	Only in this document	Само в този документ
+	New documents based on this template	Нови документи, базирани на този шаблон
+	Border…	Граница…
+	Language…	Език…
+	Frame…	Рамка…
+	Shortcut key…	Клавишна комбинация…
+	Text Effects…	Текстови ефекти…
+	Type a name for the style.	Въведете име за стила.
 	Deletions:	Изтривания:
 	Enter formatting for number:	Въведете форматиране за номера:
 	Follow number with:	След номера:
@@ -268,6 +280,9 @@
 	Default	По подразбиране
 	Define New Bullet	Дефиниране на нов водещ символ
 	Define New Number Format	Дефиниране на нов числов формат
+	Define New Number Format…	Дефиниране на нов числов формат…
+	Number style:	Стил на номериране:
+	Number format:	Формат на номера:
 	Delete	Изтриване
 	Delete Cells	Изтриване на клетки
 	Delete Columns	Изтриване на колони

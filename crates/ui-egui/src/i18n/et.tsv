@@ -191,6 +191,9 @@
 	Default	Vaikimisi
 	Define New Bullet	Määra uus täpitähis
 	Define New Number Format	Määra uus numbrivorming
+	Define New Number Format…	Määra uus numbrivorming…
+	Number style:	Numbristiil:
+	Number format:	Numbri vorming:
 	Delete	Kustuta
 	Delete Cells	Kustuta lahtrid
 	Delete Columns	Kustuta veerud
@@ -1301,6 +1304,18 @@
 	Color only	Ainult värv
 	Define New Multilevel List	Uue mitmetasemelise loendi määratlemine
 	Define New Multilevel List…	Määratle uus mitmetasemeline loend…
+	Define New List Style	Määratle uus loendistiil
+	Define New List Style…	Määratle uus loendistiil…
+	List Styles	Loendistiilid
+	Style type:	Stiili tüüp:
+	Only in this document	Ainult selles dokumendis
+	New documents based on this template	Uued dokumendid, mis põhinevad sellel mallil
+	Border…	Ääris…
+	Language…	Keel…
+	Frame…	Raam…
+	Shortcut key…	Kiirklahv…
+	Text Effects…	Tekstiefektid…
+	Type a name for the style.	Sisestage stiili nimi.
 	Deletions:	Kustutused:
 	Enter formatting for number:	Sisesta numbri vorming:
 	Follow number with:	Numbrile järgneb:

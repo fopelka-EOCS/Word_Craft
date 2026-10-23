@@ -89,6 +89,18 @@
 	Custom dictionary	Egen ordlista
 	Define New Multilevel List	Definiera ny lista med flera nivåer
 	Define New Multilevel List…	Definiera ny lista med flera nivåer…
+	Define New List Style	Definiera ny liststil
+	Define New List Style…	Definiera ny liststil…
+	List Styles	Liststilar
+	Style type:	Stiltyp:
+	Only in this document	Endast i det här dokumentet
+	New documents based on this template	Nya dokument baserade på den här mallen
+	Border…	Kantlinje…
+	Language…	Språk…
+	Frame…	Ram…
+	Shortcut key…	Kortkommando…
+	Text Effects…	Texteffekter…
+	Type a name for the style.	Skriv ett namn på stilen.
 	Deletions:	Borttagningar:
 	Enter formatting for number:	Ange formatering för numret:
 	Follow number with:	Efter numret:
@@ -316,6 +328,9 @@
 	Default	Standard
 	Define New Bullet	Definiera ny punkt
 	Define New Number Format	Definiera nytt nummerformat
+	Define New Number Format…	Definiera nytt nummerformat…
+	Number style:	Numreringsstil:
+	Number format:	Nummerformat:
 	Delete	Ta bort
 	Delete Cells	Ta bort celler
 	Delete Columns	Ta bort kolumner

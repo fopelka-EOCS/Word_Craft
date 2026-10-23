@@ -88,6 +88,18 @@
 	Draw Table	Tabelle zeichnen
 	Define New Multilevel List	Neue mehrstufige Liste definieren
 	Define New Multilevel List…	Neue mehrstufige Liste definieren…
+	Define New List Style	Neue Listenformatvorlage definieren
+	Define New List Style…	Neue Listenformatvorlage definieren…
+	List Styles	Listenformatvorlagen
+	Style type:	Formatvorlagentyp:
+	Only in this document	Nur in diesem Dokument
+	New documents based on this template	Neue auf dieser Vorlage basierende Dokumente
+	Border…	Rahmen…
+	Language…	Sprache…
+	Frame…	Positionsrahmen…
+	Shortcut key…	Tastenkombination…
+	Text Effects…	Texteffekte…
+	Type a name for the style.	Geben Sie einen Namen für die Formatvorlage ein.
 	Deletions:	Löschungen:
 	Edit Comment	Kommentar bearbeiten
 	Enter formatting for number:	Formatierung für die Nummer eingeben:
@@ -274,6 +286,9 @@
 	Default	Standard
 	Define New Bullet	Neues Aufzählungszeichen definieren
 	Define New Number Format	Neues Nummernformat definieren
+	Define New Number Format…	Neues Nummernformat definieren…
+	Number style:	Nummernstil:
+	Number format:	Nummernformat:
 	Delete	Löschen
 	Delete Cells	Zellen löschen
 	Delete Columns	Spalten löschen

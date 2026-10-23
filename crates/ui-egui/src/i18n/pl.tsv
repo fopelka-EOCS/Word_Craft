@@ -188,6 +188,9 @@
 	Default	Domyślne
 	Define New Bullet	Zdefiniuj nowy punktor
 	Define New Number Format	Zdefiniuj nowy format numeracji
+	Define New Number Format…	Zdefiniuj nowy format numeracji…
+	Number style:	Styl numeru:
+	Number format:	Format numeru:
 	Delete	Usuń
 	Delete Cells	Usuń komórki
 	Delete Columns	Usuń kolumny
@@ -1223,6 +1226,18 @@
 	Default tab stops:	Domyślne tabulatory:
 	Define New Multilevel List	Definiuj nową listę wielopoziomową
 	Define New Multilevel List…	Definiuj nową listę wielopoziomową…
+	Define New List Style	Definiuj nowy styl listy
+	Define New List Style…	Definiuj nowy styl listy…
+	List Styles	Style list
+	Style type:	Typ stylu:
+	Only in this document	Tylko w tym dokumencie
+	New documents based on this template	Nowe dokumenty oparte na tym szablonie
+	Border…	Krawędź…
+	Language…	Język…
+	Frame…	Ramka…
+	Shortcut key…	Klawisz skrótu…
+	Text Effects…	Efekty tekstowe…
+	Type a name for the style.	Wpisz nazwę stylu.
 	Deletions:	Usunięcia:
 	Description:	Opis:
 	Display name	Nazwa wyświetlana

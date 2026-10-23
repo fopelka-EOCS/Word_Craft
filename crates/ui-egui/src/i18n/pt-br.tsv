@@ -89,6 +89,18 @@
 	Custom dictionary	Dicionário personalizado
 	Define New Multilevel List	Definir nova lista de vários níveis
 	Define New Multilevel List…	Definir nova lista de vários níveis…
+	Define New List Style	Definir novo estilo de lista
+	Define New List Style…	Definir novo estilo de lista…
+	List Styles	Estilos de lista
+	Style type:	Tipo de estilo:
+	Only in this document	Somente neste documento
+	New documents based on this template	Novos documentos baseados neste modelo
+	Border…	Borda…
+	Language…	Idioma…
+	Frame…	Quadro…
+	Shortcut key…	Tecla de atalho…
+	Text Effects…	Efeitos de texto…
+	Type a name for the style.	Digite um nome para o estilo.
 	Deletions:	Exclusões:
 	Enter formatting for number:	Formatação do número:
 	Follow number with:	Após o número:
@@ -310,6 +322,9 @@
 	Default	Padrão
 	Define New Bullet	Definir novo marcador
 	Define New Number Format	Definir novo formato de numeração
+	Define New Number Format…	Definir novo formato de numeração…
+	Number style:	Estilo de número:
+	Number format:	Formato do número:
 	Delete	Excluir
 	Delete Cells	Excluir células
 	Delete Columns	Excluir colunas

@@ -627,6 +627,18 @@
 	Define New Bullet	Določi novo oznako
 	Define New Multilevel List	Določi nov večravenski seznam
 	Define New Multilevel List…	Določi nov večravenski seznam …
+	Define New List Style	Določi nov slog seznama
+	Define New List Style…	Določi nov slog seznama …
+	List Styles	Slogi seznamov
+	Style type:	Vrsta sloga:
+	Only in this document	Samo v tem dokumentu
+	New documents based on this template	Novi dokumenti, ki temeljijo na tej predlogi
+	Border…	Obroba …
+	Language…	Jezik …
+	Frame…	Okvir …
+	Shortcut key…	Bližnjična tipka …
+	Text Effects…	Učinki besedila …
+	Type a name for the style.	Vnesite ime sloga.
 	Define New Number Format	Določi novo obliko številk
 	Deflate	Izprazni
 	Delete	Izbriši
@@ -1549,6 +1561,9 @@
 	Number	Številka
 	Number alignment:	Poravnava številk:
 	Number format	Oblika številk
+	Define New Number Format…	Določi novo obliko številk …
+	Number format:	Oblika številk:
+	Number style:	Slog številk:
 	Number of columns:	Število stolpcev:
 	Number of rows:	Število vrstic:
 	Number of the page the field sits on	Številka strani, na kateri je polje

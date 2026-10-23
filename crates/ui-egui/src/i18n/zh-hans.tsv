@@ -97,6 +97,18 @@
 	Draw Table	绘制表格
 	Define New Multilevel List	定义新的多级列表
 	Define New Multilevel List…	定义新的多级列表…
+	Define New List Style	定义新列表样式
+	Define New List Style…	定义新列表样式…
+	List Styles	列表样式
+	Style type:	样式类型：
+	Only in this document	仅限此文档
+	New documents based on this template	基于此模板的新文档
+	Border…	边框…
+	Language…	语言…
+	Frame…	图文框…
+	Shortcut key…	快捷键…
+	Text Effects…	文本效果…
+	Type a name for the style.	请输入样式名称。
 	Deletions:	删除内容：
 	Edit Comment	编辑批注
 	Enter formatting for number:	输入编号的格式：
@@ -340,6 +352,9 @@
 	Default	默认
 	Define New Bullet	定义新项目符号
 	Define New Number Format	定义新编号格式
+	Define New Number Format…	定义新编号格式…
+	Number style:	编号样式：
+	Number format:	编号格式：
 	Delete	删除
 	Delete Cells	删除单元格
 	Delete Columns	删除列

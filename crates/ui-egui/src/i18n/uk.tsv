@@ -91,6 +91,18 @@
 	Custom dictionary	Власний словник
 	Define New Multilevel List	Визначити новий багаторівневий список
 	Define New Multilevel List…	Визначити новий багаторівневий список…
+	Define New List Style	Визначити новий стиль списку
+	Define New List Style…	Визначити новий стиль списку…
+	List Styles	Стилі списків
+	Style type:	Тип стилю:
+	Only in this document	Лише в цьому документі
+	New documents based on this template	Нові документи на основі цього шаблону
+	Border…	Межа…
+	Language…	Мова…
+	Frame…	Рамка…
+	Shortcut key…	Сполучення клавіш…
+	Text Effects…	Текстові ефекти…
+	Type a name for the style.	Введіть назву стилю.
 	Deletions:	Видалення:
 	Enter formatting for number:	Вигляд номера:
 	Follow number with:	Після номера:
@@ -317,6 +329,9 @@
 	Default	Типовий
 	Define New Bullet	Визначити новий маркер
 	Define New Number Format	Визначити новий формат номера
+	Define New Number Format…	Визначити новий формат номера…
+	Number style:	Стиль номера:
+	Number format:	Формат номера:
 	Delete	Видалити
 	Delete Cells	Видалити клітинки
 	Delete Columns	Видалити стовпці

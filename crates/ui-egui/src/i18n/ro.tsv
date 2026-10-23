@@ -636,6 +636,18 @@
 	Define New Bullet	Definire marcator nou
 	Define New Multilevel List	Definire listă pe mai multe niveluri nouă
 	Define New Multilevel List…	Definire listă pe mai multe niveluri nouă…
+	Define New List Style	Definire stil de listă nou
+	Define New List Style…	Definire stil de listă nou…
+	List Styles	Stiluri de listă
+	Style type:	Tip de stil:
+	Only in this document	Doar în acest document
+	New documents based on this template	Documente noi bazate pe acest șablon
+	Border…	Bordură…
+	Language…	Limbă…
+	Frame…	Cadru…
+	Shortcut key…	Tastă de comandă rapidă…
+	Text Effects…	Efecte de text…
+	Type a name for the style.	Introduceți un nume pentru stil.
 	Define New Number Format	Definire format de numerotare nou
 	Deflate	Deflate
 	Delete	Ștergere
@@ -1570,6 +1582,9 @@
 	Number	Număr
 	Number alignment:	Alinierea numerelor:
 	Number format	Format număr
+	Define New Number Format…	Definire format număr nou…
+	Number format:	Format număr:
+	Number style:	Stil de numerotare:
 	Number of columns:	Număr de coloane:
 	Number of rows:	Număr de rânduri:
 	Number of the page the field sits on	Numărul paginii pe care se află câmpul

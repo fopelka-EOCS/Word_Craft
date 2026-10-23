@@ -185,6 +185,9 @@
 	Default Paragraph Font	Varsayılan Paragraf Yazı Tipi
 	Define New Bullet	Yeni Madde İşareti Tanımla
 	Define New Number Format	Yeni Numara Biçimi Tanımla
+	Define New Number Format…	Yeni Numara Biçimi Tanımla…
+	Number style:	Numara stili:
+	Number format:	Numara biçimi:
 	Delete	Sil
 	Delete Cells	Hücreleri Sil
 	Delete Columns	Sütunları Sil
@@ -1589,6 +1592,18 @@ preview	Title	Örnek
 	Color only	Yalnızca renk
 	Define New Multilevel List	Yeni Çok Düzeyli Liste Tanımla
 	Define New Multilevel List…	Yeni Çok Düzeyli Liste Tanımla…
+	Define New List Style	Yeni Liste Stili Tanımla
+	Define New List Style…	Yeni Liste Stili Tanımla…
+	List Styles	Liste Stilleri
+	Style type:	Stil türü:
+	Only in this document	Yalnızca bu belgede
+	New documents based on this template	Bu şablonu temel alan yeni belgeler
+	Border…	Kenarlık…
+	Language…	Dil…
+	Frame…	Çerçeve…
+	Shortcut key…	Kısayol tuşu…
+	Text Effects…	Metin Efektleri…
+	Type a name for the style.	Stil için bir ad yazın.
 	Deletions:	Silmeler:
 	Enter formatting for number:	Numara biçimini girin:
 	Follow number with:	Numaradan sonra:

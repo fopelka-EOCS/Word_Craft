@@ -187,6 +187,9 @@
 	Default Paragraph Font	Alapértelmezett bekezdésbetűtípus
 	Define New Bullet	Új felsorolásjel megadása
 	Define New Number Format	Új számformátum megadása
+	Define New Number Format…	Új számformátum megadása…
+	Number style:	Számstílus:
+	Number format:	Számformátum:
 	Delete	Törlés
 	Delete Cells	Cellák törlése
 	Delete Columns	Oszlopok törlése
@@ -1580,6 +1583,18 @@
 	Color only	Csak szín
 	Define New Multilevel List	Új többszintű lista megadása
 	Define New Multilevel List…	Új többszintű lista megadása…
+	Define New List Style	Új listastílus megadása
+	Define New List Style…	Új listastílus megadása…
+	List Styles	Listastílusok
+	Style type:	Stílus típusa:
+	Only in this document	Csak ebben a dokumentumban
+	New documents based on this template	Az ezen a sablonon alapuló új dokumentumok
+	Border…	Szegély…
+	Language…	Nyelv…
+	Frame…	Keret…
+	Shortcut key…	Billentyűparancs…
+	Text Effects…	Szövegeffektusok…
+	Type a name for the style.	Adja meg a stílus nevét.
 	Deletions:	Törlések:
 	Enter formatting for number:	A szám formázása:
 	Follow number with:	A szám után:

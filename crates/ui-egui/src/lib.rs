@@ -40,6 +40,7 @@ pub mod dialogs_controls;
 pub mod dialogs_insert;
 pub mod dialogs_keyboard;
 pub mod dialogs_layout;
+pub mod dialogs_list_style;
 pub mod dialogs_lists;
 pub mod dialogs_notes;
 pub mod dialogs_para;
@@ -2722,6 +2723,10 @@ fn input_dialog(id: &str, params: &Value) -> Option<&'static str> {
         "file.encrypt" if params.get("password").is_none() => Some("encryptPassword"),
         // Define New Multilevel List and Track Changes Options without settings show their dialogs.
         "list.define" if params.get("levels").is_none() => Some("defineList"),
+        // Define New Number Format without settings shows its dialog (#2787).
+        "para.defineNumber" if params.as_object().is_none_or(|m| m.is_empty()) => Some("defineNumber"),
+        // Define New List Style without a name or a style to change shows its dialog (#3805).
+        "list.defineStyle" if params.get("name").is_none() && params.get("style").is_none() => Some("defineListStyle"),
         "review.trackingOptions" if params.as_object().is_none_or(|m| m.is_empty()) => Some("trackChangesOptions"),
         // Compare / Combine without a revised document, AutoCorrect Options without settings and
         // Restrict Editing without settings show their dialogs or pane (#412).

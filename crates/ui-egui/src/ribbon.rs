@@ -762,6 +762,28 @@ fn mi_icon(ui: &mut Ui, app: &mut WordApp, icon: &str, label: &str, id: &str, pa
     }
 }
 
+/// The Bullet Library: the bullets Home › Bullets offers, and Define New List Style's number
+/// styles after the numbers (#3805).
+pub(crate) const BULLET_LIBRARY: [&str; 7] = ["•", "○", "▪", "◆", ARROW_BULLET, "✓", "–"];
+
+/// The arrowhead bullet, which the interface fonts lack: [`bullet_tile`] draws it.
+pub(crate) const ARROW_BULLET: &str = "➢";
+
+/// A Bullet Library tile: the bullet at 16 pt on a button. The interface fonts have no ➢, so its
+/// tile draws the arrowhead.
+pub(crate) fn bullet_tile(ui: &mut Ui, c: &str) -> egui::Response {
+    let label = if c == ARROW_BULLET { " " } else { c };
+    let resp = ui.button(egui::RichText::new(label).size(16.0));
+    if c == ARROW_BULLET {
+        let m = resp.rect.center();
+        let pts = [(-4.0, -5.0), (5.0, 0.0), (-4.0, 5.0), (-1.5, 0.0)].map(|(x, y)| m + vec2(x, y));
+        let ink = Tokens::get(ui.ctx()).text;
+        ui.painter().add(egui::Shape::convex_polygon(vec![pts[0], pts[1], pts[3]], ink, Stroke::NONE));
+        ui.painter().add(egui::Shape::convex_polygon(vec![pts[3], pts[1], pts[2]], ink, Stroke::NONE));
+    }
+    resp
+}
+
 /// A menu item whose text is already in the interface language.
 fn mi_text(ui: &mut Ui, app: &mut WordApp, text: &str, id: &str, params: Value) {
     let sc = crate::widgets::shortcut_text(app, id);
@@ -1166,17 +1188,8 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                 split(ui, app, "bullets", "Bullets", "para.bullets", json!({}), lists.bullets, None, |ui, app| {
                     ui.label(egui::RichText::new(tl!("Bullet Library")).small().weak());
                     ui.horizontal(|ui| {
-                        for c in ["•", "○", "▪", "◆", "➢", "✓", "–"] {
-                            // The interface fonts have no ➢, so its tile draws the arrowhead.
-                            let label = if c == "➢" { " " } else { c };
-                            let resp = ui.button(egui::RichText::new(label).size(16.0));
-                            if c == "➢" {
-                                let m = resp.rect.center();
-                                let pts = [(-4.0, -5.0), (5.0, 0.0), (-4.0, 5.0), (-1.5, 0.0)].map(|(x, y)| m + vec2(x, y));
-                                ui.painter().add(egui::Shape::convex_polygon(vec![pts[0], pts[1], pts[3]], Tokens::get(ui.ctx()).text, Stroke::NONE));
-                                ui.painter().add(egui::Shape::convex_polygon(vec![pts[3], pts[1], pts[2]], Tokens::get(ui.ctx()).text, Stroke::NONE));
-                            }
-                            if resp.clicked() {
+                        for c in BULLET_LIBRARY {
+                            if bullet_tile(ui, c).clicked() {
                                 let _ = app.run("para.bullets", json!({"kind": c}));
                                 ui.close();
                             }
@@ -1198,6 +1211,8 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                     ui.separator();
                     mi(ui, app, "Restart at 1", "para.restartNumbering", json!({}));
                     mi(ui, app, "None", "para.numbering", json!({"off": true}));
+                    ui.separator();
+                    mi(ui, app, "Define New Number Format…", "para.defineNumber", json!({}));
                 });
                 split(ui, app, "multilevel", "Multilevel List", "para.multilevel", json!({}), lists.multilevel, None, |ui, app| {
                     mi(ui, app, "1. 1.1. 1.1.1.", "para.multilevel", json!({"kind": "legal"}));
@@ -1220,7 +1235,27 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                         mi_text(ui, app, &text, "list.multilevelPreset", json!({"preset": k}));
                     }
                     ui.separator();
+                    // The document's list styles (#3805), by name; a click numbers the selection
+                    // with one. The default "No List" style isn't one to pick.
+                    let mut list_styles: Vec<(String, String)> = app
+                        .session
+                        .doc
+                        .styles
+                        .styles
+                        .iter()
+                        .filter(|st| st.kind == wordcraft_doc::StyleKind::Numbering && !st.default && !st.hidden && st.id != "NoList")
+                        .map(|st| (st.id.clone(), if st.name.is_empty() { st.id.clone() } else { st.name.clone() }))
+                        .collect();
+                    list_styles.sort_by(|a, b| a.1.cmp(&b.1));
+                    if !list_styles.is_empty() {
+                        ui.label(egui::RichText::new(tl!("List Styles")).small().weak());
+                        for (id, name) in list_styles {
+                            mi_text(ui, app, &name, "list.applyStyle", json!({"style": id}));
+                        }
+                        ui.separator();
+                    }
                     mi(ui, app, "Define New Multilevel List…", "list.define", json!({}));
+                    mi(ui, app, "Define New List Style…", "list.defineStyle", json!({}));
                     ui.separator();
                     for lv in 0..5u64 {
                         mi(ui, app, &format!("Change to Level {}", lv + 1), "para.listLevel", json!({"level": lv}));
