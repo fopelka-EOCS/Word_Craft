@@ -245,26 +245,28 @@ fn visible_headings(levels: &[u8], collapsed: &[bool]) -> Vec<bool> {
 }
 
 /// The text of `p` between byte offsets `from` and `to` as a one-line Results snippet: an inline
-/// object shows what it contributes to plain text (a field its result, a picture nothing), and
+/// object shows what it contributes to plain text (a field its result, a picture a blank), and
 /// line, page and column breaks become a space, so no control character reaches the font and the
 /// row never splits.
-fn snippet_text(p: &Paragraph, from: usize, to: usize) -> String {
+pub(crate) fn snippet_text(p: &Paragraph, from: usize, to: usize) -> String {
     let Some(slice) = p.text.get(from..to) else { return String::new() };
     // Objects are numbered by the placeholders before them, so count those left of `from`.
     let mut k = p.text.get(..from).map_or(0, |head| head.chars().filter(|&c| c == OBJ).count());
     let mut out = String::with_capacity(slice.len());
+    let mut push = |c: char| out.push(if matches!(c, LINE_BREAK | PAGE_BREAK | COLUMN_BREAK) { ' ' } else { c });
     for c in slice.chars() {
-        match c {
-            OBJ => {
-                out.push_str(p.objects.get(k).map_or("", |o| o.plain_text()));
-                k += 1;
-            }
-            LINE_BREAK | PAGE_BREAK | COLUMN_BREAK => out.push(' '),
-            c => out.push(c),
+        if c == OBJ {
+            p.objects.get(k).map_or("", |o| o.plain_text()).chars().for_each(&mut push);
+            k += 1;
+        } else {
+            push(c);
         }
     }
-    // A field result or object text may carry its own line breaks.
-    out.replace(['\n', '\u{c}', '\u{e}'], " ")
+    // An object with no text (a picture, found by `^g`) keeps a blank so its hit stays marked.
+    if out.is_empty() && !slice.is_empty() {
+        out.push(' ');
+    }
+    out
 }
 
 /// The body's headings (paragraphs with an outline level) in document order, as (path, level,
@@ -951,6 +953,9 @@ mod tests {
         ];
         let second = 1 + OBJ.len_utf8() + 1;
         assert_eq!(snippet_text(&p, 0, p.len()), "aX YbZc");
+        assert_eq!(snippet_text(&p, 1, 1 + OBJ.len_utf8()), "X Y");
+        p.objects[0] = InlineObject::Opaque { format: "docx".into(), xml: String::new(), text: String::new() };
+        assert_eq!(snippet_text(&p, 1, 1 + OBJ.len_utf8()), " ", "a textless object keeps a blank for its highlight");
         assert_eq!(snippet_text(&p, second, p.len()), "Zc", "the object index counts the placeholders before `from`");
     }
 

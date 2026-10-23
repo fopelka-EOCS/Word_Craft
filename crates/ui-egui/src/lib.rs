@@ -2054,9 +2054,8 @@ impl WordApp {
             let Some(p) = self.session.doc.para_at(a) else { continue };
             let from = p.clamp(a.off.saturating_sub(30));
             let to = p.clamp((b.off + 40).min(p.len()));
-            if let Some(s) = p.text.get(from..to) {
-                text.push_str(s);
-            }
+            // The same text the Results row draws, object text included.
+            text.push_str(&panes::snippet_text(p, from, to));
         }
         if text.chars().any(wordcraft_fonts::is_cjk) {
             self.want_system_cjk = true;
@@ -3221,6 +3220,24 @@ mod tests {
         let n = arabic.canvas.ime_faces.len();
         frame(&mut arabic);
         assert_eq!(arabic.canvas.ime_faces.len(), n, "the face is added once");
+    }
+
+    /// The Results row also draws an inline object's text (a field result, say), so the font scan
+    /// reads it too: Japanese in a field beside a Latin match switches on the CJK UI font.
+    #[test]
+    fn cjk_in_a_field_beside_a_match_borrows_the_cjk_font() {
+        use wordcraft_doc::para::{InlineObject, OBJ};
+        let ctx = egui::Context::default();
+        let mut d = wordcraft_doc::Document::from_text("");
+        let Some(wordcraft_doc::Block::Para(p)) = d.body.first_mut().map(std::sync::Arc::make_mut) else { panic!("no paragraph") };
+        p.text = format!("alpha {OBJ}beta");
+        p.runs = vec![wordcraft_doc::Run { len: p.text.len(), props: Default::default() }];
+        p.objects = vec![InlineObject::Opaque { format: "docx".into(), xml: String::new(), text: "東京駅".into() }];
+        let mut a = WordApp::new(wordcraft_engine::Session::new(d), Services::default());
+        a.run("edit.find", json!({"text": "beta"})).unwrap();
+        assert!(!a.session.find.results.is_empty(), "the search found the word");
+        ctx.run_ui(egui::RawInput::default(), |ui| a.logic(ui.ctx())).drop_without_applying_deltas();
+        assert!(a.want_system_cjk, "the object text beside the match is scanned for CJK");
     }
 
     /// #3248: the Find box and the Navigation pane's Results list draw the typed query and
