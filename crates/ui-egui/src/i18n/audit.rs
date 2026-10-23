@@ -222,6 +222,7 @@ fn untranslated_interface_text() {
         "paragraph",
         "goto",
         "insertTable",
+        "createTable",
         "pageSetup",
         "pageNumbers",
         "link",
