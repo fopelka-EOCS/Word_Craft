@@ -62,6 +62,8 @@ pub(crate) struct Reader<'p> {
     /// Move ranges (`w:moveFromRangeStart` …) seen so far.
     pub moves: MoveCtx,
     media_by_path: HashMap<String, String>,
+    /// Pictures an `a:alphaModFix` could not fade (undecodable): not tried again.
+    unfadable: HashSet<String>,
     hf_by_path: HashMap<String, u32>,
     /// Header/footer parts being read right now (see [`MAX_HF_DEPTH`]).
     hf_depth: usize,
@@ -145,6 +147,7 @@ pub(crate) fn read_opened(pkg: &Package) -> Result<Document, DocxError> {
         revs: HashMap::new(),
         moves: MoveCtx::default(),
         media_by_path: HashMap::new(),
+        unfadable: HashSet::new(),
         hf_by_path: HashMap::new(),
         hf_depth: 0,
         footnotes: HashMap::new(),
@@ -745,6 +748,43 @@ impl Reader<'_> {
         self.doc.media.insert(key.clone(), bytes.clone());
         self.media_by_path.insert(rel.target.clone(), key.clone());
         Some(key)
+    }
+
+    /// The media key of picture `media` faded by DrawingML's `a:alphaModFix` (`amt` in
+    /// thousandths of a percent: 10 000 = 10 % opaque): its alpha is multiplied into the pixels
+    /// and the result kept as a PNG under its own key (`image5_a10000.png`), made once however
+    /// often the picture is used, so layout, screen and PDF need no new path and a save keeps
+    /// the fade. `media` itself when the fade is a no-op or the picture can't be decoded
+    /// (a metafile, an unknown format, too large), tried once per picture.
+    pub fn faded_media(&mut self, media: &str, amt: i64) -> String {
+        if amt >= 100_000 {
+            return media.to_string();
+        }
+        let amt = amt.clamp(0, 100_000);
+        let key = match media.rsplit_once('.') {
+            Some((stem, _)) if !stem.is_empty() => format!("{stem}_a{amt}.png"),
+            _ => format!("{media}_a{amt}.png"),
+        };
+        if self.doc.media.contains_key(&key) {
+            return key;
+        }
+        // One failed decode is enough: a picture used many times is not decoded (and warned
+        // about) again.
+        if self.unfadable.contains(media) {
+            return media.to_string();
+        }
+        let Some(bytes) = self.doc.media.get(media).cloned() else { return media.to_string() };
+        match fade_image(&bytes, amt as f32 / 100_000.0) {
+            Some(png) => {
+                self.doc.media.insert(key.clone(), Arc::new(png));
+                key
+            }
+            None => {
+                log::warn!("DOCX: picture `{media}` has an alphaModFix but could not be decoded; drawn opaque");
+                self.unfadable.insert(media.to_string());
+                media.to_string()
+            }
+        }
     }
 
     /// A chart or diagram part, parsed once however often it's referenced (`None` when unreadable).
@@ -1497,6 +1537,28 @@ pub(crate) const PROTECTION_HASH_ATTRS: [&str; 16] = [
 /// Restrict Editing (`w:documentProtection`, §17.15.1.29): the editing restriction, whether
 /// formatting is limited to unlocked styles, and the password hash. Only enforced protection is
 /// kept; a hostile attribute value can't be longer than a hash needs.
+/// Longest picture side we are willing to decode for a fade (as the PDF export's limit).
+const MAX_FADE_SIDE: u32 = 30_000;
+
+/// `data` (any raster format the `image` crate reads) with every pixel's alpha multiplied by
+/// `alpha` (0–1), re-encoded as PNG. `None` when it can't be decoded or is unreasonably large.
+fn fade_image(data: &[u8], alpha: f32) -> Option<Vec<u8>> {
+    let fmt = image::guess_format(data).ok()?;
+    let dec = image::load_from_memory_with_format(data, fmt).ok()?;
+    let (w, h) = (dec.width(), dec.height());
+    if w == 0 || h == 0 || w > MAX_FADE_SIDE || h > MAX_FADE_SIDE {
+        return None;
+    }
+    let alpha = if alpha.is_finite() { alpha.clamp(0.0, 1.0) } else { 1.0 };
+    let mut rgba = dec.into_rgba8();
+    for px in rgba.pixels_mut() {
+        px.0[3] = (f32::from(px.0[3]) * alpha).round().clamp(0.0, 255.0) as u8;
+    }
+    let mut out = Vec::new();
+    image::DynamicImage::ImageRgba8(rgba).write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png).ok()?;
+    Some(out)
+}
+
 fn read_protection(k: &El, s: &mut wordcraft_doc::Settings) {
     let on = |v: &str| !matches!(v, "0" | "false" | "off");
     if !k.attr("w:enforcement").is_some_and(on) {
