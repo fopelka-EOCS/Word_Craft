@@ -2406,6 +2406,8 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
         // The tallest picture on the line (it sits on the baseline).
         let mut obj_asc = 0.0f32;
         let mut any = false;
+        // Whether the line holds text besides its pictures (spaces and tabs don't count).
+        let mut text = false;
         let dropped = pl.drop_cap.map_or(0, |d| d.0);
         for (k, c) in pl.clusters.get(c0..c1).into_iter().flatten().enumerate() {
             // Spaces and tabs never make a line taller, whatever their size: Word sizes a line by
@@ -2436,6 +2438,7 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                 asc = asc.max(a);
                 desc = desc.max(d);
                 any = true;
+                text |= !matches!(c.kind, ClKind::Object(_));
             }
         }
         if (!any || (asc == 0.0 && desc == 0.0))
@@ -2446,7 +2449,14 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
         }
         let text_natural = asc + desc;
         let (text_asc, text_desc) = (asc.max(obj_asc), desc);
-        let text_pictures = if obj_asc > asc { obj_asc + desc } else { 0.0 };
+        // A picture taller than the text sits on the baseline, with the text's descent below it
+        // only when the line has text: with multiple spacing a line of only pictures (and spaces)
+        // ends at their bottom, and the spacing adds its share of the text's height (Word, measured
+        // with 10 and 20 pt Aptos, Arial and Times at single, 1.15 and 1.5 spacing: a 30 pt
+        // picture alone takes 30, 30 + 0.15 and 30 + 0.5 times the text's height; with text, the
+        // descent more).
+        let below = if obj_asc > asc && !text && matches!(rp.line_spacing, LineSpacing::Multiple(_)) { 0.0 } else { desc };
+        let text_pictures = if obj_asc > asc { obj_asc + below } else { 0.0 };
         let mut label_extra = 0.0;
         if first && let Some(lab) = &pl.label {
             if !matches!(rp.line_spacing, LineSpacing::Exactly(_)) {
@@ -2461,17 +2471,14 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                 }
             }
         }
-        // Keep the picture floor independent of list-label metrics and line-spacing multipliers.
-        // shortcut: Word leaves less than a full descent below a line of only pictures (0.5pt to
-        // 1.9pt in docxide-pdf's header fixtures case121/case123, where the descent is 3.3pt), and
-        // no rule tried so far (none, only the text's descent) matched both; it needs Word probes.
+        // Keep the picture floor independent of list-label metrics.
         let natural = asc + desc;
         let pictures = if obj_asc > asc { obj_asc + desc } else { 0.0 };
         // Document grid: the line takes whole line pitches, its text centred in them.
         let (height, centred) = match (rp.line_spacing, grid) {
             (LineSpacing::Multiple(m), Some(g)) => ((g.snap_height(natural) * m).max(g.snap_height(pictures)), true),
             (LineSpacing::AtLeast(v), Some(g)) => (g.snap_height(natural.max(pictures)).max(v), true),
-            (LineSpacing::Multiple(m), None) => ((text_natural * m + label_extra).max(text_pictures), false),
+            (LineSpacing::Multiple(m), None) => ((text_natural * m + label_extra).max(text_pictures + (m - 1.0).max(0.0) * text_natural), false),
             (LineSpacing::AtLeast(v), None) => (natural.max(text_pictures).max(v), false),
             (LineSpacing::Exactly(v), _) => (v, false),
         };
@@ -2479,7 +2486,7 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
             let up = asc.max(obj_asc);
             top + ((height - up - desc) / 2.0).max(0.0) + up
         } else {
-            top + baseline_offset(rp.line_spacing, asc, height, desc).max(obj_asc.min(height - desc))
+            top + baseline_offset(rp.line_spacing, asc, height, below).max(obj_asc.min(height - below))
         };
 
         // Alignment / justification (trailing spaces hang).
