@@ -118,7 +118,7 @@ Also shipped: Traditional Chinese (`zh-hant`), Ukrainian (`uk`), Serbian (`sr`, 
 system-locale selection and a saved language choice (Italian also has 51 strings none of the others had yet); Estonian proofing is not included. Hungarian (`hu`) has a
 complete 2,419-entry catalog, also without proofing. Vietnamese (`vi`, #1434) has a complete
 2,448-entry catalog, also without proofing. Croatian (`hr`, #1271) has a complete catalog.
-Proofing: English, Polish, Portuguese, Italian, Croatian, Turkish and Russian (spelling, grammar; hyphenation except Croatian), plus Czech and Indonesian (system Hunspell spelling, generic checks), chosen per run from its language; Bulgarian and German hyphenation only. Word ships
+Proofing: English, Polish, Portuguese, Italian, Croatian, Turkish, Russian and Dutch (spelling, grammar; hyphenation except Croatian and Dutch), plus Czech and Indonesian (system Hunspell spelling, generic checks), chosen per run from its language; Bulgarian and German hyphenation only. Word ships
 30 interface languages and proofing for ~50. Detail: [docs/localization-parity.md](docs/localization-parity.md).
 
 ## Upcoming
@@ -136,6 +136,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 ## Progress log
 
+- 2026-10-23: Dutch proofing (`nl`, `nl-NL`, `nl-BE`): spelling against the installed Hunspell `nl_NL` / `nl_BE` dictionary (OpenTaal `FLAG long` and `ĳ`/`Ĳ` ligatures supported; not bundled), suggestions tuned for Dutch (`MAP` tremas and accents, `REP` `d`/`t`/`dt` and apostrophe plurals/diminutives, missing spaces), conservative Dutch grammar rules with Dutch messages (sentence-initial `'s`/`'t` clitics, `IJ` capitalization, Dutch abbreviations); Review › Language, the status bar and File › Options › Proofing list Dutch, and a Dutch interface writes new documents in `nl-NL`.
 - 2026-10-23: Lists: an empty paragraph whose mark is hidden takes no room and draws no list number, in the body and in table cells, as in Word; the number is still counted, so the next item keeps its place (#3982).
 - 2026-10-23: Font dialog: "NaN" or "inf" typed in the Size box previews the text at 12 pt. "NaN" reads as a number, and a font size that is not a number stopped the app while drawing the preview (#3663).
 - 2026-10-23: Tables: a cell span read from a `.json` document (any 32-bit number) no longer overflows when a column is inserted through the cell or the cell is merged: the span is counted from its clamped value and stays within 63 columns. It panicked in debug builds and wrapped to a small span in release (#3637).

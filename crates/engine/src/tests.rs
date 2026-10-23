@@ -6783,6 +6783,16 @@ const PORTUGUESE_TEST_AFF: &str =
     "SET UTF-8\nFLAG UTF-8\nFORBIDDENWORD F\nTRY aeiousrntmdlcpvgqbzfhjxçãõáéíóúâêô\nMAP 2\nMAP aáã\nMAP eé\nREP 1\nREP seje seja\n";
 const PORTUGUESE_TEST_DIC: &str = "11\nsaudade\ncoração\ne\nele\ndisse\nnão\né\nque\nseja\nfrequencia/F\nmuito\n";
 
+/// A tiny synthetic Dutch Hunspell dictionary (written for these tests). Real dictionaries are
+/// installed on the system, never bundled; every Dutch test installs this same one.
+fn dutch_test_dictionary() {
+    wordcraft_proof::nl::install_dictionary(DUTCH_TEST_AFF, DUTCH_TEST_DIC).unwrap();
+}
+
+const DUTCH_TEST_AFF: &str =
+    "SET UTF-8\nFLAG UTF-8\nFORBIDDENWORD F\nTRY esiaonrtldkumgcbpvwjfhzyxéèëêïöü'\nMAP 2\nMAP eéèëê\nMAP iíìïî\nREP 2\nREP dt$ t\nREP os$ o's\n";
+const DUTCH_TEST_DIC: &str = "11\ngezellig\nwoordenboek\nen\nhij\nzei\ndat\nhet\ngebeurt\ngebeurdt/F\nauto's\ntweeën\n";
+
 /// #1063: File › Options › Proofing › Dictionaries folder. A folder of Hunspell files is saved,
 /// searched first and reported per language; a missing folder or a relative path is refused and
 /// changes nothing. The folder holds the same test dictionaries the other tests install, so tests
@@ -6795,6 +6805,7 @@ fn dictionaries_folder_option_is_saved_searched_and_reported() {
         ("pl_PL", POLISH_TEST_AFF, POLISH_TEST_DIC),
         ("pt_BR", PORTUGUESE_TEST_AFF, PORTUGUESE_TEST_DIC),
         ("id_ID", INDONESIAN_TEST_AFF, INDONESIAN_TEST_DIC),
+        ("nl_NL", DUTCH_TEST_AFF, DUTCH_TEST_DIC),
         // #3252: set_dictionaries_folder() now reloads Czech too (it used to leave its cache
         // alone), so a run of this test overlapping czech_proofing_through_the_review_commands
         // would otherwise force a reload that finds no cs_CZ here and empties it mid-test. Same
@@ -6818,6 +6829,7 @@ fn dictionaries_folder_option_is_saved_searched_and_reported() {
     assert_eq!(file("pl"), Some(json!(dir.join("pl_PL.dic").to_string_lossy())));
     assert_eq!(file("pt"), Some(json!(dir.join("pt_BR.dic").to_string_lossy())));
     assert_eq!(file("id"), Some(json!(dir.join("id_ID.dic").to_string_lossy())));
+    assert_eq!(file("nl"), Some(json!(dir.join("nl_NL.dic").to_string_lossy())));
     // Polish text is checked against the folder's dictionary.
     run(&mut s, "document.setText", json!({"text": "rzeka płynie żeka"}));
     run(&mut s, "select.all", json!({}));
@@ -6864,6 +6876,33 @@ fn portuguese_proofing_through_the_review_commands() {
     run(&mut s, "review.addToDictionary", json!({"word": "coraçao"}));
     let left = run(&mut s, "review.issues", json!({}));
     assert_eq!(left.as_array().unwrap().len(), 1, "{left}");
+}
+
+#[test]
+fn dutch_proofing_through_the_review_commands() {
+    dutch_test_dictionary();
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "Gezellig woordenboek, en hij hij zei dat het gebeurdt."}));
+    assert!(run(&mut s, "review.issues", json!({})).as_array().unwrap().len() >= 5);
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "review.language", json!({"lang": "nl_nl", "default": true}));
+    assert_eq!(s.doc.styles.default_chr.lang.as_deref(), Some("nl-NL"), "the tag is normalized");
+    assert_eq!(run(&mut s, "format.state", json!({}))["lang"], "nl-NL");
+    let issues = run(&mut s, "review.issues", json!({}));
+    let arr = issues.as_array().unwrap();
+    let has = |text: &str, kind: &str, sugg: &str| {
+        arr.iter()
+            .any(|i| i["text"] == text && i["kind"] == kind && i["lang"] == "nl" && i["suggestions"].as_array().unwrap().iter().any(|x| x == sugg))
+    };
+    assert!(has("gebeurdt", "spelling", "gebeurt"), "{issues}");
+    assert!(has("hij hij", "grammar", "hij"), "{issues}");
+    assert_eq!(arr.len(), 2, "{issues}");
+    assert!(arr.iter().any(|i| i["message"] == "Herhaald woord: \"hij\""), "{issues}");
+    run(&mut s, "caret.docStart", json!({}));
+    let first = run(&mut s, "review.spelling", json!({}));
+    assert_eq!(first["text"], "hij hij");
+    run(&mut s, "review.applySuggestion", json!({"text": "hij"}));
+    assert_eq!(text(&s), "Gezellig woordenboek, en hij zei dat het gebeurdt.");
 }
 
 fn indonesian_test_dictionary() {
