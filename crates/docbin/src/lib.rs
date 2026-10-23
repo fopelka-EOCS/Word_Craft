@@ -15,6 +15,7 @@ mod fkp;
 mod fmt;
 mod list;
 mod media;
+mod metadata;
 mod notes;
 mod officeart;
 mod piece;
@@ -44,8 +45,15 @@ use table::ParaOut;
 const MAX_STREAM: u64 = 1 << 30;
 /// Most header/footer parts we create (matches the docx reader's cap).
 const MAX_PARTS: usize = 50_000;
+/// Hard ceiling on characters materialised across every story walk of one document (body,
+/// headers, notes, text boxes), whatever the file's size. The working budget is tied to the
+/// WordDocument stream (see [`read`]); this caps even a maximal stream.
+const MAX_TOTAL_CHARS: u64 = 64 << 20;
 /// `sprmCPicLocation`: the fc of a picture in the Data stream.
 const C_PIC_LOCATION: u16 = 0x6A03;
+/// `sprmCSymbol`: the record font and character of a symbol character ([MS-DOC] §2.6.1); the
+/// text stream holds the placeholder U+0028 at its position.
+const C_SYMBOL: u16 = 0x6A09;
 /// `sprmPIlvl` / `sprmPIlfo`: the paragraph's list level and list.
 const P_ILVL: u16 = 0x260A;
 const P_ILFO: u16 = 0x460B;
@@ -144,6 +152,9 @@ pub fn read_with_password(bytes: &[u8], password: Option<&str>) -> Result<Docume
     };
 
     let mut doc = Document::new();
+    if let Some(core) = metadata::read(&mut comp) {
+        doc.core = core;
+    }
     doc.body.clear();
     doc.styles = fmt::stylesheet(&raw_styles, &fonts);
     doc.numbering = list::parse(&table, &fib, &fonts);
@@ -158,6 +169,12 @@ pub fn read_with_password(bytes: &[u8], password: Option<&str>) -> Result<Docume
     let hdd_base = fib.ccp.text.saturating_add(fib.ccp.ftn);
     let edn_base = hdd_base.saturating_add(fib.ccp.hdd).saturating_add(fib.ccp.atn);
     let mut pics = media::Pictures::default();
+    // Every materialised character comes from at least one byte of the WordDocument stream, so a
+    // legitimate document's total text (body plus every header, footnote and text box, each read
+    // once) cannot exceed its stream. A hostile piece or story table that aliases the same bytes
+    // many times can, so the walk is held to twice the stream's size — generous for real files,
+    // tight against aliasing — and never past the absolute ceiling.
+    let budget = std::cell::Cell::new((word.len() as u64).saturating_mul(2).min(MAX_TOTAL_CHARS));
 
     let ctx = WalkCtx {
         word: &word,
@@ -172,6 +189,7 @@ pub fn read_with_password(bytes: &[u8], password: Option<&str>) -> Result<Docume
         marks: &[],
         drawn: &[],
         sect_ends: &[],
+        budget: &budget,
     };
 
     // Drawings: text box stories become parts first, then the floating shapes and pictures
@@ -312,6 +330,10 @@ struct WalkCtx<'a> {
     /// Where sections end (main-document CPs, sorted): the section mark (0x0C) just before
     /// each ends the section's last paragraph, it isn't a page break inside it.
     sect_ends: &'a [u32],
+    /// Characters still allowed across every story walk of this document. Story ranges (headers,
+    /// footnotes, text boxes) are hostile and can each span a whole subdocument, so thousands of
+    /// them could otherwise materialise the same text thousands of times; this bounds the total.
+    budget: &'a std::cell::Cell<u64>,
 }
 
 /// State while assembling one paragraph from per-CP formatting.
@@ -385,6 +407,12 @@ fn walk(ctx: &WalkCtx, cp_start: u32, cp_end: u32, pics: &mut media::Pictures) -
                 continue;
             }
         };
+        // Every real character counts against the document-wide budget; once it is spent, stop
+        // (a hostile file with thousands of story ranges over the same text can't multiply on).
+        if ctx.budget.get() == 0 {
+            break;
+        }
+        ctx.budget.set(ctx.budget.get() - 1);
         // A section mark (0x0C) at a section's end is that section's last paragraph mark.
         let section_mark = c == '\u{C}' && ctx.sect_ends.binary_search(&cp.saturating_add(1)).is_ok();
         match c {
@@ -550,36 +578,86 @@ fn finish_field(pb: &mut ParaBuild, f: FieldBuild) {
         return;
     }
     pb.push('\u{FFFC}', CharProps::default());
-    pb.objects.push(InlineObject::Field { instr, result: result_text, locked: false, code: false });
+    pb.objects.push(InlineObject::Field { instr, result: result_text, locked: false, dirty: false, code: false, form: String::new() });
 }
 
 /// `HYPERLINK "url"` / `HYPERLINK url \l "bookmark"` → the model link target
 /// (`#bookmark` for internal links); `None` when not a hyperlink.
 fn hyperlink_target(instr: &str) -> Option<String> {
-    let rest = instr.strip_prefix("HYPERLINK").or_else(|| instr.strip_prefix("hyperlink"))?;
-    let rest = rest.strip_prefix(' ').unwrap_or(rest);
+    let t = instr.trim();
+    let rest = if t.get(..9).is_some_and(|h| h.eq_ignore_ascii_case("hyperlink")) {
+        t.get(9..).filter(|r| r.is_empty() || r.starts_with(char::is_whitespace))?.trim()
+    } else {
+        return None;
+    };
     if rest.is_empty() {
         return None;
     }
-    let mut quoted = None;
-    let mut local = None;
-    let mut tokens = rest.split_whitespace().peekable();
-    while let Some(tok) = tokens.next() {
-        match tok {
-            "\\l" => {
-                local = Some(tokens.next().unwrap_or_default().trim_matches('"').to_string());
+
+    let mut url: Option<String> = None;
+    let mut local: Option<String> = None;
+    let mut switch: Option<&str> = None;
+
+    let mut i = 0;
+    let bytes = rest.as_bytes();
+    while i < bytes.len() {
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if i >= bytes.len() {
+            break;
+        }
+        if bytes[i] == b'\\' {
+            let start = i;
+            i += 1;
+            while i < bytes.len() && (bytes[i].is_ascii_alphabetic() || bytes[i] == b'*') {
+                i += 1;
             }
-            "\\o" | "\\m" | "\\n" | "\\t" => {
-                let _ = tokens.next();
+            switch = Some(rest.get(start..i).unwrap_or(""));
+            continue;
+        }
+        let arg = if bytes[i] == b'"' {
+            i += 1;
+            let start = i;
+            while i < bytes.len() && bytes[i] != b'"' {
+                i += 1;
             }
-            _ if quoted.is_none() => quoted = Some(tok.trim_matches('"').to_string()),
-            _ => {}
+            let val = rest.get(start..i).unwrap_or("");
+            if i < bytes.len() && bytes[i] == b'"' {
+                i += 1;
+            }
+            val.to_string()
+        } else {
+            let start = i;
+            while i < bytes.len() && !bytes[i].is_ascii_whitespace() {
+                i += 1;
+            }
+            rest.get(start..i).unwrap_or("").to_string()
+        };
+        let clean_arg = arg.replace("%22", "\"");
+        match switch.take() {
+            Some("\\l") => local = Some(clean_arg),
+            Some(_) => {}
+            None => {
+                if url.is_none() {
+                    url = Some(clean_arg);
+                }
+            }
         }
     }
-    Some(match local {
-        Some(name) if !name.is_empty() => format!("#{name}"),
-        _ => quoted.unwrap_or_default(),
-    })
+
+    match (url, local) {
+        (Some(u), Some(l)) if !u.is_empty() && !l.is_empty() => {
+            let frag = l.trim_start_matches('#');
+            if u.contains('#') { Some(u) } else { Some(format!("{u}#{frag}")) }
+        }
+        (Some(u), _) if !u.is_empty() => Some(u),
+        (None, Some(l)) if !l.is_empty() => {
+            let frag = l.trim_start_matches('#');
+            Some(format!("#{frag}"))
+        }
+        _ => None,
+    }
 }
 
 /// `sprmCPicLocation` from a CHPX grpprl: the fc of the picture in the Data stream.
@@ -590,6 +668,19 @@ fn pic_location(chpx: &[u8]) -> Option<u32> {
                 [b0, b1, b2, b3, ..] => Some(u32::from_le_bytes([*b0, *b1, *b2, *b3])),
                 _ => None,
             };
+        }
+    }
+    None
+}
+
+/// `sprmCSymbol` from a CHPX grpprl: the font table index and the character code of a symbol
+/// character ([MS-DOC] §2.6.1, CSymbolOperand).
+fn symbol_operand(chpx: &[u8]) -> Option<(u16, u16)> {
+    for prl in sprm::iter(chpx) {
+        if prl.op == C_SYMBOL
+            && let [f0, f1, c0, c1, ..] = prl.operand
+        {
+            return Some((u16::from_le_bytes([*f0, *f1]), u16::from_le_bytes([*c0, *c1])));
         }
     }
     None
@@ -624,6 +715,19 @@ fn push_formatted(pb: &mut ParaBuild, cp: u32, c: char, ctx: &WalkCtx, field: Op
     };
     let mut props = char_props(grpprl, ctx.fonts, base);
     apply_prm(&mut props, ctx.pieces.piece_prm(cp), ctx.fonts, base);
+    // A symbol character (Insert › Symbol) is stored as the placeholder U+0028 with
+    // sprmCSymbol carrying the font and the character code ([MS-DOC] §2.6.1).
+    let mut c = c;
+    if c == '('
+        && let Some((ftc, xchar)) = symbol_operand(grpprl)
+    {
+        if let Some(font) = ctx.fonts.get(usize::from(ftc)) {
+            props.font = Some(font.clone());
+        }
+        if let Some(sym) = char::from_u32(u32::from(xchar)) {
+            c = sym;
+        }
+    }
     match field {
         Some(f) => match f.sep.as_mut() {
             // Inside a field, characters are recorded for the field object instead of shown;

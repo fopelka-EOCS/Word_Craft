@@ -84,6 +84,7 @@
 	Check spelling as you type	Revisar la ortografía mientras escribes
 	Click to switch back to inserting	Haz clic para volver a insertar
 	Color only	Solo color
+	Continue from previous section	Continuar desde la sección anterior
 	Custom dictionary	Diccionario personalizado
 	Define New Multilevel List	Definir nueva lista multinivel
 	Define New Multilevel List…	Definir nueva lista multinivel…
@@ -128,6 +129,8 @@
 	Outside border	Borde exterior
 	Overtype	Sobrescribir
 	Overtype (typing replaces the characters after the caret)	Sobrescribir (lo que escribes reemplaza los caracteres tras el cursor)
+	Page Number Format	Formato del número de página
+	Page numbering	Numeración de páginas
 	Show alignment guides when moving pictures and shapes	Mostrar guías de alineación al mover imágenes y formas
 	Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely.	Los objetos que mueves se ajustan a los bordes y el centro de la página, a los márgenes y a otros objetos. Mantén pulsada Alt para moverlos libremente.
 	Page display	Visualización de página
@@ -168,6 +171,9 @@
 	Bold	Negrita
 	Bookmark	Marcador
 	Bookmark name:	Nombre del marcador:
+	Delete Bookmark	Eliminar marcador
+	Hidden bookmarks	Marcadores ocultos
+	Sort by:	Ordenar por:
 	Book Title	Título de libro
 	Border Painter	Pincel de bordes
 	Border\nPainter	Pincel de\nbordes
@@ -176,7 +182,9 @@
 	Show the mini toolbar when text is selected	Mostrar la minibarra de herramientas al seleccionar texto
 	Spaces	Espacios
 	Spelling	Ortografía
-	Spelling and grammar are checked in English (United States).	La ortografía y la gramática se revisan en inglés (Estados Unidos).
+	Spelling and grammar are checked in {language}.	Idioma de revisión de ortografía y gramática: {language}.
+	The text at the insertion point is marked Do not check spelling or grammar.	El texto en el punto de inserción está marcado como: No revisar la ortografía ni la gramática.
+	{language}: WordCraft doesn't check spelling or grammar in this language yet.	{language}: WordCraft todavía no revisa la ortografía ni la gramática en este idioma.
 	Tab characters	Caracteres de tabulación
 	Tab stop position:	Posición de la tabulación:
 	Default tab stops:	Tabulaciones predeterminadas:
@@ -195,6 +203,7 @@
 	Use the Insert key to switch overtype on and off	Usar la tecla Insert para activar y desactivar la sobrescritura
 	Whole document	Todo el documento
 	This section	Esta sección
+	Selected text	Texto seleccionado
 	Fill	Relleno de color
 	Setting:	Valor:
 	3-D	3D
@@ -370,6 +379,8 @@
 	Edit\nRecipient List	Editar lista de\ndestinatarios
 	Edited	Editado
 	Editing	Edición
+	Editing endnote	Editando nota final
+	Editing footnote	Editando nota al pie
 	Editing header/footer	Editando encabezado y pie de página
 	Editing — edit the document directly	Edición — edita el documento directamente
 	Editor	Editor
@@ -409,6 +420,9 @@
 	First line:	Primera línea:
 	Fixed Column Width	Ancho de columna fijo
 	Focus	Modo concentración
+	Full Screen View	Vista de pantalla completa
+	Show the ribbon	Mostrar la cinta
+	Old menu keys: Alt, {keys}. Keep typing, or press Esc to cancel.	Teclas de menú antiguas: Alt, {keys}. Siga escribiendo o pulse Esc para cancelar.
 	Font	Fuente
 	Font Color	Color de fuente
 	Font Dialog	Cuadro de diálogo Fuente
@@ -522,6 +536,8 @@
 	Labels	Etiquetas
 	Landscape	Horizontal
 	Language	Idioma
+	{language} (no dictionary)	{language} (sin diccionario)
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	No hay un diccionario ortográfico instalado para {language}, así que no se revisa. WordCraft busca el diccionario Hunspell {name} en la carpeta WORDCRAFT_DICTIONARIES y en las ubicaciones habituales del sistema.
 	Lasso	Lazo
 	Last Column	Última columna
 	Last commit	Último commit
@@ -577,10 +593,14 @@
 	More templates →	Más plantillas →
 	Move or Resize	Mover o cambiar tamaño
 	Multilevel List	Lista multinivel
+	Multilevel List Library	Biblioteca de listas multinivel
+	Article I.	Artículo I.
+	Chapter 1	Capítulo 1
+	Section 1.01	Sección 1.01
 	Multiple Pages	Varias páginas
 	Name (A–Z)	Nombre (A–Z)
 	Name:	Nombre:
-	Narrow  0.5" all	Estrecho  0,5" en todos
+	Narrow  {size} all	Estrecho  {size} en todos
 	Navigation	Navegación
 	Navigation Pane	Panel de navegación
 	New	Nuevo
@@ -609,7 +629,7 @@
 	Nonbreaking Hyphen	Guion no separable
 	Nonbreaking Space	Espacio de no separación
 	None	Ninguno
-	Normal  1" all	Normal  1" en todos
+	Normal  {size} all	Normal  {size} en todos
 	Normal Style	Estilo normal
 	Not available right now	No disponible por ahora
 	Not saved	Sin guardar
@@ -862,6 +882,8 @@
 	Space before/after:	Espacio antes y después:
 	Spacing	Espaciado
 	Spacing (pt):	Espaciado (pt):
+	Kerning for fonts:	Interletraje para fuentes:
+	Points and above	puntos o más
 	Speech	Voz
 	Spelling & Grammar	Ortografía y gramática
 	Spelling &\nGrammar	Ortografía y\ngramática
@@ -1401,6 +1423,9 @@
 	{cols}×{rows} Table	Tabla de {cols}×{rows}
 	AaBbYyZz	AaBbYyZz ÑñÁá
 	pt	pt
+	cm	cm
+	mm	mm
+	pi	pi
 	Document1	Documento1
 	Username	Nombre de usuario
 	Display name	Nombre visible
@@ -1518,6 +1543,8 @@
 	Math AutoCorrect	Autocorrección matemática
 	More >>	Más >>
 	Moves	Movimientos
+	Moved from:	Movido desde:
+	Moved to:	Movido a:
 	New document	Documento nuevo
 	No changes (read only)	Sin cambios (solo lectura)
 	Only allow this kind of editing:	Permitir solo este tipo de edición:
@@ -1577,6 +1604,8 @@
 	Customize Ribbon	Personalizar cinta de opciones
 	Add to Quick Access Toolbar	Agregar a la barra de herramientas de acceso rápido
 	Remove from Quick Access Toolbar	Quitar de la barra de herramientas de acceso rápido
+	Hide Quick Access Toolbar	Ocultar la barra de herramientas de acceso rápido
+	Show Quick Access Toolbar	Mostrar la barra de herramientas de acceso rápido
 	Customize the Ribbon…	Personalizar la cinta de opciones…
 	Customize Quick Access Toolbar…	Personalizar barra de herramientas de acceso rápido…
 	More Commands…	Más comandos…
@@ -1596,6 +1625,11 @@
 	Add Font…	Agregar fuente…
 	Added Fonts	Fuentes agregadas
 	Remove Added Font	Quitar fuente agregada
+	Load System Installed Fonts…	Cargar fuentes del sistema instaladas…
+	All system fonts are already available.	Todas las fuentes del sistema ya están disponibles.
+	Local font access is not supported by your browser.	Su navegador no admite el acceso a fuentes locales.
+	Local font access was denied.	Se denegó el acceso a las fuentes locales.
+	Loaded {count} system fonts.	Se cargaron {count} fuentes del sistema.
 	Recent Colors	Colores recientes
 	More Colors…	Más colores…
 	Standard	Estándar
@@ -1769,6 +1803,12 @@
 	Reading Line Spacing	Interlineado de lectura
 	Reading Text Size	Tamaño del texto de lectura
 	English (United Kingdom)	Inglés (Reino Unido)
+	English (Australia)	Inglés (Australia)
+	English (Canada)	Inglés (Canadá)
+	English (India)	Inglés (India)
+	English (Ireland)	Inglés (Irlanda)
+	English (New Zealand)	Inglés (Nueva Zelanda)
+	English (South Africa)	Inglés (Sudáfrica)
 	Polish	Polaco
 	Do Not Check Spelling or Grammar	No revisar la ortografía ni la gramática
 
@@ -2075,6 +2115,7 @@
 	Hyphenation zone:	Zona de separación:
 	Italian	Italiano
 	Croatian	Croata
+	Indonesian	Indonesio
 	Japanese	Japonés
 	Korean	Coreano
 	Limit consecutive hyphens to:	Limitar guiones consecutivos a:
@@ -2447,6 +2488,16 @@ preview	Title	Título
 	Other Large Operators	Otros operadores grandes
 	Region:	Región:
 	Automatic ({region})	Automático ({region})
+	Odd Banded Rows	Filas impares con bandas
+	Even Banded Rows	Filas pares con bandas
+	Odd Banded Columns	Columnas impares con bandas
+	Even Banded Columns	Columnas pares con bandas
+	Top Left Cell	Celda superior izquierda
+	Top Right Cell	Celda superior derecha
+	Bottom Left Cell	Celda inferior izquierda
+	Bottom Right Cell	Celda inferior derecha
+	Inside Horizontal Border	Borde horizontal interior
+	Inside Vertical Border	Borde vertical interior
 	Text of the nearest paragraph with a given style (running headers)	Texto del párrafo más cercano con un estilo dado (encabezados variables)
 	Style name:	Nombre del estilo:
 # Mail merge: filter and sort recipients (#778)
@@ -2474,6 +2525,10 @@ preview	Title	Título
 	Contains	Contiene
 	Does not contain	No contiene
 	{count} of {total} recipients will be merged.	Se combinarán {count} de {total} destinatarios.
+	Find in list:	Buscar en la lista:
+	Any field	Cualquier campo
+	Matches: {count}	Coincidencias: {count}
+	Show only records that will be merged	Mostrar solo los registros que se combinarán
 	Take the last match on the page	Tomar la última coincidencia de la página
 	Show its list number	Mostrar su número de lista
 	Show its number relative to this field	Mostrar su número respecto a este campo
@@ -2531,6 +2586,25 @@ preview	Title	Título
 	Suggested	Sugerencias
 	Set Proofing Language…	Establecer idioma de revisión…
 	Language Preferences…	Preferencias de idioma…
+	Printer	Impresora
+	Select a printer	Selecciona una impresora
+	Refresh printers	Actualizar impresoras
+	Two-sided printing	Impresión a doble cara
+	Printer default	Valor predeterminado de la impresora
+	One-sided	Una cara
+	Two-sided: long edge	Doble cara: borde largo
+	Two-sided: short edge	Doble cara: borde corto
+	Grayscale	Escala de grises
+	Finding printers…	Buscando impresoras…
+	No printers found. Configure a system printer or export a PDF.	No se encontraron impresoras. Configura una impresora en el sistema o exporta un PDF.
+	Printer discovery failed.	No se pudieron encontrar impresoras.
+	Submitting print job…	Enviando trabajo de impresión…
+	Print job submitted.	Trabajo de impresión enviado.
+	Print job submitted: {receipt}	Trabajo de impresión enviado: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Trabajo de impresión enviado: {count} hoja(s) en cola de impresión
+	Print failed: the printing worker stopped.	La impresión falló: el proceso de impresión se detuvo.
+	Print settings	Configuración de impresión
+	Submit print job	Enviar trabajo de impresión
 
 # Dictionaries folder (#1063)
 	Dictionaries	Diccionarios
@@ -2542,3 +2616,165 @@ preview	Title	Título
 
 # Backstage › Recover (#586)
 	Recover	Recuperar
+
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	Márgenes simétricos
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	Archivo o página web existente
+	Link to:	Vincular a:
+	Place in This Document	Lugar de este documento
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Columna {n}
+	Header row	Fila de encabezado
+	No header row	Sin fila de encabezado
+	My list has	Mi lista tiene
+# Table Layout › Formula dialog (#1210)
+	Formula:	Fórmula:
+	Paste function:	Pegar función:
+# Reading Mode column widths (#1040)
+	Narrow	Estrecha
+	Medium	Media
+	Dot-dot-dash	Punto, punto y raya
+	More Underlines…	Más subrayados…
+	Underline Color	Color de subrayado
+# Split Cells and Convert Text to Table (#2592)
+	Merge cells before split	Combinar celdas antes de dividir
+	Table size	Tamaño de la tabla
+	AutoFit behavior	Autoajuste
+	Initial column width:	Ancho de columna inicial:
+	AutoFit to contents	Ajustar al contenido
+	AutoFit to window	Ajustar a la ventana
+	Separate text at	Separar texto en
+	Commas	Comas
+	Other:	Otro:
+	The number must be between 1 and {max}.	El número debe estar entre 1 y {max}.
+	The measurement must be between {min} and {max}.	La medida debe estar entre {min} y {max}.
+	Recently Used Fonts	Fuentes usadas recientemente
+	All Fonts	Todas las fuentes
+	Spike	Acumulador
+	Insert Spike	Insertar acumulador
+# Add Font status (#1789)
+	Added 1 font	1 fuente añadida
+	Added {n} fonts	{n} fuentes añadidas
+	{added}; {count} couldn't be read: {names}	{added}; no se pudieron leer {count}: {names}
+	{names} and {n} more	{names} y {n} más
+	{added}; {n} skipped (limit {max})	{added}; {n} omitidas (límite {max})
+
+# Drop Cap menu and Drop Cap Options (#2601)
+	Dropped	En texto
+	In margin	En margen
+	Drop Cap Options…	Opciones de letra capital…
+	Lines to drop:	Líneas que ocupa:
+	Distance from text:	Distancia del texto:
+	Distance from text	Distancia del texto
+
+# Picture Format › Size: the Size dialog, sizes typed in any unit (#2573)
+	Lock aspect ratio	Bloquear relación de aspecto
+	Relative to original picture size	Relativo al tamaño original de la imagen
+	Original size	Tamaño original
+	{width} × {height} pixels	{width} × {height} píxeles
+	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Escribe un tamaño en cualquier unidad, como 5 cm o 300 px. El otro lado se ajusta, así que la imagen conserva sus proporciones.
+
+	Import…	Importar…
+
+# Personal templates (#2852)
+	Personal	Personal
+	Personal Templates	Plantillas personales
+	Templates you save in your templates folder show up here.	Las plantillas que guarde en su carpeta de plantillas aparecen aquí.
+	Save as Word Template…	Guardar como plantilla de Word…
+	Saves a .dotx template in your templates folder. It shows up in File › New under Personal.	Guarda una plantilla .dotx en su carpeta de plantillas. Aparece en Archivo › Nuevo, en Personal.
+	File locations	Ubicación de archivos
+	User templates:	Plantillas de usuario:
+	Not set	Sin definir
+	File › New lists the .dotx and .dotm templates here under Personal; Save as Word Template starts here.	Archivo › Nuevo muestra aquí las plantillas .dotx y .dotm en Personal; Guardar como plantilla de Word empieza aquí.
+	Format Shape Pane	Panel Formato de forma
+	Format Shape	Formato de forma
+	Format Shape…	Formato de forma…
+	No fill	Sin relleno
+	Solid fill	Relleno sólido
+	Gradient fill	Relleno degradado
+	Preset gradients	Degradados predefinidos
+	Radial	Radial
+	Rectangular	Rectangular
+	Path	Trazado
+	Direction	Dirección
+	Angle	Ángulo
+	Gradient stops	Puntos de degradado
+	Add gradient stop	Agregar punto de degradado
+	Remove gradient stop	Quitar punto de degradado
+	Rotate with shape	Girar con la forma
+	Gradient	Degradado
+	No Gradient	Sin degradado
+	Light Variations	Variaciones claras
+	Dark Variations	Variaciones oscuras
+	More Gradients…	Más degradados…
+	Select a shape, text box or drawing canvas to format its fill.	Seleccione una forma, un cuadro de texto o un lienzo de dibujo para dar formato a su relleno.
+	Linear Right	Lineal hacia la derecha
+	Linear Diagonal - Top Left to Bottom Right	Lineal diagonal: de superior izquierda a inferior derecha
+	Linear Down	Lineal hacia abajo
+	Linear Diagonal - Top Right to Bottom Left	Lineal diagonal: de superior derecha a inferior izquierda
+	Linear Left	Lineal hacia la izquierda
+	Linear Diagonal - Bottom Right to Top Left	Lineal diagonal: de inferior derecha a superior izquierda
+	Linear Up	Lineal hacia arriba
+	Linear Diagonal - Bottom Left to Top Right	Lineal diagonal: de inferior izquierda a superior derecha
+	From Top Left Corner	Desde la esquina superior izquierda
+	From Top Right Corner	Desde la esquina superior derecha
+	From Bottom Left Corner	Desde la esquina inferior izquierda
+	From Bottom Right Corner	Desde la esquina inferior derecha
+	From Center	Desde el centro
+	Soft	Suave
+	Lit from Top	Iluminado desde arriba
+	Deep	Profundo
+	Lit from Bottom	Iluminado desde abajo
+	Center Glow	Brillo central
+	More tabs	Más pestañas
+# #3013: Insert Table of Figures
+	Include label and number	Incluir rótulo y número
+	First Record	Primer registro
+	Last Record	Último registro
+	Go to Record	Ir al registro
+	Edit Individual Documents…	Editar documentos individuales…
+	Print Documents…	Imprimir documentos…
+	Print Documents	Imprimir documentos
+	Current record	Registro actual
+	From:	Desde:
+	To:	Hasta:
+	Enter a number.	Introduce un número.
+# Why a ribbon control is off (#2678)
+	a drawing canvas can't be ungrouped	un lienzo de dibujo no se puede desagrupar
+	a drawing canvas can't go inside a text box	un lienzo de dibujo no puede ir dentro de un cuadro de texto
+	charts and diagrams can't be moved or resized yet	los gráficos y diagramas aún no se pueden mover ni cambiar de tamaño
+	no equation at the caret	no hay ninguna ecuación en el cursor
+	not editing an equation	no se está editando ninguna ecuación
+	nothing is selected	no hay nada seleccionado
+	only in Outline view	solo en la vista Esquema
+	select a SmartArt graphic first	seleccione primero un gráfico SmartArt
+	select a chart first	seleccione primero un gráfico
+	select a connector first	seleccione primero un conector
+	select a drawing canvas first	seleccione primero un lienzo de dibujo
+	select a floating picture or shape first	seleccione primero una imagen o forma flotante
+	select a group first	seleccione primero un grupo
+	select a picture first	seleccione primero una imagen
+	select a picture or shape first	seleccione primero una imagen o forma
+	select a shape first	seleccione primero una forma
+	select a text box first	seleccione primero un cuadro de texto
+	select a text box linked to another first	seleccione primero un cuadro de texto vinculado a otro
+	select recipients first	seleccione primero los destinatarios
+	select two or more pictures or shapes first (Shift+click)	seleccione primero dos o más imágenes o formas (Mayús+clic)
+	text boxes can't go inside a text box	los cuadros de texto no pueden ir dentro de un cuadro de texto
+	the Clipboard pane is empty	el panel Portapapeles está vacío
+	the cursor isn't in a table	el cursor no está en una tabla
+	there is nothing to undo	no hay nada que deshacer
+	this SmartArt was made in another program: WordCraft shows it but can't edit it	este SmartArt se creó en otro programa: WordCraft lo muestra pero no puede editarlo
+	this chart was made in another program: WordCraft shows it but can't edit it	este gráfico se creó en otro programa: WordCraft lo muestra pero no puede editarlo
+	this text box is already linked: break the link first	este cuadro de texto ya está vinculado: quite primero el vínculo
+	leave the equation first	salga primero de la ecuación
+	the Spike is empty	el acumulador está vacío
+# More reasons a ribbon control is off (#2678)
+	a group holding Word ink can't be ungrouped yet	un grupo con tinta de Word aún no se puede desagrupar
+	drop caps can't go in a table	no se puede poner una letra capital en una tabla
+	the document is protected	el documento está protegido
+	the paragraph is empty	el párrafo está vacío
+	the paragraph starts with a space	el párrafo empieza con un espacio
+	Open a document first	Abra primero un documento

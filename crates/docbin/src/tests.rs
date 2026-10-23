@@ -9,6 +9,7 @@ use super::read;
 
 mod drawing;
 mod encrypted;
+mod metadata;
 
 /// Offset in the WordDocument stream where test text pieces are placed (past the FIB).
 const TEXT_FC: u32 = 0x600;
@@ -855,7 +856,7 @@ fn struct_doc(spec: &StructSpec) -> Vec<u8> {
     let stsh = stsh_bytes(&[std_bytes(1, 0x0FFF, "Normal", &Vec::new(), &Vec::new())]);
     let stsh_at = table.len();
     table.extend_from_slice(&stsh);
-    let ffn = ffn_bytes(&["Times New Roman"]);
+    let ffn = ffn_bytes(&["Times New Roman", "Wingdings"]);
     let ffn_at = table.len();
     table.extend_from_slice(&ffn);
     let lst_at = table.len();
@@ -1354,6 +1355,22 @@ fn fields_and_hyperlinks() {
 }
 
 #[test]
+fn hyperlink_target_sublocation_and_quotes() {
+    assert_eq!(super::hyperlink_target(r#"HYPERLINK "http://example.com" \l "heading""#), Some("http://example.com#heading".into()));
+    assert_eq!(super::hyperlink_target(r#"HYPERLINK \l "heading""#), Some("#heading".into()));
+    assert_eq!(super::hyperlink_target(r#"Hyperlink "http://example.com/a path""#), Some("http://example.com/a path".into()));
+    assert_eq!(super::hyperlink_target(r#"HYPERLINK "http://example.com" \o "Help text""#), Some("http://example.com".into()));
+    assert_eq!(super::hyperlink_target(r#"HYPERLINK \l "bm" \o "tip""#), Some("#bm".into()));
+}
+
+/// A field whose name only starts with HYPERLINK is not a hyperlink.
+#[test]
+fn hyperlink_target_needs_the_whole_field_name() {
+    assert_eq!(super::hyperlink_target(r#"HYPERLINKS "x""#), None);
+    assert_eq!(super::hyperlink_target(r#"HYPERLINK	"http://example.com""#), Some("http://example.com".into()));
+}
+
+#[test]
 fn bookmarks_become_objects() {
     let text = "Hello world\r";
     let ccp = text.chars().count() as u32;
@@ -1499,6 +1516,92 @@ fn huge_story_ranges_are_clamped_to_their_subdocument() {
     assert!(footnote.blocks.iter().any(|b| b.as_para().is_some_and(|p| p.text == "Note body")));
     // The endnote story starts past the endnote subdocument: nothing to read.
     assert!(!doc.parts.values().any(|p| p.kind == wordcraft_doc::PartKind::Endnote));
+}
+
+/// The text of each note a paragraph references, in order.
+fn note_texts(doc: &wordcraft_doc::Document, p: &wordcraft_doc::Paragraph) -> Vec<String> {
+    p.objects
+        .iter()
+        .filter_map(|o| match o {
+            wordcraft_doc::para::InlineObject::NoteRef { id, .. } => doc.parts.get(id),
+            _ => None,
+        })
+        .map(|part| part.blocks.iter().filter_map(|b| b.as_para()).map(|para| para.text.as_str()).collect::<Vec<_>>().join("\n"))
+        .collect()
+}
+
+#[test]
+fn note_stories_pointing_at_the_same_text_are_read_once() {
+    // 2000 footnote references whose PlcffndTxt steps back to CP 0 after every story
+    // ([0, 10, 0, 10, …]): every other one was read into its own part, a copy of the whole
+    // footnote subdocument each (1001 parts here; a large story times thousands of
+    // references in a hostile file).
+    let n = 2000u32;
+    let text: &'static str = Box::leak(format!("A{}\r", "\u{2}".repeat(n as usize)).into_boxed_str());
+    let ccp = text.chars().count() as u32;
+    let refs: Vec<u32> = (1..=n).chain([ccp]).collect();
+    let spec = StructSpec {
+        text,
+        note_stories: vec!["Note body\r"],
+        extra_pairs: vec![(2, plc(&refs, &1u16.to_le_bytes().repeat(n as usize))), (3, plc(&[0u32, 10].repeat(n as usize / 2 + 1), &[]))],
+        ..structured_spec(text, ccp)
+    };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    assert_eq!(doc.parts.values().filter(|p| p.kind == wordcraft_doc::PartKind::Footnote).count(), 1);
+    let p0 = doc.body.first().and_then(|b| b.as_para()).expect("para");
+    assert_eq!(note_texts(&doc, p0), vec!["Note body".to_string()]);
+}
+
+#[test]
+fn note_stories_stepping_back_are_dropped_and_ordered_ones_kept() {
+    // Story CPs [0, 5, 10, 3, 10] for four footnotes and four endnotes: the first two
+    // stories are in order and read (the control); the third runs backwards and the fourth
+    // starts inside the first, so the third and fourth references get no note.
+    let text = "a\u{2}b\u{2}c\u{2}d\u{2}e\u{2}f\u{2}g\u{2}h\u{2}\r";
+    let ccp = text.chars().count() as u32;
+    let stories = plc(&[0, 5, 10, 3, 10], &[]);
+    let spec = StructSpec {
+        text,
+        note_stories: vec!["Aaaa\rBbbb\r"],
+        endnote_stories: vec!["Cccc\rDddd\r"],
+        extra_pairs: vec![
+            (2, plc(&[1, 3, 5, 7, ccp], &1u16.to_le_bytes().repeat(4))),
+            (3, stories.clone()),
+            (46, plc(&[9, 11, 13, 15, ccp], &1u16.to_le_bytes().repeat(4))),
+            (47, stories),
+        ],
+        ..structured_spec(text, ccp)
+    };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    let p0 = doc.body.first().and_then(|b| b.as_para()).expect("para");
+    assert_eq!(note_texts(&doc, p0), ["Aaaa", "Bbbb", "Cccc", "Dddd"].map(String::from));
+    assert_eq!(doc.parts.len(), 4);
+}
+
+#[test]
+fn header_stories_pointing_at_the_same_text_are_read_once() {
+    // Two sections whose odd headers both claim the header subdocument's [0, 5) (Plcfhdd
+    // steps back to CP 0 inside the second section's slots): the second used to become a
+    // second copy of the text. Its slot is now empty, which links it to the first section's.
+    let text = "a\rb\r";
+    let ccp = text.chars().count() as u32;
+    // Six empty separator stories, then each section's six slots; the odd header is the
+    // second slot.
+    let hdd = plc(&[0, 0, 0, 0, 0, 0, 0, 0, 5, 5, 5, 5, 5, 0, 5, 5, 5, 5, 5], &[]);
+    let spec = StructSpec {
+        text,
+        header_stories: vec!["Head\r"],
+        sections: vec![(2, Vec::new()), (ccp, Vec::new())],
+        papx_entries: vec![(0, 0, Vec::new()), (2, 0, Vec::new())],
+        extra_pairs: vec![(11, hdd)],
+        ..structured_spec(text, ccp)
+    };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    assert_eq!(doc.parts.values().filter(|p| p.kind == wordcraft_doc::PartKind::Header).count(), 1);
+    let first = doc.body.first().and_then(|b| b.as_para()).and_then(|p| p.section.as_ref()).expect("first section");
+    let header = first.headers.default.and_then(|id| doc.parts.get(&id)).expect("first section's header");
+    assert!(header.blocks.iter().any(|b| b.as_para().is_some_and(|p| p.text == "Head")), "header: {:?}", header.blocks);
+    assert_eq!(doc.last_section.headers.default, None);
 }
 
 /// A document whose piece table is given raw (cps + one Pcd per piece), with `text` bytes
@@ -2197,4 +2300,95 @@ fn second_table_gets_its_own_grid() {
     assert_eq!(tables[1].props.borders, None, "borders reset");
     assert_eq!(tables[1].props.align, None, "alignment reset");
     assert_eq!(tables[1].props.indent, None, "indent reset");
+}
+
+#[test]
+fn sprm_t_cell_width_twips_and_percentage() {
+    // [MS-DOC] §2.9.290 sprmTCellWidth (0xD635):
+    // cb (1 byte), itcFirst (1 byte), itcLim (1 byte), ftsWidth (1 byte), wWidth (2 bytes).
+    // ftsWidth = 3 (twips): 1440 twips = 72.0 pt.
+    let w_twips = [0u8, 2, 3, 0xA0, 0x05]; // cell 0..2, fts=3, 1440 dxa
+    // ftsWidth = 2 (percentage in 50ths of a percent): 2500 = 50.0%.
+    let w_pct = [2u8, 3, 2, 0xC4, 0x09]; // cell 2..3, fts=2, 2500 (50%)
+    let papx = [sprm_cb(0xD635, &w_twips), sprm_cb(0xD635, &w_pct)].concat();
+
+    let row = crate::table::decode(&papx);
+    assert_eq!(row.width_of(0), Some(72.0));
+    assert_eq!(row.width_of(1), Some(72.0));
+    assert_eq!(row.width_pct_of(2), Some(50.0));
+
+    // End-to-end document test: row cells receive the preferred widths.
+    let text = "a\u{7}b\u{7}c\u{7}\u{7}\r";
+    let in_tbl = grpprl(&[(0x2416, &[0x01]), (0x6649, &[1, 0, 0, 0])]);
+    let ttp = [
+        grpprl(&[(0x2416, &[0x01]), (0x2417, &[0x01]), (0x6649, &[1, 0, 0, 0])]),
+        t_def_edges(&[0, 1440, 2880, 4320]),
+        sprm_cb(0xD635, &w_twips),
+        sprm_cb(0xD635, &w_pct),
+    ]
+    .concat();
+    let spec = StructSpec {
+        text,
+        header_stories: vec![],
+        sections: vec![(text.chars().count() as u32, Vec::new())],
+        chpx_runs: vec![(0, Vec::new())],
+        papx_entries: vec![(0, 0, in_tbl), (6, 0, ttp), (7, 0, Vec::new())],
+        plf_lst: Vec::new(),
+        plf_lfo: Vec::new(),
+        note_stories: vec![],
+        endnote_stories: vec![],
+        extra_pairs: Vec::new(),
+        data_stream: Vec::new(),
+    };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    let table = doc.body[0].as_table().expect("table block");
+    assert_eq!(table.rows[0].cells[0].props.width, Some(72.0));
+    assert_eq!(table.rows[0].cells[1].props.width, Some(72.0));
+    assert_eq!(table.rows[0].cells[2].props.width_pct, Some(50.0));
+}
+
+// ---------------------------------------------------------------------------------------------
+// #1767: symbol runs and paragraph borders.
+
+/// Word stores a symbol character (Insert › Symbol) as the placeholder U+0028 plus
+/// `sprmCSymbol` (0x6A09), which carries the font table index and the character code
+/// ([MS-DOC] §2.6.1 CSymbolOperand); the text stream alone would read "(".
+#[test]
+fn symbol_runs_read_the_character_and_font_from_sprm_c_symbol() {
+    let text = "(\r";
+    // ftc = 1 (Wingdings), xchar = F071: the box Word draws for Wingdings 0x71.
+    let sym = [1u16.to_le_bytes(), 0xF071u16.to_le_bytes()].concat();
+    let spec = StructSpec { text, chpx_runs: vec![(0, grpprl(&[(0x6A09, &sym)]))], ..structured_spec(text, text.chars().count() as u32) };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    let p = doc.body.first().and_then(|b| b.as_para()).expect("paragraph");
+    assert_eq!(p.text, "\u{F071}", "the symbol, not the placeholder");
+    assert_eq!(p.props_of_char(0).font.as_deref(), Some("Wingdings"), "its font from the font table");
+}
+
+/// Paragraph borders around a block are read from both storage forms: the Word 97 Brc80
+/// (palette colour) and the Word 2000+ BrcOperand (cb + Brc with a full colour).
+#[test]
+fn paragraph_borders_read_from_both_forms() {
+    let b80 = [8u8, 0x01, 0x06, 0x01]; // 1 pt single line, palette red (6), 1 pt from the text
+    let brc = [8u8, 0xFF, 0x00, 0x00, 0x00, 8, 0x01, 0x02, 0x00]; // cb 8, red COLORREF, 1 pt single, space 2
+    let text = "boxed\r\r";
+    let spec = StructSpec {
+        text,
+        papx_entries: vec![
+            (0, 0, grpprl(&[(0x6424, &b80), (0x6425, &b80), (0x6426, &b80), (0x6427, &b80), (0x6428, &b80)])),
+            (6, 0, grpprl(&[(0xC64E, &brc)])),
+        ],
+        ..structured_spec(text, text.chars().count() as u32)
+    };
+    let doc = read(&struct_doc(&spec)).expect("opens");
+    let p0 = doc.body.first().and_then(|b| b.as_para()).expect("first paragraph");
+    let b = p0.props.borders.expect("borders");
+    let top = b.top.expect("top border");
+    assert_eq!((top.style, top.width, top.space), (wordcraft_doc::props::BorderStyle::Single, 1.0, 1.0));
+    assert_eq!(top.color, Some(wordcraft_doc::Rgb(0xFF, 0, 0)));
+    assert!(b.left.is_some() && b.bottom.is_some() && b.right.is_some() && b.between.is_some());
+    let p1 = doc.body.get(1).and_then(|b| b.as_para()).expect("second paragraph");
+    let top = p1.props.borders.expect("borders").top.expect("top border");
+    assert_eq!((top.style, top.width, top.space), (wordcraft_doc::props::BorderStyle::Single, 1.0, 2.0));
+    assert_eq!(top.color, Some(wordcraft_doc::Rgb(0xFF, 0, 0)));
 }

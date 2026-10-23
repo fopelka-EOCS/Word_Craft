@@ -52,7 +52,7 @@ pub struct LangInfo {
 }
 
 /// The registry. English first: it is the fallback and the source language.
-pub static LANGUAGES: [LangInfo; 20] = [
+pub static LANGUAGES: [LangInfo; 27] = [
     LangInfo { code: "en", name: "English", source: "", prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
     // Simplified Chinese; `zh`, `zh-CN`, `zh-SG` and `zh-Hans-*` resolve here (see `candidates`).
     LangInfo {
@@ -73,6 +73,14 @@ pub static LANGUAGES: [LangInfo; 20] = [
         catalog: OnceLock::new(),
     },
     LangInfo { code: "ja", name: "日本語", source: include_str!("ja.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    LangInfo {
+        code: "ko",
+        name: "한국어",
+        source: include_str!("ko.tsv"),
+        prefer_hans: false, // 일본어처럼 CJK지만 한자 우선순위는 필요 없으므로 false
+        editing_lang: None, // 현재 한국어 맞춤법(proofing) 지원이 없으므로 None
+        catalog: OnceLock::new(),
+    },
     LangInfo {
         code: "uk", name: "Українська", source: include_str!("uk.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new()
     },
@@ -111,7 +119,14 @@ pub static LANGUAGES: [LangInfo; 20] = [
         editing_lang: Some("pl-PL"),
         catalog: OnceLock::new(),
     },
-    LangInfo { code: "cs", name: "Čeština", source: include_str!("cs.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    LangInfo {
+        code: "cs",
+        name: "Čeština",
+        source: include_str!("cs.tsv"),
+        prefer_hans: false,
+        editing_lang: Some("cs-CZ"),
+        catalog: OnceLock::new(),
+    },
     LangInfo { code: "et", name: "Eesti", source: include_str!("et.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
     // German, neutral across Germany, Austria and Switzerland; `de`, `de-DE`, `de-AT`, `de-CH` …
     // resolve here.
@@ -146,6 +161,18 @@ pub static LANGUAGES: [LangInfo; 20] = [
     },
     // Vietnamese; `vi`, `vi-VN` and `vi_VN.UTF-8` resolve here.
     LangInfo { code: "vi", name: "Tiếng Việt", source: include_str!("vi.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    // Swedish; sv, sv-SE, sv-FI and sv_SE.UTF-8 resolve here.
+    LangInfo { code: "sv", name: "Svenska", source: include_str!("sv.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    // Croatian; `hr`, `hr-HR` and `hr_HR.UTF-8` resolve here.
+    LangInfo { code: "hr", name: "Hrvatski", source: include_str!("hr.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    // Dutch; `nl`, `nl-NL`, `nl-BE` and `nl_NL.UTF-8` resolve here.
+    LangInfo { code: "nl", name: "Nederlands", source: include_str!("nl.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    // Danish; `da`, `da-DK` and `da_DK.UTF-8` resolve here.
+    LangInfo { code: "da", name: "Dansk", source: include_str!("da.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    // Romanian; `ro`, `ro-RO`, `ro_RO.UTF-8` and `ro-MD` resolve here.
+    LangInfo { code: "ro", name: "Română", source: include_str!("ro.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
+    // Slovenian; `sl`, `sl-SI` and `sl_SI.UTF-8` resolve here.
+    LangInfo { code: "sl", name: "Slovenščina", source: include_str!("sl.tsv"), prefer_hans: false, editing_lang: None, catalog: OnceLock::new() },
 ];
 
 impl LangInfo {
@@ -193,6 +220,10 @@ impl Lang {
         self.0.prefer_hans
     }
 
+    pub fn prefers_korean(self) -> bool {
+        self.0.code == "ko"
+    }
+
     /// The language new blank documents are written in with this interface ([`LangInfo::editing_lang`]).
     pub fn editing_lang(self) -> Option<&'static str> {
         self.0.editing_lang
@@ -211,6 +242,12 @@ impl Lang {
         (catalogs, Lang::all().map(Lang::name).collect::<Vec<_>>().join(" "))
     }
 
+    /// The CJK interface catalogs using the Korean or Chinese writing-system preference.
+    pub fn cjk_font_text_for(hans: bool, korean: bool) -> (Vec<&'static str>, String) {
+        let catalogs = Lang::all().filter(|l| l.uses_cjk() && l.prefers_hans() == hans && l.prefers_korean() == korean).map(|l| l.0.source).collect();
+        (catalogs, Lang::all().map(Lang::name).collect::<Vec<_>>().join(" "))
+    }
+
     /// A language by its exact code (any case).
     pub fn from_code(code: &str) -> Option<Lang> {
         LANGUAGES.iter().find(|l| l.code.eq_ignore_ascii_case(code)).map(Lang)
@@ -225,6 +262,16 @@ impl Lang {
     /// Every registered language.
     pub fn all() -> impl Iterator<Item = Lang> {
         LANGUAGES.iter().map(Lang)
+    }
+
+    /// Every registered language in the order a picker lists them: English first (the source
+    /// language and the fallback), then the rest by their own name with accents folded, so
+    /// Čeština sits under C rather than after Z. Names in other scripts follow the Latin ones in
+    /// code point order: Greek, Cyrillic, Arabic, then the CJK languages.
+    pub fn for_picker() -> Vec<Lang> {
+        let mut rest: Vec<Lang> = Lang::all().filter(|l| l.code() != Lang::EN.code()).collect();
+        rest.sort_by_cached_key(|l| name_sort_key(l.name()));
+        std::iter::once(Lang::EN).chain(rest).collect()
     }
 
     fn catalog(self) -> &'static Catalog {
@@ -439,9 +486,54 @@ pub fn fmt(template: &str, args: &[(&str, &str)]) -> String {
     out
 }
 
+/// A test language whose catalog is `source` (catalog format), so tests of lookup code don't
+/// depend on the bundled catalogs' wording. `code` selects code-specific rules such as Turkish
+/// casing.
+#[cfg(test)]
+pub(crate) fn fixture_lang(code: &'static str, source: &'static str) -> Lang {
+    Lang(Box::leak(Box::new(LangInfo { code, name: "Fixture", source, prefer_hans: false, editing_lang: None, catalog: OnceLock::new() })))
+}
+
 #[cfg(test)]
 mod audit;
 #[cfg(test)]
 pub(crate) mod pseudo;
 #[cfg(test)]
 mod tests;
+
+/// `name` lowercased with the Latin accents that occur in language names folded away, so a
+/// byte-wise sort reads alphabetically. Other scripts are left as they are.
+fn name_sort_key(name: &str) -> String {
+    name.chars()
+        .flat_map(char::to_lowercase)
+        .map(|c| match c {
+            'à'..='å' | 'ā' | 'ă' | 'ą' => 'a',
+            'ç' | 'ć' | 'č' => 'c',
+            'è'..='ë' | 'ē' | 'ě' | 'ę' | 'ế' | 'ệ' => 'e',
+            'ì'..='ï' | 'ī' => 'i',
+            'ñ' | 'ń' | 'ň' => 'n',
+            'ò'..='ö' | 'ø' | 'ő' => 'o',
+            'ś' | 'š' => 's',
+            'ù'..='ü' | 'ū' | 'ů' | 'ű' => 'u',
+            'ý' | 'ÿ' => 'y',
+            'ź' | 'ż' | 'ž' => 'z',
+            c => c,
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod picker_order_tests {
+    use super::*;
+
+    #[test]
+    fn picker_lists_english_first_then_names_alphabetically() {
+        let order = Lang::for_picker();
+        assert_eq!(order.first().map(|l| l.code()), Some(Lang::EN.code()));
+        assert_eq!(order.len(), Lang::all().count());
+        let keys: Vec<String> = order[1..].iter().map(|l| name_sort_key(l.name())).collect();
+        assert!(keys.windows(2).all(|w| w[0] <= w[1]), "{keys:?}");
+        assert_eq!(name_sort_key("Čeština"), "cestina");
+        assert_eq!(name_sort_key("Türkçe"), "turkce");
+    }
+}

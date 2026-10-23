@@ -14,6 +14,8 @@ const MAX_BYTES: u64 = 256 << 20;
 const MAX_RECORDS: usize = 128;
 const MAX_FILES: usize = 16;
 const DISK_BUDGET: u64 = 2 << 30;
+/// Times a record lock held for a moment (by a process being started) is tried again.
+const LOCK_RETRIES: u32 = 10;
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,6 +24,29 @@ pub(crate) struct Snapshot {
     pub info: RecoveryInfo,
     generation: u64,
     pub document: Document,
+}
+/// A failed snapshot write. `permanent` failures come from the snapshot itself (its size, the
+/// folder or disk budget, a value the format cannot keep): writing the same document again would
+/// fail the same way, so it is not retried until the document changes (#2625).
+#[derive(Debug)]
+struct SaveError {
+    message: String,
+    permanent: bool,
+}
+impl SaveError {
+    fn permanent(message: impl Into<String>) -> Self {
+        Self { message: message.into(), permanent: true }
+    }
+}
+impl From<String> for SaveError {
+    fn from(message: String) -> Self {
+        Self { message, permanent: false }
+    }
+}
+impl From<&str> for SaveError {
+    fn from(message: &str) -> Self {
+        message.to_owned().into()
+    }
 }
 struct Entry {
     info: RecoveryInfo,
@@ -127,11 +152,21 @@ impl Store {
         paths.sort_by_key(|p| std::cmp::Reverse(generation(p)));
         Ok(paths)
     }
+    /// Locks a record's `owner.lock`, retrying [`LOCK_RETRIES`] times 10 ms apart.
     fn lock(&self, id: &str) -> Result<File, String> {
         if !id_ok(id) {
             return Err("invalid recovery id".into());
         }
         let file = private_file(&self.root.join(id).join("owner.lock"), false).map_err(|e| e.to_string())?;
+        // A process another part of the app (or a test) is starting holds the lock for a moment
+        // (a forked child shares it until it execs): wait that out, but not a live owner.
+        for _ in 0..LOCK_RETRIES {
+            match file.try_lock() {
+                Ok(()) => return Ok(file),
+                Err(std::fs::TryLockError::WouldBlock) => std::thread::sleep(Duration::from_millis(10)),
+                Err(e) => return Err(format!("recovery copy is in use or cannot be locked: {e}")),
+            }
+        }
         file.try_lock().map_err(|e| format!("recovery copy is in use or cannot be locked: {e}"))?;
         Ok(file)
     }
@@ -210,7 +245,7 @@ impl Store {
         }
         Ok(used)
     }
-    fn save(&mut self, s: Snapshot) -> Result<(), String> {
+    fn save(&mut self, s: Snapshot) -> Result<(), SaveError> {
         let id = s.info.id.clone();
         let result = self.write_snapshot(s);
         // Include failures before temp-file creation (quota checks, locking, etc.).
@@ -223,11 +258,11 @@ impl Store {
         }
         result
     }
-    fn write_snapshot(&mut self, mut s: Snapshot) -> Result<(), String> {
+    fn write_snapshot(&mut self, mut s: Snapshot) -> Result<(), SaveError> {
         let dir = self.root.join(&s.info.id);
         if !dir.exists() {
             if self.directories()?.len() >= MAX_RECORDS {
-                return Err("recovery folder is full; discard an older copy".into());
+                return Err(SaveError::permanent("recovery folder is full; discard an older copy"));
             }
             private_dir(&dir).map_err(|e| e.to_string())?;
         }
@@ -241,16 +276,20 @@ impl Store {
         let limit = MAX_BYTES.min(DISK_BUDGET.saturating_sub(self.disk_used()?));
         let tmp = dir.join(format!("pending-{}.tmp", new_id()?));
         let final_path = dir.join(format!("snapshot-{:020}.json", s.generation));
-        let result = (|| {
+        let result = (|| -> Result<(), SaveError> {
             let file = private_file(&tmp, true).map_err(|e| e.to_string())?;
-            let mut writer = Limited { inner: BufWriter::new(file), remaining: limit };
-            serde_json::to_writer(&mut writer, &s).map_err(|e| e.to_string())?;
-            writer.flush().map_err(|e| e.to_string())?;
+            let mut writer = Limited { inner: BufWriter::new(file), remaining: limit, exceeded: false };
+            let written = serde_json::to_writer(&mut writer, &s).map_err(|e| e.to_string()).and_then(|()| writer.flush().map_err(|e| e.to_string()));
+            if let Err(e) = written {
+                return Err(SaveError { message: e, permanent: writer.exceeded });
+            }
             writer.inner.get_ref().sync_all().map_err(|e| e.to_string())?;
             drop(writer);
-            let check = read_snapshot(&tmp)?;
+            // The copy was written and synchronized; one that does not decode back to the same
+            // document fails the same way every time.
+            let check = read_snapshot(&tmp).map_err(SaveError::permanent)?;
             if check.document != s.document {
-                return Err("recovery format did not preserve the full document".into());
+                return Err(SaveError::permanent("recovery format did not preserve the full document"));
             }
             // A new generation is never written over the last valid file.
             fs::rename(&tmp, &final_path).map_err(|e| e.to_string())?;
@@ -317,10 +356,12 @@ impl Store {
 struct Limited<W> {
     inner: W,
     remaining: u64,
+    exceeded: bool,
 }
 impl<W: Write> Write for Limited<W> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         if bytes.len() as u64 > self.remaining {
+            self.exceeded = true;
             return Err(io::Error::other("recovery snapshot or folder size limit exceeded"));
         }
         let n = self.inner.write(bytes)?;
@@ -345,6 +386,8 @@ enum Outcome {
 struct Event {
     documents: Vec<RecoveryInfo>,
     outcome: Result<Outcome, String>,
+    /// The failure would repeat for the same document; see [`SaveError`].
+    permanent: bool,
 }
 pub(crate) struct Recovery {
     tx: mpsc::SyncSender<Job>,
@@ -369,24 +412,28 @@ impl Recovery {
                 let mut store = match Store::new(root) {
                     Ok(s) => s,
                     Err(e) => {
-                        let _ = events.send(Event { documents: Vec::new(), outcome: Err(e) });
+                        let _ = events.send(Event { documents: Vec::new(), outcome: Err(e), permanent: false });
                         wake();
                         return;
                     }
                 };
                 let initial = store.scan().map(|_| Outcome::Done);
-                if events.send(Event { documents: store.inventory(), outcome: initial }).is_err() {
+                if events.send(Event { documents: store.inventory(), outcome: initial, permanent: false }).is_err() {
                     return;
                 }
                 wake();
                 while let Ok(job) = jobs.recv() {
+                    let mut permanent = false;
                     let result = match job {
-                        Job::Save(s) => store.save(*s).map(|_| Outcome::Done),
+                        Job::Save(s) => store.save(*s).map(|_| Outcome::Done).map_err(|e| {
+                            permanent = e.permanent;
+                            e.message
+                        }),
                         Job::Scan => store.scan().map(|_| Outcome::Done),
                         Job::Load(id, expected) => store.load(&id).map(|s| Outcome::Loaded(Box::new(s), expected)),
                         Job::Discard(id) => store.discard(&id).map(|_| Outcome::Discarded(id)),
                     };
-                    if events.send(Event { documents: store.inventory(), outcome: result }).is_err() {
+                    if events.send(Event { documents: store.inventory(), outcome: result, permanent }).is_err() {
                         break;
                     }
                     wake();
@@ -425,6 +472,7 @@ impl Recovery {
                 self.busy = false;
                 self.ready = true;
                 self.documents = e.documents;
+                let event_permanent = e.permanent;
                 match e.outcome {
                     Ok(Outcome::Done) => None,
                     Ok(Outcome::Discarded(id)) => {
@@ -436,7 +484,11 @@ impl Recovery {
                     Ok(Outcome::Loaded(s, expected)) => Some((*s, expected)),
                     Err(e) => {
                         self.error = Some(e);
-                        self.revision = None;
+                        // A transient failure (a lock, an I/O error) is retried at the next
+                        // interval; one the snapshot itself causes waits for the next edit.
+                        if !event_permanent {
+                            self.revision = None;
+                        }
                         self.due = Instant::now() + INTERVAL;
                         None
                     }
@@ -537,6 +589,51 @@ impl Recovery {
         self.revision = None;
         Ok(())
     }
+    /// Waits out any job already in flight (an autosave queued just before shutdown, say), then,
+    /// if the document turns out to need no recovery copy kept (not dirty, or password-protected
+    /// — [`tick`](Self::tick)'s own condition), discards it and waits for that too. Desktop hosts
+    /// call this before the process exits, the same as the print spooler's own pending-job wait
+    /// (`finish_pending_jobs`): otherwise a save that lands right before close can race the
+    /// process exiting before the now-redundant recovery copy is actually removed, so the *next*
+    /// launch wrongly offers to recover a document that was in fact saved cleanly.
+    pub fn finish(&mut self, s: &Session) -> Result<(), String> {
+        let mut error = None;
+        if self.busy {
+            let e = self.rx.recv().map_err(|e| e.to_string())?;
+            self.documents = e.documents;
+            self.busy = false;
+            self.ready = true;
+            // An in-flight job failing (e.g. a stray autosave) doesn't mean the document itself
+            // wasn't saved cleanly by an explicit Save — still try the discard below, so one
+            // doesn't keep the other from doing its job; log it once there's nothing further to do.
+            if let Err(e) = e.outcome {
+                error = Some(e);
+            }
+        }
+        // Same guard `tick` uses: a document switch with no regular tick in between to notice and
+        // reset `self.id` must not let the *new* document's clean state discard the *previous*
+        // document's still-live recovery copy under a stale identity.
+        if self.document == Some(s.document_id())
+            && let Some(id) = self.id.clone()
+            && (!s.dirty || s.password.is_some())
+        {
+            self.queue(Job::Discard(id))?;
+            let e = self.rx.recv().map_err(|e| e.to_string())?;
+            self.busy = false;
+            self.documents = e.documents;
+            match e.outcome {
+                Ok(_) => {
+                    self.id = None;
+                    self.revision = None;
+                }
+                Err(e) => error = Some(e),
+            }
+        }
+        match error {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -557,6 +654,33 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+    /// A store reopened on `root` whose scan reports an unreadable record. The record's lock can be
+    /// briefly held by a process another test is starting (a forked child holds the descriptor
+    /// until it execs), and a record that can't be locked is skipped, not reported: so try again
+    /// for up to a second rather than read a skipped record as a clean scan.
+    fn reopen_reporting_unreadable(root: &std::path::Path) -> Store {
+        for _ in 0..50 {
+            let mut store = Store::new(root.to_path_buf()).unwrap();
+            if store.scan().is_err() {
+                return store;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        panic!("the scan never reported the unreadable record");
+    }
+    /// `store.load(id)`, tried again for up to a second while the record can't be locked: a process
+    /// another test is starting holds the lock for a moment (see [`reopen_reporting_unreadable`]).
+    fn load_retrying(store: &mut Store, id: &str) -> Snapshot {
+        let mut last = String::new();
+        for _ in 0..50 {
+            match store.load(id) {
+                Ok(snapshot) => return snapshot,
+                Err(e) => last = e,
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        panic!("the record never loaded: {last}");
     }
     fn snapshot(id: &str, text: &str) -> Snapshot {
         Snapshot {
@@ -587,6 +711,49 @@ mod tests {
         s.recovery.as_mut().unwrap().due = Instant::now();
         s.recovery_tick();
         settle(s);
+    }
+
+    /// #3140: a save that lands right before the app closes can race the process exiting before
+    /// the now-redundant recovery copy is actually removed, so the next launch wrongly offers to
+    /// recover a document that was in fact saved cleanly. `finish_recovery` (desktop hosts call it
+    /// on exit, the same as they wait for pending print jobs) must discard it synchronously
+    /// instead, with no regular tick in between — simulating closing right after Save, not after
+    /// however long it'd take the next normal autosave tick to notice and clean up.
+    #[test]
+    fn finish_recovery_discards_its_own_copy_for_a_document_saved_right_before_exit() {
+        let profile = Temp::new();
+        let mut s = session(&profile.0);
+        s.run("document.setText", &json!({"text": "About to be saved"})).unwrap();
+        save_now(&mut s);
+        assert_eq!(s.recovery_documents().len(), 1, "a recovery copy exists for the dirty document");
+        // A real Save does this, then the app can close on the very next frame, with no regular
+        // recovery_tick() in between to notice `!s.dirty` and queue the discard itself.
+        s.dirty = false;
+        assert_eq!(
+            s.recovery_documents().len(),
+            1,
+            "confirms the race: setting dirty=false alone (what Save does) doesn't discard anything by itself"
+        );
+        s.finish_recovery();
+        assert!(s.recovery_documents().is_empty(), "finish_recovery should have discarded the now-redundant copy before returning");
+    }
+
+    /// `tick` resets `self.id` the moment the session's document no longer matches what it last
+    /// saw (so it never discards under a stale identity); `finish_recovery` must guard the same
+    /// way. Switching documents and exiting immediately, with no regular tick in between to reset
+    /// that identity, must not let the *new* (clean, blank) document's state discard the
+    /// *previous* document's still-live recovery copy.
+    #[test]
+    fn finish_recovery_does_not_discard_a_previous_document_s_copy_after_switching() {
+        let profile = Temp::new();
+        let mut s = session(&profile.0);
+        s.run("document.setText", &json!({"text": "The document the user is still working on"})).unwrap();
+        save_now(&mut s);
+        assert_eq!(s.recovery_documents().len(), 1, "a recovery copy exists for the dirty document");
+        s.set_document(Document::new()); // e.g. File > New, with no tick() in between
+        assert!(!s.dirty, "a freshly switched-to document starts clean");
+        s.finish_recovery();
+        assert_eq!(s.recovery_documents().len(), 1, "switching to a new, unrelated document must not discard the previous one's recovery copy");
     }
 
     #[test]
@@ -641,9 +808,8 @@ mod tests {
         let second = store.entries[&id].path.clone();
         fs::write(second, b"{truncated").unwrap();
         drop(store);
-        let mut reopened = Store::new(t.0.clone()).unwrap();
-        assert!(reopened.scan().is_err());
-        assert_eq!(reopened.load(&id).unwrap().document.plain_text(StoryRef::Body), "First valid copy");
+        let mut reopened = reopen_reporting_unreadable(&t.0);
+        assert_eq!(load_retrying(&mut reopened, &id).document.plain_text(StoryRef::Body), "First valid copy");
         // Never reuse the corrupt generation's name or prune the valid fallback.
         reopened.save(snapshot(&id, "Third valid copy")).unwrap();
         assert_eq!(fs::read(first).unwrap(), bytes);
@@ -652,9 +818,10 @@ mod tests {
 
     #[test]
     fn size_limit_and_lossy_values_fail_without_committing() {
-        let mut out = Limited { inner: Vec::new(), remaining: 3 };
+        let mut out = Limited { inner: Vec::new(), remaining: 3, exceeded: false };
         assert!(out.write_all(b"four").is_err());
         assert!(out.inner.is_empty());
+        assert!(out.exceeded);
         let t = Temp::new();
         let id = new_id().unwrap();
         let mut store = Store::new(t.0.clone()).unwrap();
@@ -663,9 +830,52 @@ mod tests {
         let bytes = fs::read(&first).unwrap();
         let mut invalid = snapshot(&id, "invalid");
         invalid.document.last_section.page_w = f32::NAN;
-        assert!(store.save(invalid).is_err());
+        assert!(store.save(invalid).is_err_and(|e| e.permanent));
         assert_eq!(fs::read(first).unwrap(), bytes);
         assert_eq!(Store::files(&t.0.join(id)).unwrap().len(), 1);
+    }
+
+    /// Copies are written with picture bytes in base64 (#586 follow-up); those written before kept
+    /// them as arrays of numbers and are still listed and restored, bytes intact.
+    #[test]
+    fn copies_with_byte_arrays_written_before_still_restore() {
+        let t = Temp::new();
+        let id = new_id().unwrap();
+        let mut s = snapshot(&id, "Synthetic draft with a picture");
+        s.generation = 1;
+        s.document.media.insert("media/image1.png".into(), Arc::new(vec![0, 1, 127, 128, 254, 255]));
+        let mut value = serde_json::to_value(&s).unwrap();
+        assert_eq!(value["document"]["media"]["media/image1.png"], "AAF/gP7/");
+        value["document"]["media"]["media/image1.png"] = json!([0, 1, 127, 128, 254, 255]);
+        private_dir(&t.0.join(&id)).unwrap();
+        fs::write(t.0.join(&id).join("snapshot-00000000000000000001.json"), serde_json::to_vec(&value).unwrap()).unwrap();
+        let mut store = Store::new(t.0.clone()).unwrap();
+        store.scan().unwrap();
+        assert_eq!(store.inventory().len(), 1);
+        assert_eq!(store.load(&id).unwrap().document, s.document);
+    }
+
+    #[test]
+    fn snapshot_that_cannot_be_copied_is_not_retried_until_the_document_changes() {
+        // #2625: a failure caused by the snapshot itself (here a value the format cannot keep;
+        // in the field, the 256 MiB limit) used to be rewritten every interval while dirty.
+        let t = Temp::new();
+        let mut s = session(&t.0);
+        s.run("document.setText", &json!({"text": "Synthetic draft"})).unwrap();
+        s.doc.last_section.page_w = f32::NAN;
+        save_now(&mut s);
+        assert!(s.recovery_error().is_some());
+        assert!(s.recovery_wait().is_none());
+        s.recovery.as_mut().unwrap().due = Instant::now();
+        s.recovery_tick();
+        assert!(!s.recovery_busy(), "the unchanged document was snapshotted again");
+        assert!(s.recovery_error().is_some());
+        // An edit tries again.
+        s.doc.last_section.page_w = 612.0;
+        s.run("text.insert", &json!({"text": "!"})).unwrap();
+        save_now(&mut s);
+        assert!(s.recovery_error().is_none());
+        assert_eq!(s.recovery_documents().len(), 1);
     }
 
     #[test]
@@ -683,21 +893,8 @@ mod tests {
         assert!(store.save(snapshot(&id, "New copy")).is_err());
         assert_eq!(fs::read(first).unwrap(), bytes);
         drop(store);
-        // The record's lock can be briefly held by a process another test is starting (a forked
-        // child holds the descriptor until it execs), and a record that can't be locked is
-        // skipped, not reported: try again rather than read that as success.
-        let mut reopened = Store::new(t.0.clone()).unwrap();
-        let mut scanned = reopened.scan();
-        for _ in 0..50 {
-            if scanned.is_err() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(20));
-            reopened = Store::new(t.0.clone()).unwrap();
-            scanned = reopened.scan();
-        }
-        assert!(scanned.is_err());
-        assert_eq!(reopened.load(&id).unwrap().document.plain_text(StoryRef::Body), "Last valid copy");
+        let mut reopened = reopen_reporting_unreadable(&t.0);
+        assert_eq!(load_retrying(&mut reopened, &id).document.plain_text(StoryRef::Body), "Last valid copy");
     }
 
     #[test]
@@ -724,7 +921,7 @@ mod tests {
         let mut reopened = Store::new(t.0.clone()).unwrap();
         reopened.scan().unwrap();
         assert!(!dir.exists());
-        assert_eq!(reopened.load(&id).unwrap().document.plain_text(StoryRef::Body), "Valid synthetic draft");
+        assert_eq!(load_retrying(&mut reopened, &id).document.plain_text(StoryRef::Body), "Valid synthetic draft");
     }
 
     #[test]

@@ -35,9 +35,44 @@ pub fn decimal() -> char {
     DECIMAL.get()
 }
 
-/// `pt` in [`unit`], written the region's way (`2,54 cm`).
+/// `pt` in [`unit`], written the region's way (`2,54 cm`), with the unit in the interface
+/// language (`2,54 см` in Russian).
 pub fn length(pt: f32) -> String {
-    unit().format_with(pt, decimal())
+    length_in(unit(), pt)
+}
+
+/// [`length`] in a given unit.
+pub fn length_in(unit: Unit, pt: f32) -> String {
+    format!("{}{}", unit.number(pt, decimal()), unit_suffix(unit))
+}
+
+/// The unit's suffix as the interface shows it: ` cm`, ` mm`, ` pt` and ` pi` go through the
+/// catalog (` см` in Russian, #1734); inches keep `"`.
+pub fn unit_suffix(unit: Unit) -> String {
+    match unit {
+        Unit::Inches => unit.suffix().to_string(),
+        Unit::Centimeters => format!(" {}", tl!("cm")),
+        Unit::Millimeters => format!(" {}", tl!("mm")),
+        Unit::Points => format!(" {}", tl!("pt")),
+        Unit::Picas => format!(" {}", tl!("pi")),
+    }
+}
+
+/// A length typed into a field in `unit`, as a number of that unit: either decimal separator,
+/// another unit (`1 in` in a centimetre field), and the units' names in the interface language
+/// as well as in English (`3 см`).
+pub fn parse_length(text: &str, unit: Unit) -> Option<f64> {
+    let mut text: String = text.chars().filter(|c| !c.is_whitespace()).collect::<String>().to_lowercase();
+    for (english, translated) in [("cm", tl!("cm")), ("mm", tl!("mm")), ("pt", tl!("pt")), ("pi", tl!("pi"))] {
+        let translated = translated.to_lowercase();
+        if translated != english
+            && let Some(number) = text.strip_suffix(translated.as_str())
+        {
+            text = format!("{number}{english}");
+            break;
+        }
+    }
+    wordcraft_geom::parse_measure(&text, unit).map(|pt| f64::from(pt / unit.pt_per_unit()))
 }
 
 /// Copy the session's settings the UI reads without the app.
@@ -51,20 +86,23 @@ pub(crate) fn sync(app: &WordApp) {
 /// centimetre field).
 pub trait MeasureExt {
     fn measure(self, unit: Unit) -> Self;
+    /// The same field showing nothing, not even the unit, until a length is typed in: a value
+    /// the selected paragraphs differ in.
+    fn measure_blank(self, unit: Unit) -> Self;
 }
 
 impl MeasureExt for egui::DragValue<'_> {
     fn measure(self, unit: Unit) -> Self {
         let sep = decimal();
-        self.suffix(unit.suffix())
+        self.suffix(unit_suffix(unit))
             .custom_formatter(move |n, decimals| {
                 let s = egui::emath::format_with_decimals_in_range(n, decimals);
                 if sep == '.' { s } else { s.replace('.', &sep.to_string()) }
             })
-            .custom_parser(move |text| {
-                let text: String = text.chars().filter(|c| !c.is_whitespace()).collect();
-                wordcraft_geom::parse_measure(&text, unit).map(|pt| f64::from(pt / unit.pt_per_unit()))
-            })
+            .custom_parser(move |text| parse_length(text, unit))
+    }
+    fn measure_blank(self, unit: Unit) -> Self {
+        self.custom_formatter(|_, _| String::new()).custom_parser(move |text| parse_length(text, unit))
     }
 }
 
@@ -116,7 +154,8 @@ pub fn page(app: &mut WordApp, ui: &mut Ui) {
                     ui.painter().rect_filled(r, 4.0, t.hover);
                 }
                 let font = if active { semibold(14.0) } else { crate::theme::regular(14.0) };
-                ui.painter().text(egui::pos2(r.min.x + 12.0, r.center().y), egui::Align2::LEFT_CENTER, label, font, t.text);
+                // Long translations stay inside the row; WidgetInfo above keeps the full name.
+                ui.painter().with_clip_rect(r).text(egui::pos2(r.min.x + 12.0, r.center().y), egui::Align2::LEFT_CENTER, label, font, t.text);
                 if resp.clicked() {
                     app.ui.options_pane = id.to_string();
                 }
@@ -199,7 +238,8 @@ fn general(app: &mut WordApp, ui: &mut Ui) {
     egui::Grid::new("options_user").num_columns(2).spacing(vec2(8.0, 6.0)).show(ui, |ui| {
         ui.label(tl!("User name:"));
         let mut n = app.session.author.clone();
-        if ui.add(egui::TextEdit::singleline(&mut n).desired_width(260.0)).changed() {
+        let protected = wordcraft_engine::cmd::protect::enforced(&app.session.doc);
+        if ui.add_enabled(!protected, egui::TextEdit::singleline(&mut n).desired_width(260.0)).changed() && !protected {
             app.session.author = n;
         }
         ui.end_row();
@@ -303,22 +343,28 @@ fn dictionaries(app: &mut WordApp, ui: &mut Ui) {
     // The dictionary each language found, looked up again after the folder changes.
     let found_id = egui::Id::new("options_dictionaries_found");
     let generation = wordcraft_engine::proof::dictionary_generation();
-    let cached = ui.data(|d| d.get_temp::<(u64, Vec<(String, Option<String>)>)>(found_id)).filter(|(g, _)| *g == generation);
+    let cached = ui.data(|d| d.get_temp::<(u64, Vec<(String, Option<String>, Option<String>)>)>(found_id)).filter(|(g, _)| *g == generation);
     let found = match cached {
         Some((_, f)) => f,
         None => {
-            let f: Vec<(String, Option<String>)> = wordcraft_engine::proof::installed_dictionaries()
+            let f: Vec<(String, Option<String>, Option<String>)> = wordcraft_engine::proof::installed_dictionaries()
                 .into_iter()
-                .map(|(lang, dic)| (language_name(lang).to_string(), dic.map(|d| d.to_string_lossy().into_owned())))
+                .map(|(lang, dic)| {
+                    let error = wordcraft_engine::proof::dictionary_load_error(lang);
+                    (language_name(lang).to_string(), dic.map(|d| d.to_string_lossy().into_owned()), error)
+                })
                 .collect();
             ui.data_mut(|d| d.insert_temp(found_id, (generation, f.clone())));
             f
         }
     };
-    for (language, file) in found {
-        let line = match file {
-            Some(f) => crate::i18n::fmt(tl!("{language}: {file}"), &[("language", &language), ("file", &f)]),
-            None => crate::i18n::fmt(tl!("{language}: no dictionary found"), &[("language", &language)]),
+    for (language, file, error) in found {
+        let line = match (file, error) {
+            (Some(f), Some(e)) => {
+                crate::i18n::fmt(tl!("{language}: {file} (unreadable: {reason})"), &[("language", &language), ("file", &f), ("reason", &e)])
+            }
+            (Some(f), None) => crate::i18n::fmt(tl!("{language}: {file}"), &[("language", &language), ("file", &f)]),
+            (None, _) => crate::i18n::fmt(tl!("{language}: no dictionary found"), &[("language", &language)]),
         };
         ui.add(egui::Label::new(RichText::new(line).small()).truncate());
     }
@@ -334,8 +380,10 @@ fn language_name(lang: wordcraft_engine::proof::ProofLang) -> &'static str {
         ProofLang::Hr => tl!("Croatian"),
         ProofLang::Tr => tl!("Turkish"),
         ProofLang::Ru => tl!("Russian"),
-        // English uses its bundled word list; Bulgarian has no dictionary yet.
-        ProofLang::En | ProofLang::Bg | ProofLang::Other => "",
+        ProofLang::Cs => tl!("Czech"),
+        ProofLang::Id => tl!("Indonesian"),
+        // English uses its bundled word list; Bulgarian and German have no dictionary yet.
+        ProofLang::En | ProofLang::EnGb | ProofLang::EnCa | ProofLang::Bg | ProofLang::De | ProofLang::Other => "",
     }
 }
 
@@ -412,7 +460,17 @@ fn language(app: &mut WordApp, ui: &mut Ui) {
     // #414 (detect the document's language) goes here.
     ui.add_space(8.0);
     section(ui, "Proofing language");
-    note(ui, "Spelling and grammar are checked in English (United States).");
+    let lang = crate::ribbon::caret_language(app);
+    let text = if crate::ribbon::caret_no_proof(app) {
+        tl!("The text at the insertion point is marked Do not check spelling or grammar.").to_string()
+    } else if !crate::ribbon::caret_language_proofed(app) {
+        crate::i18n::fmt(tl!("{language}: WordCraft doesn't check spelling or grammar in this language yet."), &[("language", &lang)])
+    } else {
+        let unreadable = crate::ribbon::caret_unreadable_dictionary(app);
+        crate::chrome::dictionary_problem(&lang, &unreadable, crate::ribbon::caret_missing_dictionary(app))
+            .unwrap_or_else(|| crate::i18n::fmt(tl!("Spelling and grammar are checked in {language}."), &[("language", &lang)]))
+    };
+    ui.label(RichText::new(text).small().weak());
 }
 
 fn accessibility(app: &mut WordApp, ui: &mut Ui) {
@@ -511,6 +569,12 @@ fn advanced(app: &mut WordApp, ui: &mut Ui) {
     {
         let _ = app.run("ui.caretAnimation", json!({"value": caret}));
     }
+    // The web app has no folders to name.
+    if !cfg!(target_arch = "wasm32") {
+        ui.add_space(8.0);
+        section(ui, "File locations");
+        templates_folder(app, ui);
+    }
     ui.add_space(8.0);
     section(ui, "Customize");
     ui.horizontal(|ui| {
@@ -525,6 +589,36 @@ fn advanced(app: &mut WordApp, ui: &mut Ui) {
             let _ = app.run("tools.customizeRibbon", json!({}));
         }
     });
+}
+
+/// The user templates folder (#2852): where File › New finds personal templates and Save as Word
+/// Template starts. Empty is the app's own folder, shown as the hint.
+fn templates_folder(app: &mut WordApp, ui: &mut Ui) {
+    let saved = app.session.prefs.user_templates_folder.clone().unwrap_or_default();
+    let id = egui::Id::new("options_user_templates_folder");
+    let mut folder = ui.data(|d| d.get_temp::<String>(id)).unwrap_or_else(|| saved.clone());
+    let default = app.services.templates_dir.as_ref().map(|d| d.to_string_lossy().into_owned());
+    ui.label(tl!("User templates:"));
+    ui.horizontal(|ui| {
+        let hint = default.clone().unwrap_or_else(|| tl!("Not set").to_string());
+        let r = ui.add(egui::TextEdit::singleline(&mut folder).desired_width(320.0).hint_text(hint));
+        let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        let changed = folder.trim() != saved;
+        if ui.add_enabled(changed, egui::Button::new(tl!("Apply"))).clicked() || (enter && changed) {
+            let value = if folder.trim().is_empty() { "auto" } else { folder.trim() };
+            match app.run("file.options", json!({"userTemplatesFolder": value})) {
+                Ok(_) => folder = app.session.prefs.user_templates_folder.clone().unwrap_or_default(),
+                Err(e) => app.status(e),
+            }
+        }
+        if ui.add_enabled(!saved.is_empty(), egui::Button::new(tl!("Clear"))).clicked()
+            && app.run("file.options", json!({"userTemplatesFolder": "auto"})).is_ok()
+        {
+            folder.clear();
+        }
+    });
+    ui.data_mut(|d| d.insert_temp(id, folder));
+    note(ui, "File › New lists the .dotx and .dotm templates here under Personal; Save as Word Template starts here.");
 }
 
 fn agents(ui: &mut Ui) {
@@ -616,7 +710,7 @@ fn language_picker(app: &mut WordApp, ui: &mut Ui) {
             if ui.selectable_label(app.ui.language == AUTO, auto_label.as_str()).clicked() {
                 let _ = app.run("ui.language", json!({"value": AUTO}));
             }
-            for lang in Lang::all() {
+            for lang in Lang::for_picker() {
                 if ui.selectable_label(app.ui.language == lang.code(), lang.name()).clicked() {
                     let _ = app.run("ui.language", json!({"value": lang.code()}));
                 }
@@ -631,7 +725,15 @@ fn language_picker(app: &mut WordApp, ui: &mut Ui) {
 pub fn lenient<T: Serialize + DeserializeOwned + Default>(input: &Value) -> T {
     let mut base = serde_json::to_value(T::default()).unwrap_or(Value::Null);
     if base.is_object() {
-        overlay::<T>(&mut base, &mut Vec::new(), input, 0);
+        let mut extra = Vec::new();
+        overlay::<T>(&mut base, &mut Vec::new(), input, 0, &mut extra);
+        // Keys with no slot in the defaults (write-only legacy settings, or unknown ones) are
+        // kept only after the loop, so `base` stays the size of `T` while each key is checked.
+        for (path, k, v) in extra {
+            if let Some(parent) = object_at(&mut base, &path) {
+                parent.insert(k, v);
+            }
+        }
     }
     serde_json::from_value(base).unwrap_or_default()
 }
@@ -645,18 +747,34 @@ fn object_at<'a>(root: &'a mut Value, path: &[String]) -> Option<&'a mut Map<Str
     v.as_object_mut()
 }
 
-fn overlay<T: DeserializeOwned>(root: &mut Value, path: &mut Vec<String>, input: &Value, depth: usize) {
+fn overlay<T: DeserializeOwned>(
+    root: &mut Value,
+    path: &mut Vec<String>,
+    input: &Value,
+    depth: usize,
+    extra: &mut Vec<(Vec<String>, String, Value)>,
+) {
     let Some(map) = input.as_object() else { return };
     for (k, v) in map {
         let Some(parent) = object_at(root, path) else { return };
         let old = parent.get(k).cloned();
         if depth < 4 && v.is_object() && old.as_ref().is_some_and(Value::is_object) {
             path.push(k.clone());
-            overlay::<T>(root, path, v, depth + 1);
+            overlay::<T>(root, path, v, depth + 1, extra);
             path.pop();
             continue;
         }
         parent.insert(k.clone(), v.clone());
+        if old.is_none() {
+            let ok = serde_json::from_value::<T>(root.clone()).is_ok();
+            if let Some(parent) = object_at(root, path) {
+                parent.remove(k);
+            }
+            if ok {
+                extra.push((path.clone(), k.clone(), v.clone()));
+            }
+            continue;
+        }
         if serde_json::from_value::<T>(root.clone()).is_err()
             && let Some(parent) = object_at(root, path)
         {
@@ -711,17 +829,145 @@ fn numeral_picker(app: &mut WordApp, ui: &mut Ui) {
 
 #[cfg(test)]
 mod tests {
-    use egui_kittest::kittest::Queryable;
+    use egui_kittest::kittest::{NodeT, Queryable};
     use serde_json::json;
     use wordcraft_geom::Unit;
 
-    use super::{decimal, length, unit};
+    use super::{decimal, length, parse_length, unit};
 
     use crate::theme::Appearance;
     use crate::{Services, UiState, WordApp};
 
+    #[test]
+    fn unknown_settings_keys_load_in_linear_time() {
+        let mut map = serde_json::Map::new();
+        for i in 0..20_000 {
+            map.insert(format!("unknownKey{i}"), json!(i));
+        }
+        map.insert("miniToolbar".into(), json!(false));
+        let bytes = serde_json::to_vec(&serde_json::Value::Object(map)).unwrap();
+        let state = UiState::from_json(&bytes).unwrap();
+        assert!(!state.mini_toolbar);
+    }
+
     fn app() -> WordApp {
         WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default())
+    }
+
+    fn nav_harness(language: &str, percent: u16) -> egui_kittest::Harness<'static, WordApp> {
+        let mut a = app();
+        a.run("ui.language", json!({"value": language})).unwrap();
+        a.run("ui.interfaceSize", json!({"percent": percent})).unwrap();
+        a.run("file.options", json!({"pane": "general"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_pixels_per_point(2.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        h
+    }
+
+    /// File › Options must not offer a way around the protected document's author check.
+    #[test]
+    fn user_name_field_disables_when_protection_starts() {
+        let mut h = nav_harness("en", 100);
+        let user_name = || egui_kittest::kittest::By::new().role(egui::accesskit::Role::TextInput).value("WordCraft User");
+        assert!(!h.get(user_name()).accesskit_node().is_disabled());
+        h.state_mut().run("review.restrict", json!({"mode": "readOnly"})).unwrap();
+        h.run_steps(4);
+        assert!(h.get(user_name()).accesskit_node().is_disabled());
+    }
+
+    /// #1266: check the actual painted text and renderer clip, including the bold selected
+    /// label. AccessKit must still expose the full name and the row must keep its fixed size.
+    #[test]
+    fn options_nav_labels_stay_inside_their_rows() {
+        for language in ["en", "ru"] {
+            for percent in [100, 125, 150] {
+                let mut h = nav_harness(language, percent);
+                // An interface size is absolute (#822): `percent` points per 100 screen pixels,
+                // whatever the display's own scale (2.0 here).
+                assert_eq!(h.ctx.pixels_per_point(), f32::from(percent) / 100.0);
+                for selected in ["general", "accessibility"] {
+                    h.state_mut().run("file.options", json!({"pane": selected})).unwrap();
+                    h.run_steps(4);
+                    for id in wordcraft_engine::cmd::options::PANES {
+                        let label = crate::i18n::tr(crate::i18n::Lang::from_pref(language), super::pane_label(id));
+                        let node =
+                            h.query_all_by_label(label).find(|n| n.accesskit_node().toggled().is_some()).expect("pane has its full accessible name");
+                        assert_eq!(
+                            node.accesskit_node().toggled(),
+                            Some(if id == selected { egui::accesskit::Toggled::True } else { egui::accesskit::Toggled::False })
+                        );
+                        let row = node.rect();
+                        assert_eq!(row.size(), egui::vec2(170.0, 30.0));
+                        let (clip, text) = h
+                            .output()
+                            .shapes
+                            .iter()
+                            .find_map(|s| match &s.shape {
+                                egui::Shape::Text(text) if text.galley.text() == label && row.contains(text.pos) => Some((s.clip_rect, text)),
+                                _ => None,
+                            })
+                            .expect("navigation label is painted");
+                        let bounds = text.visual_bounding_rect();
+                        assert!(row.contains_rect(bounds.intersect(clip)), "{language} {percent}% {selected}: {label} paints outside {row:?}");
+                        if language == "en" && ["general", "display", "save"].contains(&id) {
+                            assert!(clip.contains_rect(bounds), "short labels must remain fully visible");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Clipping only the painter must leave the entire row clickable, its hover/selection
+    /// backgrounds intact, and the selected pane's settings visible at every interface size.
+    #[test]
+    fn options_nav_rows_keep_hover_and_selection() {
+        for language in ["en", "ru"] {
+            for percent in [100, 125, 150] {
+                let mut h = nav_harness(language, percent);
+                for (id, setting) in
+                    [("display", "Spaces"), ("save", "Save documents"), ("accessibility", "Visual effects"), ("general", "Interface")]
+                {
+                    let lang = crate::i18n::Lang::from_pref(language);
+                    let row = h
+                        .query_all_by_label(crate::i18n::tr(lang, super::pane_label(id)))
+                        .find(|n| n.accesskit_node().toggled().is_some())
+                        .expect("pane has its full accessible name")
+                        .rect();
+                    // Both ends of the row, including its empty left inset, stay clickable.
+                    for x in [row.left() + 2.0, row.right() - 2.0] {
+                        h.state_mut().run("file.options", json!({"pane": "agents"})).unwrap();
+                        h.hover_at(egui::pos2(x, row.center().y));
+                        h.run_steps(4);
+                        let t = crate::theme::Tokens::get(&h.ctx);
+                        let background = |h: &egui_kittest::Harness<'_, WordApp>, color| {
+                            h.output().shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Rect(r) if r.rect == row && r.fill == color))
+                        };
+                        assert!(background(&h, t.hover), "{language} {percent}%: hover covers the row");
+                        for pressed in [true, false] {
+                            h.input_mut().events.push(egui::Event::PointerButton {
+                                pos: egui::pos2(x, row.center().y),
+                                button: egui::PointerButton::Primary,
+                                pressed,
+                                modifiers: Default::default(),
+                            });
+                            h.run_steps(1);
+                        }
+                        h.run_steps(4);
+                        assert_eq!(h.state().ui.options_pane, id);
+                        assert!(background(&h, t.checked), "{language} {percent}%: selection covers the row");
+                        assert!(h.query_by_label(crate::i18n::tr(lang, setting)).is_some(), "{id} settings are shown");
+                    }
+                }
+            }
+        }
     }
 
     /// File › Options settings come back after a restart, and a `ui.json` with a wrong value in
@@ -771,6 +1017,20 @@ mod tests {
         b.apply_prefs(UiState::from_json(&saved).unwrap());
         assert_eq!(b.session.prefs.dictionaries_folder.as_deref(), Some(dir.to_string_lossy().as_ref()));
         assert_eq!(wordcraft_engine::proof::hunspell::search_dirs(None).first(), Some(&dir), "searched first");
+    }
+
+    /// #1792: Check spelling as you type is saved with the other proofing choices, so after a
+    /// restart the box comes back the way the user left it.
+    #[test]
+    fn check_spelling_survives_a_restart() {
+        let mut a = app();
+        a.run("file.options", json!({"checkSpelling": false})).unwrap();
+        assert!(!a.session.view.proofing, "off right away");
+        let saved = serde_json::to_value(a.prefs()).unwrap();
+        assert_eq!(saved["editing"]["checkSpelling"], false, "saved in ui.json");
+        let mut b = app();
+        b.apply_prefs(UiState::from_json(&serde_json::to_vec(&saved).unwrap()).unwrap());
+        assert!(!b.session.view.proofing, "spelling stays off after a restart");
     }
 
     /// Settings saved before #838 kept the unit under `editing.units` (default inches): a unit
@@ -994,5 +1254,41 @@ mod tests {
         h.state_mut().run("file.options", json!({"units": "auto", "region": "en-US"})).unwrap();
         h.run_steps(4);
         assert_eq!(length(72.0), "1\"");
+    }
+
+    /// #1734: a Russian interface shows centimetres as `см`, as Word does, and a length field
+    /// takes the unit typed either way.
+    #[test]
+    fn length_units_follow_the_interface_language() {
+        let mut a = app();
+        a.run("ui.language", json!({"value": "ru"})).unwrap();
+        a.run("file.options", json!({"region": "ru-RU"})).unwrap();
+        a.run("file.new", json!({})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(2);
+        h.state_mut().run("ui.dialog", json!({"name": "pageSetup"})).unwrap();
+        h.run_steps(4);
+        assert_eq!((unit(), decimal()), (Unit::Centimeters, ','));
+        assert_eq!(length(72.0), "2,54 см");
+        assert_eq!(h.query_all_by_value("2,54 см").count(), 4, "four margins in centimetres, named in Russian");
+        assert_eq!(h.query_all_by_value("2,54 cm").count(), 0);
+        assert_eq!(parse_length("3 см", Unit::Centimeters), Some(3.0));
+        assert_eq!(parse_length("3cm", Unit::Centimeters), Some(3.0));
+        assert_eq!(parse_length("10 мм", Unit::Centimeters).map(|v| (v * 100.0).round() / 100.0), Some(1.0));
+        assert_eq!(parse_length("72 пт", Unit::Centimeters).map(|v| (v * 100.0).round() / 100.0), Some(2.54));
+
+        h.state_mut().run("file.options", json!({"units": "millimeters"})).unwrap();
+        h.run_steps(4);
+        assert_eq!(length(72.0), "25,4 мм");
+        h.state_mut().run("ui.language", json!({"value": "en"})).unwrap();
+        h.run_steps(4);
+        assert_eq!(length(72.0), "25,4 mm", "English keeps the English names");
     }
 }

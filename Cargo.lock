@@ -705,6 +705,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "chrono"
+version = "0.4.45"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "cipher"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -858,6 +867,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5ca28b0ae3115b884660db4118d803791fd6756b6e88f39c0f3f7859060d7566"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "craft-pdf"
+version = "0.1.0"
+source = "git+https://github.com/storytold/craft-libs?rev=c3487320b2d1de657b860b3c8abb44e1f2b32bd8#c3487320b2d1de657b860b3c8abb44e1f2b32bd8"
+dependencies = [
+ "krilla",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -1875,17 +1893,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hayro-write"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0b3db92c4917aad24ff30d61413a9a7509ae88b27aee1ae34eff881e1d2723a"
-dependencies = [
- "flate2",
- "hayro-syntax",
- "pdf-writer",
-]
-
-[[package]]
 name = "hermit-abi"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2216,15 +2223,13 @@ dependencies = [
 [[package]]
 name = "krilla"
 version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27da593198b20eeba65caeb73c2bbeec3e53ab08fa549898312ce81c4fce5e33"
+source = "git+https://github.com/storytold/craft-libs?rev=c3487320b2d1de657b860b3c8abb44e1f2b32bd8#c3487320b2d1de657b860b3c8abb44e1f2b32bd8"
 dependencies = [
  "base64",
  "bumpalo",
  "flate2",
  "float-cmp",
  "gif",
- "hayro-write",
  "image-webp",
  "imagesize",
  "indexmap",
@@ -2887,7 +2892,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5135,9 +5140,10 @@ dependencies = [
 
 [[package]]
 name = "wordcraft"
-version = "0.7.0"
+version = "0.10.0"
 dependencies = [
  "arboard",
+ "chrono",
  "clipboard-win",
  "craft-print",
  "dispatch2",
@@ -5148,6 +5154,7 @@ dependencies = [
  "log",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "open",
  "pollster 0.4.0",
  "rfd",
@@ -5167,7 +5174,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-cli"
-version = "0.7.0"
+version = "0.10.0"
 dependencies = [
  "serde_json",
  "sys-locale",
@@ -5180,12 +5187,13 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-control-key"
-version = "0.7.0"
+version = "0.10.0"
 
 [[package]]
 name = "wordcraft-doc"
-version = "0.7.0"
+version = "0.10.0"
 dependencies = [
+ "base64",
  "proptest",
  "serde",
  "serde_json",
@@ -5196,9 +5204,10 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-docbin"
-version = "0.7.0"
+version = "0.10.0"
 dependencies = [
  "cfb",
+ "chrono",
  "image",
  "log",
  "miniz_oxide 0.8.9",
@@ -5212,11 +5221,12 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-docx"
-version = "0.7.0"
+version = "0.10.0"
 dependencies = [
  "aes",
  "base64",
  "cfb",
+ "chrono",
  "getrandom 0.3.4",
  "hmac",
  "image",
@@ -5226,6 +5236,7 @@ dependencies = [
  "sha1",
  "sha2",
  "thiserror 2.0.21",
+ "unicode-bidi",
  "wordcraft-doc",
  "wordcraft-geom",
  "zeroize",
@@ -5234,9 +5245,10 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-engine"
-version = "0.7.0"
+version = "0.10.0"
 dependencies = [
  "cfb",
+ "chrono",
  "encoding_rs",
  "getrandom 0.3.4",
  "image",
@@ -5263,7 +5275,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-fonts"
-version = "0.7.0"
+version = "0.10.0"
 dependencies = [
  "harfrust 0.13.3",
  "kurbo",
@@ -5276,10 +5288,11 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-formats"
-version = "0.7.0"
+version = "0.10.0"
 dependencies = [
  "cfb",
  "chardetng",
+ "chrono",
  "encoding_rs",
  "image",
  "js-sys",
@@ -5293,14 +5306,14 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-geom"
-version = "0.7.0"
+version = "0.10.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "wordcraft-layout"
-version = "0.7.0"
+version = "0.10.0"
 dependencies = [
  "image",
  "js-sys",
@@ -5314,12 +5327,13 @@ dependencies = [
  "wordcraft-doc",
  "wordcraft-fonts",
  "wordcraft-geom",
+ "wordcraft-metafile",
  "wordcraft-proof",
 ]
 
 [[package]]
 name = "wordcraft-mcp"
-version = "0.7.0"
+version = "0.10.0"
 dependencies = [
  "log",
  "serde_json",
@@ -5331,7 +5345,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-metafile"
-version = "0.7.0"
+version = "0.10.0"
 dependencies = [
  "kurbo",
  "thiserror 2.0.21",
@@ -5339,14 +5353,15 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-pdf"
-version = "0.7.0"
+version = "0.10.0"
 dependencies = [
+ "chrono",
+ "craft-pdf",
  "hayro-cmap",
  "hayro-interpret",
  "hayro-syntax",
  "image",
  "js-sys",
- "krilla",
  "kurbo",
  "log",
  "thiserror 2.0.21",
@@ -5359,7 +5374,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-proof"
-version = "0.7.0"
+version = "0.10.0"
 dependencies = [
  "log",
  "miniz_oxide 0.8.9",
@@ -5368,7 +5383,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-render"
-version = "0.7.0"
+version = "0.10.0"
 dependencies = [
  "image",
  "log",
@@ -5382,8 +5397,9 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-ui-egui"
-version = "0.7.0"
+version = "0.10.0"
 dependencies = [
+ "cfb",
  "craft-ui",
  "egui",
  "egui_kittest",
@@ -5394,6 +5410,7 @@ dependencies = [
  "serde_json",
  "sys-locale",
  "toml",
+ "unicode-bidi",
  "wordcraft-doc",
  "wordcraft-engine",
  "wordcraft-fonts",
@@ -5407,7 +5424,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-web"
-version = "0.7.0"
+version = "0.10.0"
 dependencies = [
  "eframe",
  "egui",
@@ -5426,7 +5443,7 @@ dependencies = [
 
 [[package]]
 name = "wordcraft-zotero"
-version = "0.7.0"
+version = "0.10.0"
 dependencies = [
  "log",
  "proptest",
@@ -5539,7 +5556,7 @@ checksum = "9440ea3e5aeabb0ac63af70daf835274065238cdd0cec83418f417eae38bacee"
 
 [[package]]
 name = "xtask"
-version = "0.7.0"
+version = "0.10.0"
 dependencies = [
  "serde_json",
 ]

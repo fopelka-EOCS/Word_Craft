@@ -81,6 +81,7 @@
 	Changed lines:	Променени редове:
 	Click level to modify:	Щракнете върху ниво за промяна:
 	Color only	Само цвят
+	Continue from previous section	Продължаване от предишния раздел
 	Define New Multilevel List	Дефиниране на нов многостепенен списък
 	Define New Multilevel List…	Дефиниране на нов многостепенен списък…
 	Deletions:	Изтривания:
@@ -103,6 +104,8 @@
 	Number style for this level:	Стил на номериране за това ниво:
 	Only for the selected text	Само за избрания текст
 	Outside border	Външна граница
+	Page Number Format	Формат на номерата на страниците
+	Page numbering	Номериране на страниците
 	Restart list after:	Рестартиране на списъка след:
 	Right border	Дясна граница
 	Save the document to turn on AutoSave	Запазете документа, за да включите автоматичното запазване
@@ -129,6 +132,9 @@
 	Bold	Получер
 	Bookmark	Отметка
 	Bookmark name:	Име на отметката:
+	Delete Bookmark	Изтриване на отметка
+	Hidden bookmarks	Скрити отметки
+	Sort by:	Сортиране по:
 	Border Painter	Рисуване на граници
 	Border\nPainter	Рисуване\nна граници
 	Borders	Граници
@@ -144,6 +150,7 @@
 	Apply to:	Прилагане към:
 	Whole document	Целия документ
 	This section	Този раздел
+	Selected text	Избрания текст
 	Fill	Запълване
 	Setting:	Настройка:
 	3-D	3-D
@@ -316,6 +323,8 @@
 	Edit\nRecipient List	Редактиране на\nсписъка с получатели
 	Edited	Редактиран
 	Editing	Редактиране
+	Editing endnote	Редактиране на бележка в края
+	Editing footnote	Редактиране на бележка под линия
 	Editing header/footer	Редактиране на горен/долен колонтитул
 	Editing — edit the document directly	Редактиране – директно редактиране на документа
 	Editor	Редактор
@@ -351,6 +360,9 @@
 	First line:	Първи ред:
 	Fixed Column Width	Фиксирана ширина на колоните
 	Focus	Фокус
+	Full Screen View	Изглед на цял екран
+	Show the ribbon	Показване на лентата
+	Old menu keys: Alt, {keys}. Keep typing, or press Esc to cancel.	Стари клавиши за менюта: Alt, {keys}. Продължете да пишете или натиснете Esc за отказ.
 	Font	Шрифт
 	Font Color	Цвят на шрифта
 	Font Dialog	Диалогов прозорец за шрифт
@@ -455,6 +467,8 @@
 	Labels	Етикети
 	Landscape	Пейзаж
 	Language	Език
+	{language} (no dictionary)	{language} (няма речник)
+	No spelling dictionary for {language} is installed, so it isn't checked. WordCraft looks for the Hunspell dictionary {name} in the WORDCRAFT_DICTIONARIES folder and in the usual system locations.	Не е инсталиран правописен речник за {language}, затова текстът не се проверява. WordCraft търси речника Hunspell {name} в папката WORDCRAFT_DICTIONARIES и на обичайните места в системата.
 	Lasso	Ласо
 	Last Column	Последна колона
 	Last commit	Последно подаване
@@ -509,10 +523,14 @@
 	More templates →	Още шаблони →
 	Move or Resize	Преместване или преоразмеряване
 	Multilevel List	Многостепенен списък
+	Multilevel List Library	Библиотека с многостепенни списъци
+	Article I.	Член I.
+	Chapter 1	Глава 1
+	Section 1.01	Раздел 1.01
 	Multiple Pages	Няколко страници
 	Name (A–Z)	Име (А–Я)
 	Name:	Име:
-	Narrow  0.5" all	Тесни  0.5" навсякъде
+	Narrow  {size} all	Тесни  {size} навсякъде
 	Navigation	Навигация
 	Navigation Pane	Навигационен панел
 	New	Нов
@@ -540,7 +558,7 @@
 	Nonbreaking Hyphen	Непрекъсваемо тире
 	Nonbreaking Space	Непрекъсваем интервал
 	None	Няма
-	Normal  1" all	Нормални  1" навсякъде
+	Normal  {size} all	Нормални  {size} навсякъде
 	Normal Style	Нормален стил
 	Not available right now	В момента не е налично
 	Not saved	Не е запазено
@@ -786,10 +804,13 @@
 	Space before/after:	Разстояние преди/след:
 	Spacing	Разстояние
 	Spacing (pt):	Разстояние (пт):
+	Kerning for fonts:	Кернинг на шрифтове:
+	Points and above	пт и повече
 	Speech	Реч
 	Spelling & Grammar	Правопис и граматика
 	Spelling &\nGrammar	Правопис и\nграматика
 	Spelling Suggestions	Предложения за правопис
+	Possible spelling mistake	Възможна правописна грешка
 	Split	Разделяне
 	Split Cells	Разделяне на клетки
 	Split Table	Разделяне на таблица
@@ -1302,6 +1323,9 @@
 	{cols}×{rows} Table	Таблица {cols}×{rows}
 	AaBbYyZz	AaBbYyZz
 	pt	пт
+	cm	см
+	mm	мм
+	pi	pi
 	Document1	Документ1
 	Username	Потребителско име
 	Display name	Показвано име
@@ -1395,6 +1419,8 @@
 	Customize Ribbon	Персонализиране на лентата
 	Add to Quick Access Toolbar	Добавяне към лентата с инструменти за бърз достъп
 	Remove from Quick Access Toolbar	Премахване от лентата с инструменти за бърз достъп
+	Hide Quick Access Toolbar	Скриване на лентата с инструменти за бърз достъп
+	Show Quick Access Toolbar	Показване на лентата с инструменти за бърз достъп
 	Customize the Ribbon…	Персонализиране на лентата…
 	Customize Quick Access Toolbar…	Персонализиране на лентата с инструменти за бърз достъп…
 	More Commands…	Още команди…
@@ -1706,6 +1732,12 @@
 	Do not check spelling or grammar	Без проверка на правописа и граматиката
 	Dutch	Нидерландски
 	English (United Kingdom)	Английски (Обединеното кралство)
+	English (Australia)	Английски (Австралия)
+	English (Canada)	Английски (Канада)
+	English (India)	Английски (Индия)
+	English (Ireland)	Английски (Ирландия)
+	English (New Zealand)	Английски (Нова Зеландия)
+	English (South Africa)	Английски (Южна Африка)
 	Envelope size:	Размер на плика:
 	Estonian	Естонски
 	Finnish	Финландски
@@ -1721,6 +1753,7 @@
 	Hyphenation zone:	Зона на сричкопренасяне:
 	Italian	Италиански
 	Croatian	Хърватски
+	Indonesian	Индонезийски
 	Japanese	Японски
 	Korean	Корейски
 	Limit consecutive hyphens to:	Ограничаване на последователните пренасяния до:
@@ -2149,7 +2182,9 @@
 	Show the mini toolbar when text is selected	Показване на мини лентата с инструменти при избран текст
 	Spaces	Интервали
 	Spelling	Правопис
-	Spelling and grammar are checked in English (United States).	Правописът и граматиката се проверяват на английски (САЩ).
+	Spelling and grammar are checked in {language}.	Език за проверка на правописа и граматиката: {language}.
+	The text at the insertion point is marked Do not check spelling or grammar.	Текстът при курсора е отбелязан с: Без проверка на правописа и граматиката.
+	{language}: WordCraft doesn't check spelling or grammar in this language yet.	{language}: WordCraft все още не проверява правописа и граматиката на този език.
 	Tab characters	Знаци за табулация
 	These marks show even when Show/Hide ¶ is off.	Тези знаци се показват дори когато „Показване/скриване на ¶“ е изключено.
 	Typing replaces selected text	Въвежданият текст замества избрания текст
@@ -2204,6 +2239,8 @@
 	Math AutoCorrect	Автокорекция на математически изрази
 	More >>	Още >>
 	Moves	Премествания
+	Moved from:	Преместено от:
+	Moved to:	Преместено в:
 	New document	Нов документ
 	No changes (read only)	Без промени (само за четене)
 	Only allow this kind of editing:	Разрешаване само на този вид редактиране:
@@ -2236,6 +2273,11 @@
 	Add Font…	Добавяне на шрифт…
 	Added Fonts	Добавени шрифтове
 	Remove Added Font	Премахване на добавен шрифт
+	Load System Installed Fonts…	Зареждане на инсталирани системни шрифтове…
+	All system fonts are already available.	Всички системни шрифтове вече са налични.
+	Local font access is not supported by your browser.	Достъпът до локални шрифтове не се поддържа от браузъра ви.
+	Local font access was denied.	Достъпът до локални шрифтове беше отказан.
+	Loaded {count} system fonts.	Заредени са {count} системни шрифта.
 	Recent Colors	Последни цветове
 	More Colors…	Още цветове…
 	Standard	Стандартни
@@ -2390,6 +2432,7 @@
 	{name} already exists. Choose Save again to replace it.	{name} вече съществува. Изберете „Запазване“ отново, за да го замените.
 	This folder can't be read: {error}	Тази папка не може да бъде прочетена: {error}
 	Showing the first {count} items.	Показани са първите {count} елемента.
+	No items to show.	Няма елементи за показване.
 	File name:	Име на файла:
 	Browse in WordCraft…	Разглеждане в WordCraft…
 	Open a file with WordCraft's own browser when the system file dialog doesn't appear.	Отваряне на файл чрез собствения браузър на WordCraft, когато системният диалогов прозорец за файлове не се появява.
@@ -2441,6 +2484,17 @@
 	Pastes the clipboard's picture.	Поставя картината от клипборда.
 	Region:	Регион:
 	Automatic ({region})	Автоматично ({region})
+# Table style editor: every table style part (#714)
+	Odd Banded Rows	Нечетни редуващи се редове
+	Even Banded Rows	Четни редуващи се редове
+	Odd Banded Columns	Нечетни редуващи се колони
+	Even Banded Columns	Четни редуващи се колони
+	Top Left Cell	Горна лява клетка
+	Top Right Cell	Горна дясна клетка
+	Bottom Left Cell	Долна лява клетка
+	Bottom Right Cell	Долна дясна клетка
+	Inside Horizontal Border	Вътрешна хоризонтална граница
+	Inside Vertical Border	Вътрешна вертикална граница
 	Text of the nearest paragraph with a given style (running headers)	Текст на най-близкия абзац с даден стил (текущи колонтитули)
 	Style name:	Име на стил:
 # Mail merge: filter and sort recipients (#778)
@@ -2468,6 +2522,10 @@
 	Contains	Съдържа
 	Does not contain	Не съдържа
 	{count} of {total} recipients will be merged.	Ще бъдат обединени {count} от {total} получатели.
+	Find in list:	Търсене в списъка:
+	Any field	Всяко поле
+	Matches: {count}	Съвпадения: {count}
+	Show only records that will be merged	Показване само на записите за сливане
 	Take the last match on the page	Взимай последното съвпадение на страницата
 	Show its list number	Показвай номера му в списъка
 	Show its number relative to this field	Показвай номера му спрямо това поле
@@ -2545,6 +2603,25 @@
 	Suggested	Предложения
 	Set Proofing Language…	Задаване на езика за проверка…
 	Language Preferences…	Езикови предпочитания…
+	Printer	Принтер
+	Select a printer	Изберете принтер
+	Refresh printers	Опресняване на принтерите
+	Two-sided printing	Двустранен печат
+	Printer default	По подразбиране на принтера
+	One-sided	Едностранен
+	Two-sided: long edge	Двустранен: дълъг ръб
+	Two-sided: short edge	Двустранен: къс ръб
+	Grayscale	Нюанси на сивото
+	Finding printers…	Търсене на принтери…
+	No printers found. Configure a system printer or export a PDF.	Не са намерени принтери. Настройте системен принтер или експортирайте PDF.
+	Printer discovery failed.	Търсенето на принтери е неуспешно.
+	Submitting print job…	Изпращане на задание за печат…
+	Print job submitted.	Заданието за печат е изпратено.
+	Print job submitted: {receipt}	Заданието за печат е изпратено: {receipt}
+	Print job submitted: spooled {count} sheet(s)	Заданието за печат е изпратено: подадени {count} листа към спулера
+	Print failed: the printing worker stopped.	Печатът е неуспешен: процесът на печат спря.
+	Print settings	Настройки за печат
+	Submit print job	Изпращане на задание за печат
 
 # Cross-reference dialog (#1003)
 	For which item:	За кой елемент:
@@ -2563,3 +2640,168 @@
 
 # Backstage › Recover (#586)
 	Recover	Възстановяване
+
+# Page Setup › Mirror margins (#1239)
+	Mirror margins	Огледални полета
+
+# Insert Hyperlink › Place in This Document (#1370)
+	Existing File or Web Page	Съществуващ файл или уеб страница
+	Link to:	Връзка към:
+	Place in This Document	Място в този документ
+# Table Layout › Sort dialog (#1205)
+	Column {n}	Колона {n}
+	Header row	Заглавен ред
+	No header row	Без заглавен ред
+	My list has	Списъкът ми има
+# Table Layout › Formula dialog (#1210)
+	Formula:	Формула:
+	Paste function:	Поставяне на функция:
+# Reading Mode column widths (#1040)
+	Narrow	Тясна
+	Medium	Средна
+	Dot-dot-dash	Точка-точка-тире
+	More Underlines…	Още подчертавания…
+	Underline Color	Цвят на подчертаването
+# Split Cells and Convert Text to Table (#2592)
+	Merge cells before split	Обединяване на клетките преди разделяне
+	Table size	Размер на таблицата
+	AutoFit behavior	Поведение при автопобиране
+	Initial column width:	Начална ширина на колоните:
+	AutoFit to contents	Автопобиране по съдържанието
+	AutoFit to window	Автопобиране по прозореца
+	Separate text at	Разделяне на текста при
+	Commas	Запетаи
+	Other:	Друго:
+	The number must be between 1 and {max}.	Числото трябва да е между 1 и {max}.
+	The measurement must be between {min} and {max}.	Размерът трябва да е между {min} и {max}.
+	Recently Used Fonts	Наскоро използвани шрифтове
+	All Fonts	Всички шрифтове
+	Spike	Натрупване
+	Insert Spike	Вмъкване на натрупаното
+# Add Font status (#1789)
+	Added 1 font	Добавен 1 шрифт
+	Added {n} fonts	Добавени шрифтове: {n}
+	{added}; {count} couldn't be read: {names}	{added}; не можаха да се прочетат ({count}): {names}
+	{names} and {n} more	{names} и още {n}
+	{added}; {n} skipped (limit {max})	{added}; пропуснати: {n} (ограничение {max})
+	nothing is selected	нищо не е избрано
+	select a picture or shape first	първо изберете картина или фигура
+	select recipients first	първо изберете получатели
+	select two or more pictures or shapes first (Shift+click)	изберете две или повече картини или фигури (Shift+щракване)
+	text boxes can't go inside a text box	текстови полета не могат да са в текстово поле
+	the cursor isn't in a table	курсорът не е в таблица
+	{name} options	{name}: опции
+
+# Drop Cap menu and Drop Cap Options (#2601)
+	Dropped	Вградена
+	In margin	В полето
+	Drop Cap Options…	Опции за главна буква…
+	Lines to drop:	Редове на буквата:
+	Distance from text:	Разстояние от текста:
+	Distance from text	Разстояние от текста
+
+# Drop Cap disabled reasons (#2601)
+	the paragraph is empty	абзацът е празен
+	the paragraph starts with a space	абзацът започва с интервал
+
+# Picture Format › Size: the Size dialog, sizes typed in any unit (#2573)
+	Lock aspect ratio	Заключване на пропорциите
+	Relative to original picture size	Спрямо оригиналния размер на картината
+	Original size	Оригинален размер
+	{width} × {height} pixels	{width} × {height} пиксела
+	Type a size in any unit, such as 5 cm or 300 px. The other side follows, so the picture keeps its proportions.	Въведете размер в произволна единица, например 5 cm или 300 px. Другата страна се променя съответно, така че картината запазва пропорциите си.
+
+	Import…	Импортиране…
+
+# Personal templates (#2852)
+	Personal	Лични
+	Personal Templates	Лични шаблони
+	Templates you save in your templates folder show up here.	Шаблоните, които запишете в папката си с шаблони, се показват тук.
+	Save as Word Template…	Запиши като шаблон на Word…
+	Saves a .dotx template in your templates folder. It shows up in File › New under Personal.	Записва шаблон .dotx в папката ви с шаблони. Той се показва във Файл › Нов под Лични.
+	File locations	Местоположения на файлове
+	User templates:	Потребителски шаблони:
+	Not set	Не е зададено
+	File › New lists the .dotx and .dotm templates here under Personal; Save as Word Template starts here.	Файл › Нов показва шаблоните .dotx и .dotm оттук под Лични; „Запиши като шаблон на Word“ започва оттук.
+	Format Shape Pane	Екран „Форматиране на фигура“
+	Format Shape	Форматиране на фигура
+	Format Shape…	Форматиране на фигура…
+	No fill	Без запълване
+	Solid fill	Плътно запълване
+	Gradient fill	Преливащо запълване
+	Preset gradients	Готови преливания
+	Radial	Радиално
+	Rectangular	Правоъгълно
+	Path	Контур
+	Direction	Посока
+	Angle	Ъгъл
+	Gradient stops	Точки на преливането
+	Add gradient stop	Добавяне на точка на преливане
+	Remove gradient stop	Премахване на точка на преливане
+	Rotate with shape	Завъртане с фигурата
+	Gradient	Преливане
+	No Gradient	Без преливане
+	Light Variations	Светли варианти
+	Dark Variations	Тъмни варианти
+	More Gradients…	Още преливания…
+	Select a shape, text box or drawing canvas to format its fill.	Изберете фигура, текстово поле или платно за рисуване, за да форматирате запълването му.
+	Linear Right	Линейно надясно
+	Linear Diagonal - Top Left to Bottom Right	Линейно диагонално – от горе вляво към долу вдясно
+	Linear Down	Линейно надолу
+	Linear Diagonal - Top Right to Bottom Left	Линейно диагонално – от горе вдясно към долу вляво
+	Linear Left	Линейно наляво
+	Linear Diagonal - Bottom Right to Top Left	Линейно диагонално – от долу вдясно към горе вляво
+	Linear Up	Линейно нагоре
+	Linear Diagonal - Bottom Left to Top Right	Линейно диагонално – от долу вляво към горе вдясно
+	From Top Left Corner	От ъгъла горе вляво
+	From Top Right Corner	От ъгъла горе вдясно
+	From Bottom Left Corner	От ъгъла долу вляво
+	From Bottom Right Corner	От ъгъла долу вдясно
+	From Center	От центъра
+	Soft	Меко
+	Lit from Top	Осветено отгоре
+	Deep	Наситено
+	Lit from Bottom	Осветено отдолу
+	Center Glow	Сияние от центъра
+	More tabs	Още раздели
+# #3013: Insert Table of Figures
+	Include label and number	Включване на етикета и номера
+	First Record	Първи запис
+	Last Record	Последен запис
+	Go to Record	Отиване до запис
+	Edit Individual Documents…	Редактиране на отделни документи…
+	Print Documents…	Печат на документи…
+	Print Documents	Печат на документи
+	Current record	Текущ запис
+	From:	От:
+	To:	До:
+	Enter a number.	Въведете число.
+# Why a ribbon control is off (#2678)
+	a drawing canvas can't be ungrouped	платното за рисуване не може да се разгрупира
+	a drawing canvas can't go inside a text box	платното за рисуване не може да се постави в текстово поле
+	charts and diagrams can't be moved or resized yet	диаграмите и схемите все още не могат да се преместват или преоразмеряват
+	no equation at the caret	няма уравнение при курсора
+	not editing an equation	не се редактира уравнение
+	only in Outline view	само в изгледа „Структура“
+	select a SmartArt graphic first	първо изберете SmartArt графика
+	select a chart first	първо изберете диаграма
+	select a connector first	първо изберете съединител
+	select a drawing canvas first	първо изберете платно за рисуване
+	select a floating picture or shape first	първо изберете плаваща картина или фигура
+	select a group first	първо изберете група
+	select a picture first	първо изберете картина
+	select a shape first	първо изберете фигура
+	select a text box first	първо изберете текстово поле
+	select a text box linked to another first	първо изберете текстово поле, свързано с друго
+	the Clipboard pane is empty	екранът „Клипборд“ е празен
+	there is nothing to undo	няма нищо за отмяна
+	this SmartArt was made in another program: WordCraft shows it but can't edit it	този SmartArt е създаден в друга програма: WordCraft го показва, но не може да го редактира
+	this chart was made in another program: WordCraft shows it but can't edit it	тази диаграма е създадена в друга програма: WordCraft я показва, но не може да я редактира
+	this text box is already linked: break the link first	това текстово поле вече е свързано: първо прекъснете връзката
+	leave the equation first	излезте първо от уравнението
+	the Spike is empty	натрупването е празно
+# More reasons a ribbon control is off (#2678)
+	a group holding Word ink can't be ungrouped yet	група с мастило от Word още не може да се разгрупира
+	drop caps can't go in a table	буквицата не може да се постави в таблица
+	the document is protected	документът е защитен
+	Open a document first	Първо отворете документ
