@@ -78,8 +78,8 @@ File › Berkas, Home › Beranda, Insert › Sisipkan, Layout › Tata Letak, R
 View › Tampilan, styles › Gaya, tables › Tabel, paragraphs › Paragraf. Counts use count-neutral
 wording (`{words} kata`) because Indonesian nouns take no plural inflection, and the built-in
 "Letter" template is `Surat` (its own `template` context) while the paper size of the same English
-name stays `Letter`. Indonesian proofing already exists (#498), so an `id` interface writes `id-ID`
-documents.
+name stays `Letter`. Indonesian proofing already exists (#498), so when no saved proofing-language
+default exists, an `id` interface writes `id-ID` documents.
 Estonian uses the existing fonts, follows `et-EE` system locales, and is available in Options or
 through `ui.language` with `{"value":"et"}`. Its 1,307 entries cover the existing interface catalog.
 Estonian spelling, grammar, dates and document templates are not added by the interface catalog.
@@ -104,8 +104,9 @@ gallery, watermarks, paper sizes and preview tiles. The Czech coverage test
 enforces both reference catalogs and retains the Chinese catalog coverage; counts keep the existing
 count-neutral wording (`Počet slov: 21`). Czech proofing is not included.
 
-Polish, Portuguese, Czech and Indonesian interfaces write new documents and opened TXT/Markdown text
-in their proofing languages (`pl-PL`, `pt-BR`, `cs-CZ`, `id-ID`).
+When no saved proofing-language default exists, Polish, Portuguese, Czech and Indonesian interfaces
+write new documents and opened TXT/Markdown text in their proofing languages (`pl-PL`, `pt-BR`,
+`cs-CZ`, `id-ID`).
 
 **Interface audit (runs in CI).** `untranslated_interface_text` lays the app out in a pseudo-language
 (every tab, File page, dialog, pane, the right-click menu, and a hover and a click on every ribbon
