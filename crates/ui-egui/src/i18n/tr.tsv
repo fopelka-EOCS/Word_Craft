@@ -712,6 +712,10 @@
 	Spacing (pt):	Aralık (pt):
 	Kerning for fonts:	Yazı tipi aralık ayarı:
 	Points and above	punto ve üzeri
+	Ligatures:	Bitişik harfler:
+	Standard only	Yalnızca standart
+	Standard and contextual	Standart ve bağlamsal
+	Historical and discretional	Tarihsel ve isteğe bağlı
 	Speech	Konuşma
 	Spelling & Grammar	Yazım ve Dilbilgisi
 	Spelling &\nGrammar	Yazım ve\nDilbilgisi

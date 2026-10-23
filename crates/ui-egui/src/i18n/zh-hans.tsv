@@ -857,6 +857,10 @@
 	Spacing (pt):	间距（磅）：
 	Kerning for fonts:	为字体调整字间距：
 	Points and above	磅或更大
+	Ligatures:	连字：
+	Standard only	仅标准
+	Standard and contextual	标准和上下文
+	Historical and discretional	历史和自由
 	Speech	语音
 	Spelling & Grammar	拼写和语法
 	Spelling &\nGrammar	拼写和语法

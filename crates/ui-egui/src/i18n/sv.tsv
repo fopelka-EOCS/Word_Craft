@@ -873,6 +873,10 @@
 	Spacing (pt):	Avstånd (pt):
 	Kerning for fonts:	Kerning för teckensnitt:
 	Points and above	punkter och större
+	Ligatures:	Ligaturer:
+	Standard only	Endast standard
+	Standard and contextual	Standard och kontextuella
+	Historical and discretional	Historiska och valfria
 	Speech	Tal
 	Spelling & Grammar	Stavning och grammatik
 	Spelling &\nGrammar	Stavning och\ngrammatik

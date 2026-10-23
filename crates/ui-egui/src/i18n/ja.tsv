@@ -845,6 +845,10 @@
 	Spacing (pt):	間隔 (pt):
 	Kerning for fonts:	カーニングを行う:
 	Points and above	pt 以上
+	Ligatures:	合字:
+	Standard only	標準のみ
+	Standard and contextual	標準と文脈依存
+	Historical and discretional	歴史的と任意
 	Speech	音声
 	Spelling & Grammar	スペル チェックと文章校正
 	Spelling &\nGrammar	スペル チェックと文章校正

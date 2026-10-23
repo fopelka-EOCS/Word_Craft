@@ -774,6 +774,10 @@
 	Spacing (pt):	Abstand (pt):
 	Kerning for fonts:	Unterschneidung für Schriftarten:
 	Points and above	Punkt und größer
+	Ligatures:	Ligaturen:
+	Standard only	Nur Standard
+	Standard and contextual	Standard und kontextbezogen
+	Historical and discretional	Historisch und bedingt
 	Speech	Sprache
 	Spelling & Grammar	Rechtschreibung und Grammatik
 	Spelling &\nGrammar	Rechtschreibung und\nGrammatik

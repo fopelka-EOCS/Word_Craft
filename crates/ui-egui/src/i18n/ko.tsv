@@ -850,6 +850,10 @@
 	Spacing (pt):	간격 (pt):
 	Kerning for fonts:	글꼴 커닝:
 	Points and above	pt 이상
+	Ligatures:	합자:
+	Standard only	표준만
+	Standard and contextual	표준 및 문맥
+	Historical and discretional	역사적 및 임의
 	Speech	음성
 	Spelling & Grammar	맞춤법 및 문법
 	Spelling &\nGrammar	맞춤법 및\n문법

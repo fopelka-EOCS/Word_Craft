@@ -806,6 +806,10 @@
 	Spacing (pt):	Разстояние (пт):
 	Kerning for fonts:	Кернинг на шрифтове:
 	Points and above	пт и повече
+	Ligatures:	Лигатури:
+	Standard only	Само стандартни
+	Standard and contextual	Стандартни и контекстни
+	Historical and discretional	Исторически и по избор
 	Speech	Реч
 	Spelling & Grammar	Правопис и граматика
 	Spelling &\nGrammar	Правопис и\nграматика

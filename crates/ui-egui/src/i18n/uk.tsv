@@ -871,6 +871,10 @@
 	Spacing (pt):	Інтервал (пункти):
 	Kerning for fonts:	Кернінг шрифтів:
 	Points and above	пт і більше
+	Ligatures:	Лігатури:
+	Standard only	Лише стандартні
+	Standard and contextual	Стандартні та контекстні
+	Historical and discretional	Історичні та довільні
 	Speech	Мовлення
 	Spelling & Grammar	Правопис і граматика
 	Spelling &\nGrammar	Правопис і\nграматика

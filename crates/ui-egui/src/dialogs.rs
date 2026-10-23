@@ -174,6 +174,9 @@ pub enum Dialog {
         /// differs, shown neither on nor off; `kern_at` is its Points and above size.
         kern: Option<bool>,
         kern_at: f32,
+        /// Ligatures (`w14:ligatures`), from the Advanced tab, as their OOXML name (`none`,
+        /// `standardContextual`…); empty while the selected text differs.
+        ligatures: String,
         /// The properties the fields stood for when the dialog opened: OK sends only what the
         /// user changed, so formatting the dialog can't show (a double underline) or left
         /// alone stays as it is.
@@ -1077,6 +1080,7 @@ impl Dialog {
                     spacing: st.get("spacing").and_then(Value::as_f64).unwrap_or(0.0) as f32,
                     kern: kern.map(|k| k > 0.0),
                     kern_at: kern.filter(|k| *k > 0.0).unwrap_or(12.0) as f32,
+                    ligatures: s("ligatures"),
                     start: serde_json::Map::new(),
                 };
                 let props = font_props(&d);
@@ -1660,7 +1664,24 @@ pub(crate) fn buttons(ui: &mut Ui, ok: &str) -> (bool, bool) {
 /// The character properties the Font dialog's fields stand for.
 fn font_props(d: &Dialog) -> serde_json::Map<String, Value> {
     let Dialog::Font {
-        font, font_ea, size, bold, italic, underline, strike, sup, sub, small_caps, caps, hidden, color, spacing, kern, kern_at, ..
+        font,
+        font_ea,
+        size,
+        bold,
+        italic,
+        underline,
+        strike,
+        sup,
+        sub,
+        small_caps,
+        caps,
+        hidden,
+        color,
+        spacing,
+        kern,
+        kern_at,
+        ligatures,
+        ..
     } = d
     else {
         return serde_json::Map::new();
@@ -1690,6 +1711,9 @@ fn font_props(d: &Dialog) -> serde_json::Map<String, Value> {
             props.insert("kern".into(), json!(0.0));
         }
         None => {}
+    }
+    if let Some(l) = wordcraft_doc::props::Ligatures::from_ooxml(ligatures) {
+        props.insert("ligatures".into(), json!(l));
     }
     if !font.trim().is_empty() {
         props.insert("font".into(), json!(font.trim()));
@@ -1781,6 +1805,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             spacing,
             kern,
             kern_at,
+            ligatures,
             ..
         } => {
             // Build the sample text format for the preview pane below.
@@ -1857,6 +1882,23 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 ui.horizontal(|ui| {
                     ui.add_enabled(*kern == Some(true), egui::DragValue::new(kern_at).speed(0.5).range(1.0..=1638.0).max_decimals(1));
                     ui.label(tl!("Points and above"));
+                });
+                ui.end_row();
+                // Word's Ligatures choices; WordCraft draws standard and contextual ones unless
+                // the text asks otherwise. Another combination from a file shows by its name.
+                const LIGATURES: [(&str, &str); 5] = [
+                    ("none", "None"),
+                    ("standard", "Standard only"),
+                    ("standardContextual", "Standard and contextual"),
+                    ("historicalDiscretional", "Historical and discretional"),
+                    ("all", "All"),
+                ];
+                ui.label(tl!("Ligatures:"));
+                let shown = LIGATURES.iter().find(|(v, _)| v == ligatures).map_or(ligatures.as_str(), |(_, l)| tl!(l));
+                egui::ComboBox::from_id_salt("fontdlg_ligatures").width(220.0).selected_text(shown).show_ui(ui, |ui| {
+                    for (v, l) in LIGATURES {
+                        ui.selectable_value(ligatures, v.to_string(), tl!(l));
+                    }
                 });
                 ui.end_row();
             });
@@ -4647,6 +4689,40 @@ mod tests {
         *size = "13".into();
         apply_font(&mut app, &d);
         assert_eq!((kern(&app, 0), kern(&app, 7)), (Some(14.0), Some(0.0)), "each run keeps its kerning");
+    }
+
+    /// Ligatures stay on by default (standard and contextual); choosing None in the Font dialog
+    /// turns them off on the selection in one undo step. OK without touching the choice writes
+    /// nothing, and mixed text keeps each run's own ligatures.
+    #[test]
+    fn font_dialog_turns_ligatures_off() {
+        use wordcraft_doc::props::Ligatures;
+        let mut app = app_with("office affine");
+        let _ = app.run("select.all", json!({}));
+        let lig = |app: &WordApp, off| app.session.doc.para_at(&Pos::body(0, 0)).and_then(|p| p.props_of_char(off).ligatures);
+        let Some(mut d) = Dialog::open("font", &mut app) else { panic!("no font dialog") };
+        let Dialog::Font { ligatures, bold, .. } = &mut d else { panic!() };
+        assert_eq!(ligatures, "standardContextual", "on by default");
+        *bold = true;
+        apply_font(&mut app, &d);
+        assert_eq!(lig(&app, 0), None, "left alone, nothing is written");
+        let Some(mut d) = Dialog::open("font", &mut app) else { panic!() };
+        let Dialog::Font { ligatures, .. } = &mut d else { panic!() };
+        *ligatures = "none".into();
+        apply_font(&mut app, &d);
+        assert_eq!((lig(&app, 0), lig(&app, 8)), (Some(Ligatures::default()), Some(Ligatures::default())));
+        let _ = app.run("edit.undo", json!({}));
+        assert_eq!(lig(&app, 0), None, "one undo step");
+        let _ = app.run("edit.redo", json!({}));
+        let _ = app.run("select.text", json!({"text": "office"}));
+        let _ = app.run("format.set", json!({"props": {"ligatures": {"standard": true}}}));
+        let _ = app.run("select.all", json!({}));
+        let Some(mut d) = Dialog::open("font", &mut app) else { panic!() };
+        let Dialog::Font { ligatures, size, .. } = &mut d else { panic!() };
+        assert_eq!(ligatures, "", "mixed ligatures show no choice");
+        *size = "13".into();
+        apply_font(&mut app, &d);
+        assert_eq!((lig(&app, 0), lig(&app, 8)), (Some(Ligatures::from_ooxml("standard").unwrap_or_default()), Some(Ligatures::default())));
     }
 
     /// #1178: Modify Style's font box is the ribbon's font box, so typing part of a name picks the

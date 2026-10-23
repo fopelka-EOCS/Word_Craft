@@ -2720,6 +2720,10 @@ preview	Title	Naslov
 	Personal	Personal
 	Personal Templates	Personal Templates
 	Points and above	Points and above
+	Ligatures:	Ligature:
+	Standard only	Samo standardne
+	Standard and contextual	Standardne in kontekstne
+	Historical and discretional	Zgodovinske in izbirne
 	Preset gradients	Preset gradients
 	Print job submitted: spooled {count} sheet(s)	Print job submitted: spooled {count} sheet(s)
 	Radial	Radial
