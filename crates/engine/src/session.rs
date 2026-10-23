@@ -1207,6 +1207,14 @@ impl Session {
         self.bib_style = doc_bib_style(&doc);
         self.doc = doc;
         self.doc.ensure_nonempty();
+        // Our own copy belongs to the document it was copied from: the new document holds
+        // neither its text nor its pictures, so pasting the copy here would bring neither
+        // (#2909). The system clipboard still holds it, as HTML, so a paste there finds it.
+        self.clipboard = None;
+        // The cut waiting to become a move belongs to the document it was cut in: `file.open`
+        // is a pure command, so the dispatcher's reset of that wait skips the document it
+        // opens, and the new document would inherit the old one's cut.
+        self.pending_move = None;
         self.password = None;
         self.file_name = None;
         self.sel = Selection::caret(self.doc.start_of(StoryRef::Body));

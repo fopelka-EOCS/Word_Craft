@@ -5279,6 +5279,57 @@ mod tests {
         assert_eq!(body_text(&a).matches(UNSAVED).count(), 1, "and didn't paste the old text");
     }
 
+    /// #2909: a copied picture goes on the system clipboard as HTML, so another document (or
+    /// another program) pastes the picture. The copy has no text, and text alone carries no
+    /// picture, so the HTML is the only way the picture leaves this document.
+    #[test]
+    fn copying_a_picture_publishes_the_html_another_document_pastes() {
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        // The system clipboard: its text and its HTML.
+        let clip: Rc<RefCell<(String, String)>> = Rc::new(RefCell::new((String::new(), String::new())));
+        let services = || Services {
+            clipboard_text: Some(Box::new({
+                let clip = clip.clone();
+                move || {
+                    let c = clip.borrow();
+                    (!c.0.is_empty()).then(|| c.0.clone())
+                }
+            })),
+            clipboard_html: Some(Box::new({
+                let clip = clip.clone();
+                move || {
+                    let c = clip.borrow();
+                    (!c.1.is_empty()).then(|| c.1.clone())
+                }
+            })),
+            set_clipboard_html: Some(Box::new({
+                let clip = clip.clone();
+                move |html: &str, text: &str, _mathml: &str| {
+                    *clip.borrow_mut() = (text.to_string(), html.to_string());
+                    true
+                }
+            })),
+            ..Default::default()
+        };
+        let mut a = WordApp::new(Session::new(wordcraft_doc::Document::new()), services());
+        a.ctx = Some(egui::Context::default());
+        let data = wordcraft_engine::cmd::insert::base64_encode(&png_bytes([200, 30, 30, 255]));
+        a.run("insert.picture", json!({"data": data})).unwrap();
+        assert!(crate::objects::selected(&a).is_some());
+        a.run("edit.copy", json!({})).unwrap();
+        let (text, html) = clip.borrow().clone();
+        assert_eq!(text, "", "the copy has no text, so the old text is gone from the clipboard");
+        assert!(html.contains("<img"), "the picture is on the clipboard as HTML: {html}");
+
+        // Another document: it holds no copy of its own, so the clipboard is the only way in.
+        let mut b = WordApp::new(Session::new(wordcraft_doc::Document::new()), services());
+        b.run("edit.paste", json!({})).unwrap();
+        assert_eq!(object_count(&mut b), 1, "the picture was pasted into the other document");
+        let media = b.session.doc.media.values().next().unwrap();
+        assert_eq!(wordcraft_render::image_size(media), Some((20, 10)), "the picture itself, not a placeholder");
+    }
+
     /// #1265: every user entry point publishes Cut to the one clipboard sink — the ribbon's button
     /// and a real Cmd/Ctrl+X key event, not only the generic command dispatch the sink sits behind.
     #[test]

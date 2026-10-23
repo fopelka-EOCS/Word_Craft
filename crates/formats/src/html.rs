@@ -1730,13 +1730,17 @@ pub fn inlines_html(inlines: &[Inline]) -> String {
                 }
             }
             Inline::Image(img) => {
+                // The size in the style, in points, so the picture comes back at the size it
+                // had (the width and height attributes are in pixels, as HTML has them) (#2909).
                 o.push_str(&format!(
-                    "<img src=\"data:{};base64,{}\" alt=\"{}\" width=\"{}\" height=\"{}\">",
+                    "<img src=\"data:{};base64,{}\" alt=\"{}\" width=\"{}\" height=\"{}\" style=\"width:{}pt;height:{}pt\">",
                     mime_of(&img.ext),
                     base64_encode(&img.data),
                     esc(&img.alt),
                     (img.w / 0.75).round(),
-                    (img.h / 0.75).round()
+                    (img.h / 0.75).round(),
+                    trim_num(img.w),
+                    trim_num(img.h)
                 ));
             }
             Inline::Anchor(a) => o.push_str(&format!("<a id=\"{}\"></a>", esc(a))),
@@ -2150,6 +2154,16 @@ mod tests {
         assert_eq!(unescape("a &lt;b&gt; &#65;&#x42; &bogus; &"), "a <b> AB &bogus; &");
         assert_eq!(unescape("&minus; &COPY; &EURO; &TRADE; &frac12; &frac34;"), "− © € ™ ½ ¾");
         assert_eq!(unescape("&theta; &lambda; &Delta; &nabla; &sum; &radic; &ne; &le; &ge; &hearts;"), "θ λ Δ ∇ ∑ √ ≠ ≤ ≥ ♥");
+    }
+
+    /// #2909: a picture's size travels in points, so it comes back at the size it had (the
+    /// width and height attributes are in pixels, as HTML has them).
+    #[test]
+    fn a_picture_carries_its_size_in_points() {
+        let img = crate::model::Img { data: std::sync::Arc::new(vec![0; 8]), ext: "png".into(), w: 15.0, h: 7.5, alt: String::new() };
+        let html = inlines_html(&[Inline::Image(img)]);
+        assert!(html.contains("style=\"width:15pt;height:7.5pt\""), "{html}");
+        assert!(html.contains("width=\"20\" height=\"10\""), "{html}");
     }
 
     #[test]
