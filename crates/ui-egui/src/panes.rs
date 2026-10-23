@@ -185,7 +185,14 @@ fn nav(app: &mut WordApp, ui: &mut Ui) {
                 job.append(hit, 0.0, egui::TextFormat { font_id: semibold(12.0), background: mark, color: ui.visuals().text_color(), ..Default::default() });
                 job.append(post, 0.0, fmt(ui.visuals().text_color()));
                 job.wrap.max_width = ui.available_width();
-                if ui.add(egui::Button::new(job).frame(false)).clicked() {
+                let mut r = ui.add(egui::Button::new(job).frame(false));
+                // The page is looked up only under the pointer, not for every listed match each frame.
+                if r.hovered()
+                    && let Some(page) = result_page(app, a)
+                {
+                    r = r.on_hover_text(crate::i18n::fmt(tl!("Page {page}"), &[("page", &page.to_string())]));
+                }
+                if r.clicked() {
                     let _ = app.run("select.range", json!({"anchor": a, "focus": b}));
                 }
                 ui.separator();
@@ -224,6 +231,17 @@ fn nav(app: &mut WordApp, ui: &mut Ui) {
             }
         }
     });
+}
+
+/// The page a search match is on, counted from the first page as the status bar and Go To count
+/// (#3938). A header or footer repeats on every page, so a match in one has no single page.
+fn result_page(app: &mut WordApp, at: &Pos) -> Option<usize> {
+    if let StoryRef::Part(id) = at.story
+        && app.session.doc.parts.get(&id).is_none_or(|p| matches!(p.kind, wordcraft_doc::PartKind::Header | wordcraft_doc::PartKind::Footer))
+    {
+        return None;
+    }
+    app.session.layout().page_of(at).map(|i| i + 1)
 }
 
 /// Which headings the pane shows: those under a collapsed heading (every following heading
@@ -985,6 +1003,43 @@ mod tests {
         }
         assert!(delete_is_disabled("Normal"), "the built-in style's Delete is greyed out");
         assert!(!delete_is_disabled("Callout"), "the custom style's Delete stays enabled");
+    }
+
+    /// #3938: pointing at a search result in the Navigation pane shows the page it is on.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn search_results_tell_their_page_on_hover() {
+        use egui_kittest::kittest::Queryable;
+
+        let mut app =
+            crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Kilns fire clay.")), crate::Services::default());
+        app.run("caret.docEnd", serde_json::json!({})).unwrap();
+        for _ in 0..2 {
+            app.run("insert.pageBreak", serde_json::json!({})).unwrap();
+        }
+        app.run("text.insert", serde_json::json!({"text": "Ovens bake bread."})).unwrap();
+        app.run("edit.find", serde_json::json!({"text": "bake"})).unwrap();
+        assert_eq!(app.session.find.results.len(), 1);
+        assert_eq!(app.session.layout().pages.len(), 3);
+        app.ui.nav_tab = "results".into();
+        // Only the pane is drawn, so no status bar or Pages list says "Page 3" for it.
+        let mut fonts = false;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(300.0, 600.0)).build_ui_state(
+            |ui, app: &mut crate::WordApp| {
+                if !fonts {
+                    crate::theme::install_fonts(ui.ctx());
+                    fonts = true;
+                    return;
+                }
+                super::nav(app, ui);
+            },
+            app,
+        );
+        h.run_steps(4);
+        assert!(h.query_by_label("Page 3").is_none(), "no tip before the pointer is on the result");
+        h.get_by_label_contains("Ovens bake bread.").hover();
+        h.run_steps(4);
+        assert!(h.query_by_label("Page 3").is_some(), "the result found on the third page says so");
     }
 }
 
