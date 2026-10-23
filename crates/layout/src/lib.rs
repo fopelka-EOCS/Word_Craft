@@ -1229,6 +1229,7 @@ fn layout_box(
                 // behavior. Text boxes retain the upstream no-frame rule (#2357).
                 let header_page_frame = matches!(story, StoryRef::Part(id)
                     if ctx.doc.parts.get(&id).is_some_and(|part| part.kind == wordcraft_doc::PartKind::Header)
+                        && !in_cell
                         && pl.rp.frame.as_ref().is_some_and(|fr| fr.h_anchor == "page" && fr.v_anchor == "page"));
                 if let Some(fr) = pl.rp.frame.clone().filter(|_| frames && !header_page_frame) {
                     let fw = fr.w.unwrap_or_else(|| natural_width(&pl)).clamp(1.0, 1584.0);
@@ -2964,7 +2965,7 @@ fn body_top_for(ctx: &mut Ctx, sect: &SectionProps, header: Option<u32>) -> f32 
     // header offset.
     let mut bottom = bl.height;
     for it in &bl.items {
-        let Placed::Object { rect, story, path, off, wrap, .. } = it else { continue };
+        let Placed::Object { rect, spin, story, path, off, wrap, .. } = it else { continue };
         if !matches!(wrap, Wrap::Square | Wrap::Tight | Wrap::Through | Wrap::TopAndBottom) {
             continue;
         }
@@ -2975,7 +2976,7 @@ fn body_top_for(ctx: &mut Ctx, sect: &SectionProps, header: Option<u32>) -> f32 
             .and_then(InlineObject::frame)
             .is_some_and(|(_, _, f)| matches!(f.v_rel, Anchor::Paragraph | Anchor::Line | Anchor::Margin));
         if anchored {
-            bottom = bottom.max(rect.bottom());
+            bottom = bottom.max(spin.bounds(*rect).bottom());
         }
     }
     // Word starts the body right below a header that reaches past the top margin, no gap.
