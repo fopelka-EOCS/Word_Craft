@@ -2255,10 +2255,15 @@ fn typing_over_backward_selection_keeps_its_font() {
 #[test]
 fn right_arrow_moves_through_a_ligature_one_letter_at_a_time() {
     // A font that draws "ffi" as one glyph (bundled, so the test doesn't depend on the installed
-    // fonts); each Right press moves the drawn caret (#1974).
+    // fonts), with standard ligatures on (`w14:ligatures`, as a Word document asking for them
+    // carries; without it WordCraft, like Word, draws none); each Right press moves the drawn
+    // caret (#1974).
     let mut s = s();
     run(&mut s, "format.font", json!({"name": "Source Serif 4"}));
     typ(&mut s, "ffi");
+    let _ = s.doc.format_range(&Pos::body(0, 0), &Pos::body(0, 3), &|c| {
+        c.ligatures = wordcraft_doc::props::Ligatures::from_ooxml("standard");
+    });
     let drawn_as_one_glyph = s
         .layout()
         .pages
