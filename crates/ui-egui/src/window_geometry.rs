@@ -1,8 +1,10 @@
 //! The main window's size, position and maximized state, saved with the UI preferences so the
 //! next launch opens the window where the user left it (#23).
 //!
-//! Sizes and positions are in egui points: what [`egui::ViewportInfo`] reports and what
-//! [`egui::ViewportBuilder`] takes.
+//! Sizes and positions are in the units a window opens with: what [`egui::ViewportBuilder`]
+//! takes before the app sets its Interface size (egui's zoom factor), so the system's display
+//! scale but not the Interface size. [`unzoomed`] turns what [`egui::ViewportInfo`] reports (egui
+//! points, which the Interface size scales) into them.
 
 use serde::{Deserialize, Serialize};
 
@@ -123,6 +125,19 @@ impl WindowGeometry {
         let inner = info.inner_rect.filter(|r| r.is_finite())?;
         let outer = info.outer_rect.filter(|r| r.is_finite()).unwrap_or(inner);
         let frame = (outer.size() - inner.size()).max(egui::Vec2::ZERO);
+        // A window restored on the monitor it was saved on keeps the size and place it was left
+        // at, as long as what shows of it fits on that monitor: the system bars' room below is a
+        // guess, and a window sized to fill a small screen (1600 × 900) is past it, so it was
+        // shrunk and centred at every launch (#2828). Browsers do the same (Chromium's window
+        // sizer only shrinks a saved window when the screen's work area changed). What shows is
+        // the frame less its side and bottom borders, which Windows draws mostly invisible, past
+        // the edge of a window dragged to the screen's edges.
+        let border = frame.x / 2.0;
+        let shown = egui::vec2(outer.width() - frame.x, outer.height() - border);
+        let same_monitor = self.monitor.is_some_and(|m| (egui::Vec2::from(m) - monitor).length() <= 1.0);
+        if self.position.is_some() && same_monitor && shown.x <= monitor.x && shown.y <= monitor.y {
+            return None;
+        }
         let room = monitor - 2.0 * SYSTEM_BAR;
         let too_big = outer.width() > room.x || outer.height() > room.y;
         let edge = monitor - SYSTEM_BAR;
@@ -142,6 +157,27 @@ impl WindowGeometry {
 pub fn take_rescue(pending: &mut Option<WindowGeometry>, info: &egui::ViewportInfo) -> Option<egui::Pos2> {
     info.monitor_size.filter(|s| s.is_finite() && s.x > 0.0 && s.y > 0.0)?;
     pending.take()?.rescue_position(info)
+}
+
+/// The window as `info` reports it (egui points, at `pixels_per_point` screen pixels each), in the
+/// units a window opens with, and the Interface size (egui's zoom factor) that was taken out. The
+/// window opens before the app sets its Interface size, so a window saved in points reopened
+/// scaled by the inverse of that size: with 125 % on a 100 % display it shrank by a fifth
+/// at every launch, and its monitor, saved in points too, looked like another one, so it was moved
+/// to the middle (#2828). Only what [`WindowGeometry`] reads is kept.
+pub fn unzoomed(info: &egui::ViewportInfo, pixels_per_point: f32) -> (egui::ViewportInfo, f32) {
+    let zoom = info.native_pixels_per_point.map(|native| pixels_per_point / native).filter(|z| z.is_finite() && *z > 0.0).unwrap_or(1.0);
+    let unzoomed = egui::ViewportInfo {
+        native_pixels_per_point: info.native_pixels_per_point,
+        monitor_size: info.monitor_size.map(|s| s * zoom),
+        inner_rect: info.inner_rect.map(|r| r * zoom),
+        outer_rect: info.outer_rect.map(|r| r * zoom),
+        minimized: info.minimized,
+        maximized: info.maximized,
+        fullscreen: info.fullscreen,
+        ..Default::default()
+    };
+    (unzoomed, zoom)
 }
 
 /// The window size to ask for when a caller (the control channel's `ui.resize`) wants `size`:
@@ -364,5 +400,111 @@ mod tests {
         assert_eq!(system.fit_on_monitor(&i), None);
         // Wayland reports no rects.
         assert_eq!(system.fit_on_monitor(&egui::ViewportInfo { monitor_size: Some(laptop), ..Default::default() }), None);
+    }
+
+    /// The corner [`WindowGeometry::track`] saves: the frame's, or the content's on macOS.
+    fn corner(info: &egui::ViewportInfo) -> Option<[f32; 2]> {
+        let rect = if cfg!(target_os = "macos") { info.inner_rect } else { info.outer_rect };
+        rect.map(|r| [r.min.x, r.min.y])
+    }
+
+    #[test]
+    fn a_window_left_filling_a_small_screen_comes_back_as_it_was() {
+        // 1600 × 900: the window dragged to the edges of the screen above a 48 pt taskbar, its
+        // invisible side and bottom borders past them (#2828).
+        let small = egui::vec2(1600.0, 900.0);
+        let at = egui::pos2(-8.0, 0.0);
+        let content = egui::vec2(1600.0, 813.0);
+        let left = WindowGeometry::track(None, &opened(at, content, small), egui::Vec2::ZERO).unwrap();
+        let position = corner(&opened(at, content, small));
+        assert_eq!(left, WindowGeometry { position, width: 1600.0, height: 813.0, maximized: false, monitor: Some([1600.0, 900.0]) });
+        // The next launch opens it there, and nothing shrinks or centres it.
+        let b = left.apply(egui::ViewportBuilder::default());
+        assert_eq!((b.position, b.inner_size), (position.map(egui::Pos2::from), Some(content)));
+        assert_eq!(left.fit_on_monitor(&opened(at, content, small)), None);
+        assert_eq!(left.rescue_position(&opened(at, content, small)), None);
+        // Taller than the screen (eframe's default size, saved before #1215): still shrinks.
+        let tall = WindowGeometry { height: 900.0, ..left };
+        assert!(tall.fit_on_monitor(&opened(at, egui::vec2(1600.0, 900.0), small)).is_some());
+        // Saved on another monitor, or without the monitor or the place it was left at: the room
+        // for the system bars counts again.
+        let elsewhere = WindowGeometry { monitor: Some([1920.0, 1080.0]), ..left };
+        assert!(elsewhere.fit_on_monitor(&opened(at, content, small)).is_some());
+        assert!(WindowGeometry { monitor: None, ..left }.fit_on_monitor(&opened(at, content, small)).is_some());
+        assert!(WindowGeometry { position: None, ..left }.fit_on_monitor(&opened(at, content, small)).is_some());
+        // The same monitor reported a fraction of a point off (a scale that doesn't divide it).
+        assert_eq!(left.fit_on_monitor(&opened(at, content, egui::vec2(1600.4, 899.6))), None);
+        // Wider than the screen by more than its invisible borders: shrinks.
+        let wide = egui::vec2(1610.0, 813.0);
+        assert!(WindowGeometry { width: 1610.0, ..left }.fit_on_monitor(&opened(at, wide, small)).is_some());
+    }
+
+    #[test]
+    fn an_interface_size_other_than_auto_reopens_the_window_as_it_was() {
+        // The window as it opens, before the app sets its Interface size, on a 100 % display.
+        let screen = egui::vec2(1280.0, 1024.0);
+        let at = egui::pos2(200.0, 100.0);
+        let content = egui::vec2(884.0, 561.0);
+        let opening = egui::ViewportInfo { native_pixels_per_point: Some(1.0), ..opened(at, content, screen) };
+        // Interface size 200 %: egui reports the same window in points two screen pixels each.
+        let zoomed = egui::ViewportInfo {
+            inner_rect: opening.inner_rect.map(|r| r * 0.5),
+            outer_rect: opening.outer_rect.map(|r| r * 0.5),
+            monitor_size: opening.monitor_size.map(|s| s * 0.5),
+            ..opening.clone()
+        };
+        let (info, zoom) = unzoomed(&zoomed, 2.0);
+        assert_eq!(zoom, 2.0);
+        let left = WindowGeometry::track(None, &info, egui::Vec2::ZERO).unwrap();
+        let position = corner(&opening);
+        assert_eq!(left, WindowGeometry { position, width: 884.0, height: 561.0, maximized: false, monitor: Some([1280.0, 1024.0]) });
+        // The next launch opens it at that size and place, which the first frame (no Interface
+        // size yet) neither moves nor shrinks, and the frames after it save again unchanged.
+        let b = left.apply(egui::ViewportBuilder::default());
+        assert_eq!((b.position, b.inner_size), (position.map(egui::Pos2::from), Some(content)));
+        let (first, zoom) = unzoomed(&opening, 1.0);
+        assert_eq!(zoom, 1.0);
+        assert_eq!(left.rescue_position(&first), None);
+        assert_eq!(left.fit_on_monitor(&first), None);
+        assert_eq!(WindowGeometry::track(Some(left), &first, egui::Vec2::ZERO), Some(left));
+        assert_eq!(WindowGeometry::track(Some(left), &info, egui::Vec2::ZERO), Some(left));
+        // A window too big for its screen is fitted the same at any Interface size: the commands
+        // take points, the fitted window divided by the Interface size.
+        let big = egui::vec2(1400.0, 1000.0);
+        let opening_big = egui::ViewportInfo { native_pixels_per_point: Some(1.0), ..opened(at, big, screen) };
+        let zoomed_big = egui::ViewportInfo {
+            inner_rect: opening_big.inner_rect.map(|r| r * 0.5),
+            outer_rect: opening_big.outer_rect.map(|r| r * 0.5),
+            monitor_size: opening_big.monitor_size.map(|s| s * 0.5),
+            ..opening_big.clone()
+        };
+        let plain = WindowGeometry::default().fit_on_monitor(&opening_big);
+        assert!(plain.is_some());
+        let (info_big, zoom) = unzoomed(&zoomed_big, 2.0);
+        assert_eq!(WindowGeometry::default().fit_on_monitor(&info_big), plain);
+        assert_eq!(plain.map(|(p, s)| (p / zoom, s / zoom)), plain.map(|(p, s)| (p * 0.5, s * 0.5)));
+        // The window's state comes through, so a maximized, full-screen or minimized window is
+        // still left alone.
+        let state = egui::ViewportInfo { maximized: Some(true), fullscreen: Some(false), minimized: Some(true), ..zoomed.clone() };
+        let (kept, _) = unzoomed(&state, 2.0);
+        assert_eq!((kept.maximized, kept.fullscreen, kept.minimized), (Some(true), Some(false), Some(true)));
+        assert_eq!(WindowGeometry::track(Some(left), &kept, egui::Vec2::ZERO), Some(left));
+        // No display scale reported, or nonsense: nothing is taken out.
+        for (native, ppp) in [
+            (None, 2.0),
+            (Some(0.0), 2.0),
+            (Some(-1.0), 2.0),
+            (Some(1.0), f32::NAN),
+            (Some(1.0), 0.0),
+            (Some(f32::NAN), 2.0),
+            (Some(1.0), f32::INFINITY),
+        ] {
+            let (same, zoom) = unzoomed(&egui::ViewportInfo { native_pixels_per_point: native, ..zoomed.clone() }, ppp);
+            assert_eq!(
+                (same.inner_rect, same.outer_rect, same.monitor_size, zoom),
+                (zoomed.inner_rect, zoomed.outer_rect, zoomed.monitor_size, 1.0),
+                "{native:?} {ppp}"
+            );
+        }
     }
 }
