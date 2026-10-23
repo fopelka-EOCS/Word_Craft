@@ -18,7 +18,7 @@ use super::Reader;
 use crate::package::{
     CUSTOM_XML_ROOTS, ContentTypes, MAX_EMBEDDED_PARTS, MAX_EMBEDDED_RELS, MAX_EMBEDDED_XML, Rel, Rels, manifest_field_ok, rel_is, rt,
 };
-use crate::xml::{El, MAX_DEPTH, NAMESPACES, esc};
+use crate::xml::{El, MAX_DEPTH, NAMESPACES, esc, is_rel_attr};
 
 /// Relationship types (last path segment) the reader models or the writer produces itself, so
 /// they are never carried verbatim: carrying them would duplicate or contradict the written part.
@@ -89,12 +89,17 @@ fn referenced_ids<'a>(root: &El, document: &'a Rels) -> HashSet<&'a [u8]> {
 }
 
 /// The ids `e` names in a relationship attribute that are in `ids`, collected into `found`.
+///
+/// The attribute is a relationship attribute by [`is_rel_attr`]: one in the relationship
+/// namespace, VML's `o:relid`, or the unqualified alias of one on an element that carries a
+/// relationship — the same attribute the reader resolves a relationship from, so a part the
+/// markup names is not carried over a second time.
 fn collect_rel_ids<'a>(e: &El, ids: &HashSet<&'a [u8]>, found: &mut HashSet<&'a [u8]>, depth: usize) {
     if depth > MAX_DEPTH {
         return;
     }
     for (k, v) in &e.attrs {
-        if (k.starts_with("r:") || k == "o:relid")
+        if is_rel_attr(&e.name, k)
             && let Some(id) = ids.get(v.as_bytes())
         {
             found.insert(*id);
@@ -255,14 +260,15 @@ impl Reader<'_> {
     }
 }
 
-/// The relationship ids `e` uses (attributes in the relationships namespace, and VML's
-/// `o:relid`), in document order. `None` past [`MAX_IDS`].
+/// The relationship ids `e` uses (attributes in the relationships namespace, VML's `o:relid`,
+/// and the unqualified alias of one on an element that carries a relationship), in document
+/// order. `None` past [`MAX_IDS`].
 fn rel_ids(e: &El, out: &mut Vec<String>, depth: usize) -> Option<()> {
     if depth > MAX_DEPTH {
         return Some(());
     }
     for (k, v) in &e.attrs {
-        if (k.starts_with("r:") || k == "o:relid") && !out.contains(v) {
+        if is_rel_attr(&e.name, k) && !out.contains(v) {
             if out.len() >= MAX_IDS {
                 return None;
             }
@@ -379,6 +385,30 @@ mod tests {
             &[("word/keep.bin", b"kept")],
         );
         let roots = unmodelled_roots(&crate::read(&mentioned).unwrap());
+        assert!(roots.contains("keep.bin"), "the part is dropped: {roots}");
+    }
+
+    /// An unqualified attribute is a relationship only where the markup names a relationship
+    /// that way: a hyperlink's `id` names the part, a VML shape's `id` is its own.
+    #[test]
+    fn an_unqualified_attribute_names_a_relationship_only_where_it_is_one() {
+        // A hyperlink whose relationship id is written without the prefix: the reader resolves
+        // it (the alias `El::attr` accepts), so the part it names is not carried over twice.
+        let named = package(
+            r#"<w:p><w:r><w:hyperlink id="rIdDoc1"><w:r><w:t>link</w:t></w:r></w:hyperlink></w:p>"#,
+            &[("rIdDoc1", "keep.bin")],
+            &[("word/keep.bin", b"kept")],
+        );
+        let roots = unmodelled_roots(&crate::read(&named).unwrap());
+        assert!(!roots.contains("keep.bin"), "the part is carried twice: {roots}");
+
+        // A VML shape's `id` is its own: it names no part, so the part is carried over.
+        let own = package(
+            r#"<w:p><w:r><w:pict><v:shape id="rIdDoc1" style="width:10pt;height:10pt"/></w:pict></w:r></w:p>"#,
+            &[("rIdDoc1", "keep.bin")],
+            &[("word/keep.bin", b"kept")],
+        );
+        let roots = unmodelled_roots(&crate::read(&own).unwrap());
         assert!(roots.contains("keep.bin"), "the part is dropped: {roots}");
     }
 }
