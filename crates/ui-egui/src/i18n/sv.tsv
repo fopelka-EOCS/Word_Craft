@@ -2841,3 +2841,10 @@ template	Letter	Brev
 	drop caps can't go in a table	en anfang kan inte läggas i en tabell
 	the document is protected	dokumentet är skyddat
 	Open a document first	Öppna först ett dokument
+# Spelling dictionaries downloaded from LibreOffice (File › Options › Proofing)
+	Download	Ladda ned
+	Downloading…	Laddar ned…
+	Download fetches the dictionary from LibreOffice's dictionary collection into the dictionaries folder. Each keeps its own licence (GPL, LGPL or MPL) and stays a separate file that WordCraft only reads.	Ladda ned hämtar ordlistan från LibreOffice ordlistsamling till ordlistmappen. Varje ordlista behåller sin egen licens (GPL, LGPL eller MPL) och förblir en separat fil som WordCraft bara läser.
+	Downloading the {language} dictionary…	{language}: ordlistan laddas ned…
+	The {language} dictionary is installed.	{language}: ordlistan är installerad.
+	The {language} dictionary couldn't be downloaded: {error}	{language}: ordlistan kunde inte laddas ned: {error}

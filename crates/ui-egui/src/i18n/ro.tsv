@@ -2800,3 +2800,10 @@ template	Letter	Scrisoare
 	this SmartArt was made in another program: WordCraft shows it but can't edit it	acest SmartArt a fost creat în alt program: WordCraft îl afișează, dar nu îl poate edita
 	this text box is already linked: break the link first	această casetă de text este deja legată: întrerupeți mai întâi legătura
 	Open a document first	Deschideți mai întâi un document
+# Spelling dictionaries downloaded from LibreOffice (File › Options › Proofing)
+	Download	Descărcare
+	Downloading…	Se descarcă…
+	Download fetches the dictionary from LibreOffice's dictionary collection into the dictionaries folder. Each keeps its own licence (GPL, LGPL or MPL) and stays a separate file that WordCraft only reads.	Descărcare preia dicționarul din colecția de dicționare LibreOffice și îl pune în folderul dicționarelor. Fiecare își păstrează licența (GPL, LGPL sau MPL) și rămâne un fișier separat, pe care WordCraft doar îl citește.
+	Downloading the {language} dictionary…	{language}: se descarcă dicționarul…
+	The {language} dictionary is installed.	{language}: dicționarul este instalat.
+	The {language} dictionary couldn't be downloaded: {error}	{language}: dicționarul nu a putut fi descărcat: {error}

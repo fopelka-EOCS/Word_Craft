@@ -2853,3 +2853,10 @@ template	Letter	Thư
 	drop caps can't go in a table	không thể đặt chữ cái lớn đầu đoạn trong bảng
 	the document is protected	tài liệu đang được bảo vệ
 	Open a document first	Hãy mở một tài liệu trước
+# Spelling dictionaries downloaded from LibreOffice (File › Options › Proofing)
+	Download	Tải xuống
+	Downloading…	Đang tải xuống…
+	Download fetches the dictionary from LibreOffice's dictionary collection into the dictionaries folder. Each keeps its own licence (GPL, LGPL or MPL) and stays a separate file that WordCraft only reads.	Tải xuống lấy từ điển từ bộ sưu tập từ điển của LibreOffice vào thư mục từ điển. Mỗi từ điển giữ giấy phép riêng (GPL, LGPL hoặc MPL) và là một tệp riêng mà WordCraft chỉ đọc.
+	Downloading the {language} dictionary…	{language}: đang tải xuống từ điển…
+	The {language} dictionary is installed.	{language}: đã cài đặt từ điển.
+	The {language} dictionary couldn't be downloaded: {error}	{language}: không tải xuống được từ điển: {error}

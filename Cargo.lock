@@ -5379,6 +5379,7 @@ dependencies = [
  "log",
  "miniz_oxide 0.8.9",
  "proptest",
+ "sha2",
 ]
 
 [[package]]

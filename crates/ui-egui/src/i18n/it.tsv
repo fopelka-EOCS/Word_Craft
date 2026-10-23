@@ -2838,3 +2838,10 @@ template	Letter	Lettera
 	drop caps can't go in a table	un capolettera non può stare in una tabella
 	the document is protected	il documento è protetto
 	Open a document first	Aprire prima un documento
+# Spelling dictionaries downloaded from LibreOffice (File › Options › Proofing)
+	Download	Scarica
+	Downloading…	Download in corso…
+	Download fetches the dictionary from LibreOffice's dictionary collection into the dictionaries folder. Each keeps its own licence (GPL, LGPL or MPL) and stays a separate file that WordCraft only reads.	Scarica prende il dizionario dalla raccolta di LibreOffice e lo salva nella cartella dei dizionari. Ognuno mantiene la propria licenza (GPL, LGPL o MPL) e resta un file separato che WordCraft si limita a leggere.
+	Downloading the {language} dictionary…	{language}: download del dizionario in corso…
+	The {language} dictionary is installed.	{language}: dizionario installato.
+	The {language} dictionary couldn't be downloaded: {error}	{language}: impossibile scaricare il dizionario: {error}

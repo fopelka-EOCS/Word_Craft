@@ -2803,3 +2803,10 @@
 	drop caps can't go in a table	буквицата не може да се постави в таблица
 	the document is protected	документът е защитен
 	Open a document first	Първо отворете документ
+# Spelling dictionaries downloaded from LibreOffice (File › Options › Proofing)
+	Download	Изтегляне
+	Downloading…	Изтегляне…
+	Download fetches the dictionary from LibreOffice's dictionary collection into the dictionaries folder. Each keeps its own licence (GPL, LGPL or MPL) and stays a separate file that WordCraft only reads.	„Изтегляне“ взема речника от колекцията с речници на LibreOffice и го записва в папката с речници. Всеки запазва собствения си лиценз (GPL, LGPL или MPL) и остава отделен файл, който WordCraft само чете.
+	Downloading the {language} dictionary…	{language}: речникът се изтегля…
+	The {language} dictionary is installed.	{language}: речникът е инсталиран.
+	The {language} dictionary couldn't be downloaded: {error}	{language}: речникът не можа да бъде изтеглен: {error}

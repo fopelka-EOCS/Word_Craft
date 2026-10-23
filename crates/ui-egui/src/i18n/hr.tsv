@@ -2813,3 +2813,10 @@ preview	Title	Naslov
 	drop caps can't go in a table	početno slovo ne može ići u tablicu
 	the document is protected	dokument je zaštićen
 	Open a document first	Prvo otvorite dokument
+# Spelling dictionaries downloaded from LibreOffice (File › Options › Proofing)
+	Download	Preuzmi
+	Downloading…	Preuzimanje…
+	Download fetches the dictionary from LibreOffice's dictionary collection into the dictionaries folder. Each keeps its own licence (GPL, LGPL or MPL) and stays a separate file that WordCraft only reads.	Preuzmi dohvaća rječnik iz LibreOfficeove zbirke rječnika u mapu rječnika. Svaki zadržava vlastitu licencu (GPL, LGPL ili MPL) i ostaje zasebna datoteka koju WordCraft samo čita.
+	Downloading the {language} dictionary…	{language}: preuzimanje rječnika…
+	The {language} dictionary is installed.	{language}: rječnik je instaliran.
+	The {language} dictionary couldn't be downloaded: {error}	{language}: rječnik nije moguće preuzeti: {error}

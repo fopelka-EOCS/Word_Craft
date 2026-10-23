@@ -2834,3 +2834,10 @@ preview	Title	Tytuł
 	drop caps can't go in a table	inicjału nie można umieścić w tabeli
 	the document is protected	dokument jest chroniony
 	Open a document first	Najpierw otwórz dokument
+# Spelling dictionaries downloaded from LibreOffice (File › Options › Proofing)
+	Download	Pobierz
+	Downloading…	Pobieranie…
+	Download fetches the dictionary from LibreOffice's dictionary collection into the dictionaries folder. Each keeps its own licence (GPL, LGPL or MPL) and stays a separate file that WordCraft only reads.	Pobierz pobiera słownik z kolekcji słowników LibreOffice do folderu słowników. Każdy zachowuje własną licencję (GPL, LGPL lub MPL) i pozostaje osobnym plikiem, który WordCraft tylko odczytuje.
+	Downloading the {language} dictionary…	{language}: pobieranie słownika…
+	The {language} dictionary is installed.	{language}: słownik zainstalowany.
+	The {language} dictionary couldn't be downloaded: {error}	{language}: nie udało się pobrać słownika: {error}

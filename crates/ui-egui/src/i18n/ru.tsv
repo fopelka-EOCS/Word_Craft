@@ -2812,3 +2812,10 @@ preview	Title	Пример
 	drop caps can't go in a table	буквицу нельзя поместить в таблицу
 	the document is protected	документ защищён
 	Open a document first	Сначала откройте документ
+# Spelling dictionaries downloaded from LibreOffice (File › Options › Proofing)
+	Download	Загрузить
+	Downloading…	Загрузка…
+	Download fetches the dictionary from LibreOffice's dictionary collection into the dictionaries folder. Each keeps its own licence (GPL, LGPL or MPL) and stays a separate file that WordCraft only reads.	Кнопка «Загрузить» берёт словарь из коллекции словарей LibreOffice и сохраняет его в папку словарей. Каждый словарь сохраняет собственную лицензию (GPL, LGPL или MPL) и остаётся отдельным файлом, который WordCraft только читает.
+	Downloading the {language} dictionary…	{language}: загрузка словаря…
+	The {language} dictionary is installed.	{language}: словарь установлен.
+	The {language} dictionary couldn't be downloaded: {error}	{language}: не удалось загрузить словарь: {error}

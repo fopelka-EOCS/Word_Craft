@@ -2811,3 +2811,10 @@ preview	Title	Örnek
 	drop caps can't go in a table	tabloya büyük başlangıç harfi konamaz
 	the document is protected	belge korumalı
 	Open a document first	Önce bir belge açın
+# Spelling dictionaries downloaded from LibreOffice (File › Options › Proofing)
+	Download	İndir
+	Downloading…	İndiriliyor…
+	Download fetches the dictionary from LibreOffice's dictionary collection into the dictionaries folder. Each keeps its own licence (GPL, LGPL or MPL) and stays a separate file that WordCraft only reads.	İndir, sözlüğü LibreOffice'in sözlük koleksiyonundan sözlükler klasörüne indirir. Her biri kendi lisansını (GPL, LGPL veya MPL) korur ve WordCraft'ın yalnızca okuduğu ayrı bir dosya olarak kalır.
+	Downloading the {language} dictionary…	{language}: sözlük indiriliyor…
+	The {language} dictionary is installed.	{language}: sözlük yüklendi.
+	The {language} dictionary couldn't be downloaded: {error}	{language}: sözlük indirilemedi: {error}

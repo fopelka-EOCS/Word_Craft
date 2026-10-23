@@ -2805,3 +2805,10 @@ preview	Title	Ukázka
 	drop caps can't go in a table	iniciálu nelze vložit do tabulky
 	the document is protected	dokument je chráněný
 	Open a document first	Nejprve otevřete dokument
+# Spelling dictionaries downloaded from LibreOffice (File › Options › Proofing)
+	Download	Stáhnout
+	Downloading…	Stahování…
+	Download fetches the dictionary from LibreOffice's dictionary collection into the dictionaries folder. Each keeps its own licence (GPL, LGPL or MPL) and stays a separate file that WordCraft only reads.	Tlačítko Stáhnout stáhne slovník ze sbírky slovníků LibreOffice do složky se slovníky. Každý si ponechává vlastní licenci (GPL, LGPL nebo MPL) a zůstává samostatným souborem, který WordCraft pouze čte.
+	Downloading the {language} dictionary…	{language}: stahování slovníku…
+	The {language} dictionary is installed.	{language}: slovník je nainstalován.
+	The {language} dictionary couldn't be downloaded: {error}	{language}: slovník se nepodařilo stáhnout: {error}
