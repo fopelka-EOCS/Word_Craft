@@ -451,6 +451,27 @@ mod tests {
         assert_eq!(body(&h), format!("{TEXT}y"), "the letter is typed into the document");
     }
 
+    /// With Find open and the page holding the keyboard, a click on the Go To tab gives its page
+    /// box the keyboard: a digit goes into the box, not into the document.
+    #[test]
+    fn choosing_the_go_to_tab_gives_its_box_the_keyboard() {
+        use egui_kittest::kittest::Queryable;
+        let mut h = harness();
+        h.state_mut().run("ui.dialog", json!({"name": "find"})).unwrap();
+        h.run_steps(3);
+        let p = on_the_page(&h);
+        click(&mut h, p);
+        assert!(h.state().canvas.focused, "a click on the page gives it the keyboard");
+        let dialog = h.ctx.memory(|m| m.area_rect(egui::Id::new(("dialog", "Find and Replace")))).expect("the dialog is shown");
+        let tab = h.query_all_by_label("Go To").find(|n| dialog.contains(n.rect().center())).expect("the Go To tab").rect().center();
+        click(&mut h, tab);
+        assert!(!h.state().canvas.focused, "the click on the tab takes the keyboard from the page");
+        assert!(matches!(&h.state().dialog, Some(Dialog::Find { tab: crate::dialogs::FindTab::GoTo, .. })), "the Go To tab is shown");
+        type_letter(&mut h, Key::Num2, "2");
+        assert!(matches!(&h.state().dialog, Some(Dialog::Find { goto_target, .. }) if goto_target == "2"), "the digit is in the box");
+        assert_eq!(body(&h), TEXT, "and not in the document");
+    }
+
     /// Mod+Enter in a modal dialog is its OK (Enter), and the document behind it gets no page
     /// break although the dialog has closed by the time the shortcuts run.
     #[test]
@@ -503,6 +524,86 @@ mod tests {
         click(&mut h, p);
         assert!(h.state().dialog.is_some());
         assert_eq!(format!("{:?}", h.state().session.sel), start, "the caret stays");
+    }
+
+    /// A click on the page in the frame a modal dialog opens in (its shortcut and the click arrive
+    /// together; the page is drawn before the dialog and its backdrop) doesn't move the caret, and
+    /// a right-click there opens no menu behind the dialog.
+    #[test]
+    fn a_click_in_the_frame_a_modal_dialog_opens_in_does_nothing() {
+        let mut h = harness();
+        let p = on_the_page(&h);
+        for button in [egui::PointerButton::Primary, egui::PointerButton::Secondary] {
+            h.state_mut().run("caret.docStart", json!({})).unwrap();
+            h.event(Event::PointerMoved(p));
+            h.run_steps(2);
+            let start = format!("{:?}", h.state().session.sel);
+            let button_event = |pressed| Event::PointerButton { pos: p, button, pressed, modifiers: Modifiers::NONE };
+            one_frame(&mut h, key_events(Key::D, mod_key()).into_iter().chain([button_event(true), button_event(false)]));
+            assert!(matches!(h.state().dialog, Some(Dialog::Font { .. })), "{button:?}: Mod+D opens Font");
+            assert_eq!(format!("{:?}", h.state().session.sel), start, "{button:?}: the caret stays");
+            assert!(!h.state().canvas.context_menu_open, "{button:?}: no menu behind the dialog");
+            press(&mut h, Key::Escape, Modifiers::NONE);
+            assert!(h.state().dialog.is_none(), "Escape cancels");
+        }
+    }
+
+    /// A click on an equation's options strip in the frame a modal dialog opens in (opened from
+    /// outside, by an agent, just before) opens no equation menu behind the dialog.
+    #[test]
+    fn the_equation_menu_doesnt_open_behind_a_modal_dialog() {
+        let mut h = harness();
+        h.state_mut().run("insert.equation", json!({})).unwrap();
+        h.run_steps(3);
+        let strip = h.state().canvas.eq_options.expect("the equation's frame is shown").strip.center();
+        h.event(Event::PointerMoved(strip));
+        h.run_steps(2);
+        h.state_mut().run("ui.dialog", json!({"name": "paragraph"})).unwrap();
+        let click = |pressed| Event::PointerButton { pos: strip, button: egui::PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+        one_frame(&mut h, [click(true), click(false)]);
+        assert!(h.state().dialog.is_some());
+        assert!(!h.state().canvas.context_menu_open, "no equation menu behind the dialog");
+    }
+
+    /// With Draw Table on, a drag on the page from `from` to `to`, with `before_release` in the
+    /// frame before the button comes up.
+    fn draw_stroke(h: &mut Harness<'static, WordApp>, from: egui::Pos2, to: egui::Pos2, before_release: impl IntoIterator<Item = Event>) {
+        let button = |pos, pressed| Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+        h.event(Event::PointerMoved(from));
+        h.step();
+        h.event(button(from, true));
+        h.step();
+        h.event(Event::PointerMoved(to));
+        h.step();
+        one_frame(h, before_release);
+        h.event(button(to, false));
+        h.run_steps(2);
+    }
+
+    /// A drag on the page still going when a modal dialog opens (its shortcut pressed with the
+    /// button down) is dropped, as Escape drops it: releasing the button over the dialog and
+    /// closing the dialog draw nothing. Without the dialog the same drag draws a table.
+    #[test]
+    fn a_drag_on_the_page_ends_when_a_modal_dialog_opens() {
+        let mut h = harness();
+        h.state_mut().run("table.draw", json!({"on": true})).unwrap();
+        h.run_steps(2);
+        let to = on_the_page(&h);
+        let from = to - egui::vec2(200.0, 150.0);
+        let depth = h.state().session.undo_depth();
+        draw_stroke(&mut h, from, to, []);
+        assert_eq!(h.state().session.undo_depth(), depth + 1, "without a dialog the drag draws a table");
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        h.run_steps(2);
+
+        let depth = h.state().session.undo_depth();
+        draw_stroke(&mut h, from, to, key_events(Key::D, mod_key()));
+        assert!(matches!(h.state().dialog, Some(Dialog::Font { .. })), "Mod+D opens Font");
+        press(&mut h, Key::Escape, Modifiers::NONE);
+        assert!(h.state().dialog.is_none(), "Escape cancels");
+        h.run_steps(2);
+        assert_eq!(h.state().session.undo_depth(), depth, "no table is drawn");
+        assert!(h.state().canvas.table_stroke.is_none(), "the stroke is dropped");
     }
 
     /// Find and Replace takes the keyboard as it opens: Enter in its box finds the next match.

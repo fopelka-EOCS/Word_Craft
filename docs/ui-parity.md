@@ -74,7 +74,7 @@ Footnote and endnote editing keeps body and note text at normal opacity, on ligh
 
 ## Dialogs and the keyboard (#3519)
 
-Every dialog takes the keyboard from the page as it opens, also one opened with a shortcut such as Ctrl+D: Tab moves through the dialog and Enter is only its default button. While a modal dialog is open (every dialog but the four below; the Colors dialog is modal too), the document behind it takes no key, shortcut or click, and the page gets the keyboard back when the dialog closes, however it closes. Find and Replace, Symbol, Cross-reference and Mark Index Entry are modeless: a click on the page gives it the keyboard with the dialog still open, and then Enter and Escape are the document's (Enter starts a paragraph, Escape leaves the dialog open). A modal dialog doesn't yet put the keyboard in its first field.
+Every dialog takes the keyboard from the page as it opens, also one opened with a shortcut such as Ctrl+D: Tab moves through the dialog and Enter is only its default button. While a modal dialog is open (every dialog but the four below; the Colors dialog is modal too), the document behind it takes no key, shortcut or click (a drag on the page still going as it opens ends there, applying nothing more), and the page gets the keyboard back when the dialog closes, however it closes. Find and Replace, Symbol, Cross-reference and Mark Index Entry are modeless: a click on the page gives it the keyboard with the dialog still open, and then Enter and Escape are the document's (Enter starts a paragraph, Escape leaves the dialog open). A modal dialog doesn't yet put the keyboard in its first field.
 
 ## Revision history
 
