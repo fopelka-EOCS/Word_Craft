@@ -7,8 +7,9 @@ use std::collections::BTreeMap;
 use egui::{Stroke, Ui, vec2};
 use serde_json::{Value, json};
 use wordcraft_doc::numbering::{Counters, LevelSuffix};
+use wordcraft_doc::para::{COLUMN_BREAK, LINE_BREAK, OBJ, PAGE_BREAK};
 use wordcraft_doc::section::NumFormat;
-use wordcraft_doc::{Document, Path, Pos, StoryRef};
+use wordcraft_doc::{Document, Paragraph, Path, Pos, StoryRef};
 
 use crate::WordApp;
 use crate::theme::{Tokens, regular, semibold};
@@ -174,16 +175,16 @@ fn nav(app: &mut WordApp, ui: &mut Ui) {
                 let Some(p) = app.session.doc.para_at(a) else { continue };
                 let from = p.clamp(a.off.saturating_sub(30));
                 let to = p.clamp((b.off + 40).min(p.len()));
-                let pre = p.text.get(from..a.off).unwrap_or("");
-                let hit = p.text.get(a.off..b.off).unwrap_or("");
-                let post = p.text.get(b.off..to).unwrap_or("");
+                let pre = snippet_text(p, from, a.off);
+                let hit = snippet_text(p, a.off, b.off);
+                let post = snippet_text(p, b.off, to);
                 let mut job = egui::text::LayoutJob::default();
                 let fmt = |c| egui::TextFormat { font_id: regular(12.0), color: c, ..Default::default() };
-                job.append(pre, 0.0, fmt(ui.visuals().text_color()));
+                job.append(&pre, 0.0, fmt(ui.visuals().text_color()));
                 // The match is marked the way Find marks it on the page, per theme (#656).
                 let mark = Tokens::get(ui.ctx()).find_highlight;
-                job.append(hit, 0.0, egui::TextFormat { font_id: semibold(12.0), background: mark, color: ui.visuals().text_color(), ..Default::default() });
-                job.append(post, 0.0, fmt(ui.visuals().text_color()));
+                job.append(&hit, 0.0, egui::TextFormat { font_id: semibold(12.0), background: mark, color: ui.visuals().text_color(), ..Default::default() });
+                job.append(&post, 0.0, fmt(ui.visuals().text_color()));
                 job.wrap.max_width = ui.available_width();
                 if ui.add(egui::Button::new(job).frame(false)).clicked() {
                     let _ = app.run("select.range", json!({"anchor": a, "focus": b}));
@@ -241,6 +242,31 @@ fn visible_headings(levels: &[u8], collapsed: &[bool]) -> Vec<bool> {
             true
         })
         .collect()
+}
+
+/// The text of `p` between byte offsets `from` and `to` as a one-line Results snippet: an inline
+/// object shows what it contributes to plain text (a field its result, a picture a blank), and
+/// line, page and column breaks become a space, so no control character reaches the font and the
+/// row never splits.
+pub(crate) fn snippet_text(p: &Paragraph, from: usize, to: usize) -> String {
+    let Some(slice) = p.text.get(from..to) else { return String::new() };
+    // Objects are numbered by the placeholders before them, so count those left of `from`.
+    let mut k = p.text.get(..from).map_or(0, |head| head.chars().filter(|&c| c == OBJ).count());
+    let mut out = String::with_capacity(slice.len());
+    let mut push = |c: char| out.push(if matches!(c, LINE_BREAK | PAGE_BREAK | COLUMN_BREAK) { ' ' } else { c });
+    for c in slice.chars() {
+        if c == OBJ {
+            p.objects.get(k).map_or("", |o| o.plain_text()).chars().for_each(&mut push);
+            k += 1;
+        } else {
+            push(c);
+        }
+    }
+    // An object with no text (a picture, found by `^g`) keeps a blank so its hit stays marked.
+    if out.is_empty() && !slice.is_empty() {
+        out.push(' ');
+    }
+    out
 }
 
 /// The body's headings (paragraphs with an outline level) in document order, as (path, level,
@@ -909,7 +935,29 @@ fn camel_words(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::comment_stamp;
+    use super::{comment_stamp, snippet_text};
+    use wordcraft_doc::para::{InlineObject, OBJ};
+    use wordcraft_doc::{CharProps, Paragraph};
+
+    #[test]
+    fn results_snippet_has_no_control_characters_or_line_breaks() {
+        let p = Paragraph::with_text("one\ntwo\u{c}three\u{e}four", CharProps::default());
+        assert_eq!(snippet_text(&p, 0, p.len()), "one two three four");
+        assert_eq!(snippet_text(&p, 4, 7), "two");
+
+        let mut p = Paragraph::with_text("", CharProps::default());
+        p.text = format!("a{OBJ}b{OBJ}c");
+        p.objects = vec![
+            InlineObject::Opaque { format: "docx".into(), xml: String::new(), text: "X\nY".into() },
+            InlineObject::Opaque { format: "docx".into(), xml: String::new(), text: "Z".into() },
+        ];
+        let second = 1 + OBJ.len_utf8() + 1;
+        assert_eq!(snippet_text(&p, 0, p.len()), "aX YbZc");
+        assert_eq!(snippet_text(&p, 1, 1 + OBJ.len_utf8()), "X Y");
+        p.objects[0] = InlineObject::Opaque { format: "docx".into(), xml: String::new(), text: String::new() };
+        assert_eq!(snippet_text(&p, 1, 1 + OBJ.len_utf8()), " ", "a textless object keeps a blank for its highlight");
+        assert_eq!(snippet_text(&p, second, p.len()), "Zc", "the object index counts the placeholders before `from`");
+    }
 
     #[test]
     fn comment_stamp_keeps_date_and_time() {
