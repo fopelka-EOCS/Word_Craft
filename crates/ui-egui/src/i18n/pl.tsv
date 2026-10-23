@@ -2672,6 +2672,26 @@ preview	Title	Tytuł
 # Reading Mode column widths (#1040)
 	Narrow	Wąska
 	Medium	Średnia
+# Recovery page, Insert Link places, crop and save messages
+	Bookmarks	Zakładki
+	Continue without restoring	Kontynuuj bez przywracania
+	Couldn't save {name}, so it is still open and nothing was lost: {error}	Nie udało się zapisać {name}, więc dokument pozostaje otwarty i nic nie zostało utracone: {error}
+	Crop on the page works on unturned pictures: set Rotation to 0° first, or use the crop boxes	Przycinanie na stronie działa tylko dla nieobróconych obrazów: najpierw ustaw obrót na 0° albo użyj pól przycinania
+	Discard	Odrzuć
+	Discard the recovery copy of {name}?	Odrzucić kopię odzyskiwania {name}?
+	Discard…	Odrzuć…
+	Local recovery is unavailable or still loading.	Odzyskiwanie lokalne jest niedostępne lub jeszcze się wczytuje.
+	No recovery copies.	Brak kopii odzyskiwania.
+	Nothing of this type in the document.	W dokumencie nie ma elementów tego typu.
+	Recover documents	Odzyskiwanie dokumentów
+	Recovery copy	Kopia odzyskiwania
+	Recovery is disabled while this document has a password.	Odzyskiwanie jest wyłączone, dopóki dokument ma hasło.
+	Restore	Przywróć
+	Restore opens an unsaved copy. Your original file stays unchanged.	Przywrócenie otwiera niezapisaną kopię. Oryginalny plik pozostaje bez zmian.
+	Select a place in this document:	Wybierz miejsce w tym dokumencie:
+	This cannot be undone. Your original file stays unchanged.	Tej operacji nie można cofnąć. Oryginalny plik pozostaje bez zmian.
+	Top of the Document	Początek dokumentu
+	select a picture first	najpierw zaznacz obraz
 	Dot-dot-dash	Kreska-kropka-kropka
 	More Underlines…	Więcej podkreśleń…
 	Underline Color	Kolor podkreślenia

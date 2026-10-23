@@ -506,6 +506,20 @@ fn korean_interface_fonts_load_and_cover_hangul() {
     }
 }
 
+/// Strings no catalog had yet: the recovery page, Insert Link's places and the save error.
+#[test]
+fn korean_recovery_link_and_save_messages_are_translated() {
+    let ko = lang("ko");
+    for (source, expected) in [("Restore", "복원"), ("Recover documents", "문서 복구"), ("Top of the Document", "문서의 처음")] {
+        assert_eq!(tr(ko, source), expected, "{source}");
+    }
+    assert_eq!(fmt(tr(ko, "Discard the recovery copy of {name}?"), &[("name", "보고서.docx")]), "보고서.docx의 복구 사본을 삭제할까요?");
+    assert_eq!(
+        fmt(tr(ko, "Couldn't save {name}, so it is still open and nothing was lost: {error}"), &[("name", "보고서.docx"), ("error", "디스크 오류")]),
+        "보고서.docx을(를) 저장하지 못했습니다. 문서는 열려 있으며 잃은 내용은 없습니다. 오류: 디스크 오류"
+    );
+}
+
 #[test]
 fn cjk_catalogs_are_covered_by_the_embedded_interface_faces() {
     // #486: every CJK character of the Chinese, Japanese and Korean catalogs and language names

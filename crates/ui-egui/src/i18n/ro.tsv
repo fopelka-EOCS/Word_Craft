@@ -331,6 +331,26 @@
 	Calendar	Calendar
 	Can't be deleted	Nu poate fi șters
 	Cancel	Anulare
+# Recovery page, Insert Link places, crop and save messages
+	Bookmarks	Marcaje
+	Continue without restoring	Continuare fără restaurare
+	Couldn't save {name}, so it is still open and nothing was lost: {error}	Nu s-a putut salva {name}, așa că rămâne deschis și nu s-a pierdut nimic: {error}
+	Crop on the page works on unturned pictures: set Rotation to 0° first, or use the crop boxes	Decuparea pe pagină funcționează doar la imaginile nerotite: setați mai întâi Rotația la 0° sau folosiți casetele de decupare
+	Discard	Renunțare
+	Discard the recovery copy of {name}?	Renunțați la copia de recuperare a {name}?
+	Discard…	Renunțare…
+	Local recovery is unavailable or still loading.	Recuperarea locală nu este disponibilă sau încă se încarcă.
+	No recovery copies.	Nicio copie de recuperare.
+	Nothing of this type in the document.	Nu există nimic de acest tip în document.
+	Recover documents	Recuperare documente
+	Recovery copy	Copie de recuperare
+	Recovery is disabled while this document has a password.	Recuperarea este dezactivată cât timp documentul are parolă.
+	Restore	Restaurare
+	Restore opens an unsaved copy. Your original file stays unchanged.	Restaurarea deschide o copie nesalvată. Fișierul original rămâne neschimbat.
+	Select a place in this document:	Selectați un loc din acest document:
+	This cannot be undone. Your original file stays unchanged.	Acțiunea nu poate fi anulată. Fișierul original rămâne neschimbat.
+	Top of the Document	Începutul documentului
+	select a picture first	selectați mai întâi o imagine
 	Canvas Member	Membru al canvasului
 	Capitalize Each Word	Fiecare cuvânt cu majusculă
 	Capitalize first letter of sentences	Prima literă a propozițiilor cu majusculă

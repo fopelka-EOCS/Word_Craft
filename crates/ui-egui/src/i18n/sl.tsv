@@ -326,6 +326,26 @@
 	Can't be deleted	Ni mogoče izbrisati
 	can't split at the first row	tabele ni mogoče razdeliti pri prvi vrstici
 	Cancel	Prekliči
+# Recovery page, Insert Link places, crop and save messages
+	Bookmarks	Zaznamki
+	Continue without restoring	Nadaljuj brez obnovitve
+	Couldn't save {name}, so it is still open and nothing was lost: {error}	Dokumenta {name} ni bilo mogoče shraniti, zato je še odprt in nič ni izgubljeno: {error}
+	Crop on the page works on unturned pictures: set Rotation to 0° first, or use the crop boxes	Obrezovanje na strani deluje le pri nezasukanih slikah: najprej nastavite sukanje na 0° ali uporabite polja za obrezovanje
+	Discard	Zavrzi
+	Discard the recovery copy of {name}?	Želite zavreči obnovitveno kopijo dokumenta {name}?
+	Discard…	Zavrzi…
+	Local recovery is unavailable or still loading.	Lokalna obnovitev ni na voljo ali se še nalaga.
+	No recovery copies.	Ni obnovitvenih kopij.
+	Nothing of this type in the document.	V dokumentu ni ničesar te vrste.
+	Recover documents	Obnovitev dokumentov
+	Recovery copy	Obnovitvena kopija
+	Recovery is disabled while this document has a password.	Obnovitev je onemogočena, dokler ima dokument geslo.
+	Restore	Obnovi
+	Restore opens an unsaved copy. Your original file stays unchanged.	Obnovitev odpre neshranjeno kopijo. Izvirna datoteka ostane nespremenjena.
+	Select a place in this document:	Izberite mesto v tem dokumentu:
+	This cannot be undone. Your original file stays unchanged.	Tega ni mogoče razveljaviti. Izvirna datoteka ostane nespremenjena.
+	Top of the Document	Začetek dokumenta
+	select a picture first	najprej izberite sliko
 	Canvas Member	Element platna
 	Capitalize Each Word	Vsaka Beseda Z Veliko Začetnico
 	Capitalize first letter of sentences	Prva črka stavka velika
