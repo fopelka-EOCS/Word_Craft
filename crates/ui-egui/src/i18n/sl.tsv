@@ -2763,3 +2763,29 @@ preview	Title	Naslov
 	{names} and {n} more	{names} and {n} more
 	{name} options	{name} options
 	{width} × {height} pixels	{width} × {height} pixels
+
+# Accessibility checker findings, suggestions and repeated-word messages.
+	Chart or diagram has no alternative text	Grafikon ali diagram nima nadomestnega besedila
+	Column {column} of a table is empty: it looks like spacing	Stolpec {column} v tabeli je prazen: videti je kot razmik
+	Delete the column and use cell margins instead	Izbrišite stolpec in namesto tega uporabite robove celic
+	Delete the row and use cell margins or spacing instead	Izbrišite vrstico in namesto tega uporabite robove celic ali razmik
+	Describe it in the Alt Text pane (object.altText), or mark it decorative	Opišite predmet v podoknu za nadomestno besedilo (object.altText) ali ga označite kot okrasnega
+	Document has no title	Dokument nima naslova
+	Give it a title or description (table.altText)	Dodajte naslov ali opis (table.altText)
+	Heading level skipped (Heading {level} after Heading {previous})	Preskočena raven naslova (Naslov {level} za Naslovom {previous})
+	Link text "click here" isn't descriptive	Besedilo povezave »click here« ni opisno
+	Missing alternative text	Manjka nadomestno besedilo
+	Object isn't in line with text, so its reading order is unclear	Predmet ni v vrstici z besedilom, zato vrstni red branja ni jasen
+	Place it in line with text (Layout › Wrap Text)	Postavite ga v vrstico z besedilom (Postavitev › Obtekaj besedilo)
+	Repeat the first row as a header row (table.repeatHeader)	Prvo vrstico ponavljajte kot vrstico z glavo (table.repeatHeader)
+	Repeated word: "{word}"	Ponovljena beseda: »{word}«
+	Row {row} of a table is empty: it looks like spacing	Vrstica {row} v tabeli je prazna: videti je kot razmik
+	Split the merged cells (Table Layout › Merge)	Razdelite spojene celice (Postavitev tabele › Spoji)
+	Table has merged cells, which screen readers can lose track of	Tabela ima spojene celice, ki lahko zmedejo bralnike zaslona
+	Table has no alternative text	Tabela nima nadomestnega besedila
+	Table has no header row	Tabela nima vrstice z glavo
+	Text is hard to read: contrast {ratio}:1, {needed}:1 needed	Besedilo je težko berljivo: kontrast {ratio}:1, potreben je {needed}:1
+	Use Space Before/After (Layout › Paragraph) or a page break instead of empty paragraphs	Namesto praznih odstavkov uporabite razmik pred/za odstavkom (Postavitev › Odstavek) ali prelom strani
+	Use a darker or lighter text colour, or change the shading behind it	Uporabite temnejšo ali svetlejšo barvo besedila ali spremenite senčenje za njim
+	Use the next heading level down, so the outline has no gaps	Uporabite naslednjo nižjo raven naslova, da v orisu ne bo vrzeli
+	{n} empty paragraphs in a row	Zaporedni prazni odstavki: {n}

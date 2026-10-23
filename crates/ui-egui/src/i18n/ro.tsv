@@ -2762,3 +2762,29 @@ template	Letter	Scrisoare
 	cm	cm
 	mm	mm
 	pi	pi
+
+# Accessibility checker findings, suggestions and repeated-word messages.
+	Chart or diagram has no alternative text	Graficul sau diagrama nu are text alternativ
+	Column {column} of a table is empty: it looks like spacing	Coloana {column} a unui tabel este goală: pare folosită pentru spațiere
+	Delete the column and use cell margins instead	Ștergeți coloana și folosiți în schimb marginile celulelor
+	Delete the row and use cell margins or spacing instead	Ștergeți rândul și folosiți în schimb marginile celulelor sau spațierea
+	Describe it in the Alt Text pane (object.altText), or mark it decorative	Descrieți obiectul în panoul Text alternativ (object.altText) sau marcați-l ca decorativ
+	Document has no title	Documentul nu are titlu
+	Give it a title or description (table.altText)	Adăugați un titlu sau o descriere (table.altText)
+	Heading level skipped (Heading {level} after Heading {previous})	Nivel de titlu omis (Titlul {level} după Titlul {previous})
+	Link text "click here" isn't descriptive	Textul de legătură „click here” nu este descriptiv
+	Missing alternative text	Lipsește textul alternativ
+	Object isn't in line with text, so its reading order is unclear	Obiectul nu este în linie cu textul, astfel că ordinea de citire este neclară
+	Place it in line with text (Layout › Wrap Text)	Plasați-l în linie cu textul (Aspect › Încadrare text)
+	Repeat the first row as a header row (table.repeatHeader)	Repetați primul rând ca rând de antet (table.repeatHeader)
+	Repeated word: "{word}"	Cuvânt repetat: „{word}”
+	Row {row} of a table is empty: it looks like spacing	Rândul {row} al unui tabel este gol: pare folosit pentru spațiere
+	Split the merged cells (Table Layout › Merge)	Scindați celulele îmbinate (Aspect tabel › Îmbinare)
+	Table has merged cells, which screen readers can lose track of	Tabelul are celule îmbinate, care pot deruta cititoarele de ecran
+	Table has no alternative text	Tabelul nu are text alternativ
+	Table has no header row	Tabelul nu are rând de antet
+	Text is hard to read: contrast {ratio}:1, {needed}:1 needed	Textul este greu de citit: contrast {ratio}:1, este necesar {needed}:1
+	Use Space Before/After (Layout › Paragraph) or a page break instead of empty paragraphs	Folosiți Spațiu înainte/după (Aspect › Paragraf) sau un sfârșit de pagină în locul paragrafelor goale
+	Use a darker or lighter text colour, or change the shading behind it	Folosiți o culoare de text mai închisă sau mai deschisă ori schimbați umbrirea din spate
+	Use the next heading level down, so the outline has no gaps	Folosiți următorul nivel de titlu inferior, astfel încât schița să nu aibă goluri
+	{n} empty paragraphs in a row	Paragrafe goale consecutive: {n}
