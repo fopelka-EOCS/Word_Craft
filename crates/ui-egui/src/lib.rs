@@ -1408,9 +1408,9 @@ impl WordApp {
         // Drawing leaves the caret where it was: following it would pull the view off the ink.
         // A mouse drag on a table (`run_keep_view`) does the same (#1738). A caret in an empty
         // story (a footer just made) also spans the whole story: it isn't a selection of it, and
-        // the view follows it. Saving, exporting, printing and the document's properties move
-        // neither the caret nor the text, so the view stays where the user is reading (#3864);
-        // AutoSave runs its save on the session and never gets here.
+        // the view follows it. Saving, exporting, printing, the document's properties and File ›
+        // Options move neither the caret nor the text, so the view stays where the user is
+        // reading (#3864); AutoSave runs its save on the session and never gets here.
         let file_keeps_view = matches!(
             id,
             "file.save"
@@ -1430,6 +1430,7 @@ impl WordApp {
                 | "file.compatibility"
                 | "file.encrypt"
                 | "file.share"
+                | "file.options"
         );
         if (self.session.selects_whole_story() && !self.session.sel.is_collapsed()) || id == "select.all" || self.canvas.keep_view {
             self.canvas.scroll_to_caret = false;
@@ -8734,6 +8735,7 @@ mod tests {
         keeps_view(&mut a, "file.setAuthor", json!({"name": "Ada"}));
         keeps_view(&mut a, "file.compatibility", json!({}));
         keeps_view(&mut a, "file.share", json!({}));
+        keeps_view(&mut a, "file.options", json!({"checkSpelling": false}));
         a.canvas.scroll_to_caret = false;
         a.execute("file.new", json!({})).unwrap();
         assert!(a.canvas.scroll_to_caret, "a new document still shows its caret");
