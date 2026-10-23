@@ -2410,6 +2410,7 @@
 	the Spike is empty	收集區是空的
 # More reasons a ribbon control is off (#2678)
 	a group holding Word ink can't be ungrouped yet	包含 Word 筆跡的群組暫時無法取消群組
+	a shape filled with a picture is one shape: it can't be ungrouped	以圖片填滿的圖案是一個圖案: 無法取消群組
 	drop caps can't go in a table	首字放大不能放在表格中
 	the document is protected	文件受保護
 	the paragraph is empty	段落是空的

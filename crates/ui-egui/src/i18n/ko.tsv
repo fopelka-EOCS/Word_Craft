@@ -2660,6 +2660,7 @@ preview	Title	제목
 	the Spike is empty	스파이크가 비어 있습니다
 # More reasons a ribbon control is off (#2678)
 	a group holding Word ink can't be ungrouped yet	Word 잉크가 들어 있는 그룹은 아직 그룹 해제할 수 없습니다
+	a shape filled with a picture is one shape: it can't be ungrouped	그림으로 채워진 도형은 하나의 도형입니다: 그룹 해제할 수 없습니다
 	drop caps can't go in a table	표 안에는 첫 글자 장식을 넣을 수 없습니다
 	the document is protected	문서가 보호되어 있습니다
 	the paragraph is empty	단락이 비어 있습니다

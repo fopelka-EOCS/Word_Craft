@@ -2850,6 +2850,7 @@ template	Letter	Thư
 	the Spike is empty	bộ gom đang trống
 # More reasons a ribbon control is off (#2678)
 	a group holding Word ink can't be ungrouped yet	chưa thể tách nhóm chứa mực Word
+	a shape filled with a picture is one shape: it can't be ungrouped	hình được tô bằng ảnh là một hình: không thể bỏ nhóm
 	drop caps can't go in a table	không thể đặt chữ cái lớn đầu đoạn trong bảng
 	the document is protected	tài liệu đang được bảo vệ
 	Open a document first	Hãy mở một tài liệu trước

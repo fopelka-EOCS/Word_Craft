@@ -2831,6 +2831,7 @@ preview	Title	Tytuł
 	the Spike is empty	zbieracz jest pusty
 # More reasons a ribbon control is off (#2678)
 	a group holding Word ink can't be ungrouped yet	grupy z atramentem programu Word nie można jeszcze rozgrupować
+	a shape filled with a picture is one shape: it can't be ungrouped	kształt wypełniony obrazem jest jednym kształtem: nie można go rozgrupować
 	drop caps can't go in a table	inicjału nie można umieścić w tabeli
 	the document is protected	dokument jest chroniony
 	Open a document first	Najpierw otwórz dokument

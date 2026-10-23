@@ -2421,6 +2421,7 @@
 	the Spike is empty	накопичувач порожній
 # More reasons a ribbon control is off (#2678)
 	a group holding Word ink can't be ungrouped yet	групу з рукописним введенням Word поки не можна розгрупувати
+	a shape filled with a picture is one shape: it can't be ungrouped	фігура із заливкою рисунком — це одна фігура: її не можна розгрупувати
 	drop caps can't go in a table	буквицю не можна помістити в таблицю
 	the document is protected	документ захищено
 	the paragraph is empty	абзац порожній

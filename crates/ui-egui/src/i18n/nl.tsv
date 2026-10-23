@@ -2683,6 +2683,7 @@ preview	Title	Titel
 	a drawing canvas can't be ungrouped	de groepering van een tekenvlak kan niet worden opgeheven
 	a drawing canvas can't go inside a text box	een tekenvlak kan niet in een tekstvak
 	a group holding Word ink can't be ungrouped yet	een groep met Word-inkt kan nog niet worden opgeheven
+	a shape filled with a picture is one shape: it can't be ungrouped	een vorm die met een afbeelding is gevuld, is één vorm: de groepering kan niet worden opgeheven
 	charts and diagrams can't be moved or resized yet	grafieken en diagrammen kunnen nog niet worden verplaatst of van grootte veranderd
 	drop caps can't go in a table	een initiaal kan niet in een tabel
 	leave the equation first	verlaat eerst de vergelijking

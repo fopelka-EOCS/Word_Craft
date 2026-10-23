@@ -2443,6 +2443,7 @@
 	the Spike is empty	koguja on tühi
 # More reasons a ribbon control is off (#2678)
 	a group holding Word ink can't be ungrouped yet	Wordi tindiga rühma ei saa veel lahutada
+	a shape filled with a picture is one shape: it can't be ungrouped	pildiga täidetud kujund on üks kujund: seda ei saa lahutada
 	drop caps can't go in a table	tabelisse ei saa lisada hiidtähte
 	the document is protected	dokument on kaitstud
 	the paragraph is empty	lõik on tühi

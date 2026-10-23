@@ -2408,6 +2408,7 @@
 	the Spike is empty	die Sammlung ist leer
 # More reasons a ribbon control is off (#2678)
 	a group holding Word ink can't be ungrouped yet	eine Gruppe mit Word-Freihandtinte lässt sich noch nicht aufheben
+	a shape filled with a picture is one shape: it can't be ungrouped	eine mit einem Bild gefüllte Form ist eine einzige Form: ihre Gruppierung lässt sich nicht aufheben
 	drop caps can't go in a table	ein Initial passt nicht in eine Tabelle
 	the document is protected	das Dokument ist geschützt
 	the paragraph is empty	der Absatz ist leer

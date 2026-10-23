@@ -2776,6 +2776,7 @@ template	Letter	Scrisoare
 	a drawing canvas can't be ungrouped	un panou de desen nu poate fi degrupat
 	a drawing canvas can't go inside a text box	un panou de desen nu poate intra într-o casetă de text
 	a group holding Word ink can't be ungrouped yet	un grup cu cerneală Word nu poate fi încă degrupat
+	a shape filled with a picture is one shape: it can't be ungrouped	o formă umplută cu o imagine este o singură formă: nu poate fi degrupată
 	charts and diagrams can't be moved or resized yet	diagramele și graficele nu pot fi încă mutate sau redimensionate
 	drop caps can't go in a table	o inițială decorativă nu poate intra într-un tabel
 	leave the equation first	ieșiți mai întâi din ecuație

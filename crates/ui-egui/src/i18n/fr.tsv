@@ -2817,6 +2817,7 @@ template	Letter	Lettre
 	the Spike is empty	le pique-notes est vide
 # More reasons a ribbon control is off (#2678)
 	a group holding Word ink can't be ungrouped yet	un groupe contenant de l'encre Word ne peut pas encore être dissocié
+	a shape filled with a picture is one shape: it can't be ungrouped	une forme remplie d’une image est une seule forme : elle ne peut pas être dissociée
 	drop caps can't go in a table	une lettrine ne peut pas aller dans un tableau
 	the document is protected	le document est protégé
 	the paragraph is empty	le paragraphe est vide

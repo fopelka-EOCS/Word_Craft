@@ -2835,6 +2835,7 @@ template	Letter	Lettera
 	the Spike is empty	il raccoglitore è vuoto
 # More reasons a ribbon control is off (#2678)
 	a group holding Word ink can't be ungrouped yet	un gruppo con inchiostro di Word non può ancora essere separato
+	a shape filled with a picture is one shape: it can't be ungrouped	una forma riempita con un'immagine è una sola forma: non può essere separata
 	drop caps can't go in a table	un capolettera non può stare in una tabella
 	the document is protected	il documento è protetto
 	Open a document first	Aprire prima un documento

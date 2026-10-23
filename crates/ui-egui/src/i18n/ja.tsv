@@ -2409,6 +2409,7 @@
 	the Spike is empty	スパイクは空です
 # More reasons a ribbon control is off (#2678)
 	a group holding Word ink can't be ungrouped yet	Word のインクを含むグループはまだグループ解除できません
+	a shape filled with a picture is one shape: it can't be ungrouped	図で塗りつぶされた図形は 1 つの図形です: グループ解除できません
 	drop caps can't go in a table	ドロップキャップは表の中に入れられません
 	the document is protected	文書は保護されています
 	the paragraph is empty	段落が空です

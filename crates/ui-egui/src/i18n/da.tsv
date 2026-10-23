@@ -2613,6 +2613,7 @@ preview	Title	Titel
 	a drawing canvas can't be ungrouped	grupperingen af et tegnelærred kan ikke ophæves
 	a drawing canvas can't go inside a text box	et tegnelærred kan ikke placeres i et tekstfelt
 	a group holding Word ink can't be ungrouped yet	en gruppe med Word-blæk kan endnu ikke opdeles
+	a shape filled with a picture is one shape: it can't be ungrouped	en figur udfyldt med et billede er én figur: den kan ikke opdeles
 	charts and diagrams can't be moved or resized yet	diagrammer og grafer kan endnu ikke flyttes eller have ændret størrelse
 	drop caps can't go in a table	et initial kan ikke placeres i en tabel
 	leave the equation first	forlad først formlen

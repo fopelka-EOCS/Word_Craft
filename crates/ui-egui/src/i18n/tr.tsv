@@ -2808,6 +2808,7 @@ preview	Title	Örnek
 	the Spike is empty	biriktirici boş
 # More reasons a ribbon control is off (#2678)
 	a group holding Word ink can't be ungrouped yet	Word mürekkebi içeren bir grubun grubu henüz çözülemez
+	a shape filled with a picture is one shape: it can't be ungrouped	resimle doldurulmuş bir şekil tek bir şekildir: grubu çözülemez
 	drop caps can't go in a table	tabloya büyük başlangıç harfi konamaz
 	the document is protected	belge korumalı
 	Open a document first	Önce bir belge açın

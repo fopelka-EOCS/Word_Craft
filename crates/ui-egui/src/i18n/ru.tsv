@@ -2809,6 +2809,7 @@ preview	Title	Пример
 	the Spike is empty	копилка пуста
 # More reasons a ribbon control is off (#2678)
 	a group holding Word ink can't be ungrouped yet	группу с рукописным вводом Word пока нельзя разгруппировать
+	a shape filled with a picture is one shape: it can't be ungrouped	фигура с заливкой рисунком — это одна фигура: её нельзя разгруппировать
 	drop caps can't go in a table	буквицу нельзя поместить в таблицу
 	the document is protected	документ защищён
 	Open a document first	Сначала откройте документ

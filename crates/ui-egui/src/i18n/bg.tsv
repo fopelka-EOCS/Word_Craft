@@ -2800,6 +2800,7 @@
 	the Spike is empty	натрупването е празно
 # More reasons a ribbon control is off (#2678)
 	a group holding Word ink can't be ungrouped yet	група с мастило от Word още не може да се разгрупира
+	a shape filled with a picture is one shape: it can't be ungrouped	фигура, запълнена с картина, е една фигура: не може да се разгрупира
 	drop caps can't go in a table	буквицата не може да се постави в таблица
 	the document is protected	документът е защитен
 	Open a document first	Първо отворете документ

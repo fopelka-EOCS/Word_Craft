@@ -2777,6 +2777,7 @@ preview	Title	Naslov
 	a drawing canvas can't be ungrouped	risalnega platna ni mogoče razdružiti
 	a drawing canvas can't go inside a text box	risalnega platna ni mogoče postaviti v besedilno polje
 	a group holding Word ink can't be ungrouped yet	skupine s Wordovim črnilom še ni mogoče razdružiti
+	a shape filled with a picture is one shape: it can't be ungrouped	oblika, zapolnjena s sliko, je ena oblika: ni je mogoče razdružiti
 	charts and diagrams can't be moved or resized yet	grafikonov in diagramov še ni mogoče premikati ali spreminjati njihove velikosti
 	drop caps can't go in a table	začetnice ni mogoče postaviti v tabelo
 	leave the equation first	najprej zapustite enačbo
