@@ -209,6 +209,31 @@ const MAC_LIGHTS_LEFT: f32 = 10.0;
 /// from the top of the window.
 pub const MAC_CONTENT_LEFT: f32 = MAC_LIGHTS_LEFT + 2.0 * MAC_LIGHT_PITCH + MAC_LIGHT + (MAC_TITLE_BAR - MAC_LIGHT) / 2.0;
 
+/// Where content starts after the lights. The app measures the real buttons (they grew in
+/// macOS 26); until then, or if it can't, the standard layout above.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MacTitleBar {
+    pub height: f32,
+    pub content_left: f32,
+}
+
+impl Default for MacTitleBar {
+    fn default() -> Self {
+        Self { height: MAC_TITLE_BAR, content_left: MAC_CONTENT_LEFT }
+    }
+}
+
+impl MacTitleBar {
+    /// The bar for traffic lights whose right edge is `lights_right` and whose centre is
+    /// `lights_centre_y` below the top of the window: the lights centred in it, and content the
+    /// same gap after them as they keep from the top. Never smaller than the standard layout.
+    pub fn around_lights(lights_right: f32, lights_centre_y: f32, light: f32) -> Self {
+        let height = (2.0 * lights_centre_y).max(MAC_TITLE_BAR);
+        let gap = (height - light) / 2.0;
+        Self { height, content_left: (lights_right + gap).clamp(MAC_CONTENT_LEFT, f32::from(i8::MAX)) }
+    }
+}
+
 pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     // macOS: shorter, so the system's traffic lights are centred in it; the tallest controls
