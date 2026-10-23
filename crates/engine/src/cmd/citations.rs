@@ -320,21 +320,13 @@ pub fn specs() -> Vec<CommandSpec> {
             update_generated(s)?;
             sel_result(s)
         }),
-        CommandSpec::new("references.markCitation", "Mark Citation", "References › Table of Authorities", |s, v| {
-            let entry = p::str(v, "entry").map(str::to_string).unwrap_or_else(|| s.selected_text().trim().to_string());
-            if entry.is_empty() {
-                return Err(CmdError::Params("select a citation or give `entry`".into()));
-            }
-            let (_, b) = s.sel.ordered();
-            s.doc.insert_object(&b, InlineObject::Field { instr: format!("TA \\l \"{}\"", entry.replace('"', "")), result: String::new(), locked: false, dirty: false, code: false, form: String::new() }, &CharProps { hidden: Some(true), ..Default::default() })?;
-            Ok(json!({"entry": entry}))
-        })
-        .params(r#"{"entry"?: string}"#)
-        .key(super::non_mac("Alt+Shift+I")),
-        CommandSpec::new("references.tableOfAuthorities", "Insert Table of Authorities", "References › Table of Authorities", |s, _| {
-            generated_list(s, "TOA", "Table of Authorities")?;
-            sel_result(s)
-        }),
+        CommandSpec::new("references.markCitation", "Mark Citation", "References › Table of Authorities", mark_citation)
+            .params(
+                r#"{"long"?: string (the citation as the table lists it; default: the selected text), "short"?: string (default: the long citation), "category"?: 1-16 (1 Cases, 2 Statutes, 3 Other Authorities, 4 Rules, 5 Treatises, 6 Regulations, 7 Constitutional Provisions; default 1), "all"?: bool (Mark All: also every other place the long or short citation appears, exactly as typed), "entry"?: string (same as long)}"#,
+            )
+            .key(super::non_mac("Alt+Shift+I")),
+        CommandSpec::new("references.tableOfAuthorities", "Insert Table of Authorities", "References › Table of Authorities", insert_authorities)
+            .params(r#"{"category"?: 0-16 (0, the default: All, one table per category that has citations, as Word inserts them), "passim"?: bool (Use passim: five pages or more read "passim"; default true)}"#),
         CommandSpec::new("references.updateAuthorities", "Update Table", "References › Table of Authorities", |s, _| {
             update_generated(s)?;
             sel_result(s)
@@ -911,25 +903,40 @@ fn caption_body(p: &Paragraph, label: &str) -> String {
 
 const ENTRY_STYLE: &str = "ListEntry";
 
-/// Rebuild every generated list.
+/// Rebuild every generated list. Tables of authorities are built twice: rebuilding one moves the
+/// pages below it, and a table read from a file loses its old result as it is rebuilt, so the
+/// second pass reads the pages the finished document has.
 pub fn update_generated(s: &mut Session) -> Result<(), CmdError> {
+    if update_lists(s, false)? {
+        s.touch();
+        update_lists(s, true)?;
+    }
+    Ok(())
+}
+
+/// One pass of [`update_generated`] over every list, or with `toa_only` over the tables of
+/// authorities; whether it rebuilt a table of authorities.
+fn update_lists(s: &mut Session, toa_only: bool) -> Result<bool, CmdError> {
+    let mut any_toa = false;
     let mut i = 0;
     while i < s.doc.body.len() {
         let kind = s.doc.body.get(i).and_then(|b| b.as_para()).and_then(list_kind);
-        let Some(kind) = kind else {
+        let Some(kind) = kind.filter(|k| !toa_only || is_toa(k)) else {
             i += 1;
             continue;
         };
+        any_toa |= is_toa(&kind);
         add_entry_style(s);
         if kind.starts_with("INDEX") {
             super::index::rebuild(s, i, None)?;
             i += 1;
             continue;
         }
-        // A table of figures from Word can hold the list it saved as the field's result, in the
-        // field's own paragraph: the rebuilt entries replace it, keeping its leader.
+        // A table of figures or of authorities from Word can hold the list it saved as the field's
+        // result, in the field's own paragraph: the rebuilt entries replace it, keeping its leader.
+        let toa = is_toa(&kind);
         let mut saved_leader = None;
-        if figures_label(&kind).is_some()
+        if (figures_label(&kind).is_some() || toa)
             && let Ok(p) = s.doc.para_mut(StoryRef::Body, &Path::top(i))
         {
             let leader = p.props.tabs.as_ref().and_then(|t| t.last()).map(|t| t.leader);
@@ -937,7 +944,7 @@ pub fn update_generated(s: &mut Session) -> Result<(), CmdError> {
             for o in &mut p.objects {
                 if let InlineObject::Field { instr, result, .. } = o
                     && !result.is_empty()
-                    && figures_label(instr).is_some()
+                    && (figures_label(instr).is_some() || is_toa(instr))
                 {
                     result.clear();
                     cleared = true;
@@ -948,23 +955,38 @@ pub fn update_generated(s: &mut Session) -> Result<(), CmdError> {
                 p.touch();
             }
         }
-        // Remove old entries, keeping their tab leader.
-        let leader = s
-            .doc
-            .body
-            .get(i + 1)
+        // Remove old entries, keeping their tab leader. A table of authorities Word built has its
+        // entries in Word's Table of Authorities style; the rebuilt ones take it too.
+        let entry_style = if toa {
+            add_toa_entry_style(s);
+            TOA_ENTRY_STYLE
+        } else {
+            ENTRY_STYLE
+        };
+        let is_entry = |b: Option<&Block>| {
+            b.and_then(|b| b.as_para())
+                .is_some_and(|p| p.props.style.as_deref().is_some_and(|st| st == ENTRY_STYLE || (toa && st == TOA_ENTRY_STYLE)))
+        };
+        let leader = Some(s.doc.body.get(i + 1).map(|b| &**b))
+            .filter(|b| is_entry(*b))
+            .flatten()
             .and_then(|b| b.as_para())
-            .filter(|p| p.props.style.as_deref() == Some(ENTRY_STYLE))
             .and_then(|p| p.props.tabs.as_ref()?.last().map(|t| t.leader))
             .or(saved_leader)
             .unwrap_or(TabLeader::Dot);
-        while s.doc.body.get(i + 1).and_then(|b| b.as_para()).is_some_and(|p| p.props.style.as_deref() == Some(ENTRY_STYLE)) {
+        while is_entry(s.doc.body.get(i + 1).map(|b| &**b)) {
             s.doc.remove_block(StoryRef::Body, &Path::top(i + 1))?;
         }
+        if toa {
+            toa_heading(s, i, &kind)?;
+        }
+        // Pages are read from the layout: lay out the document as it is now, without the old
+        // entries, or each mark would be looked up a paragraph off.
+        s.touch();
         let lines = entries_for(s, &kind);
         let width = super::page::sect(s).text_width();
         for (k, (text, hanging)) in lines.into_iter().enumerate() {
-            let mut para = Paragraph::with_text(&text, CharProps::default()).styled(ENTRY_STYLE);
+            let mut para = Paragraph::with_text(&text, CharProps::default()).styled(entry_style);
             if hanging {
                 para.props.indent_left = Some(36.0);
                 para.props.indent_first = Some(-36.0);
@@ -977,6 +999,53 @@ pub fn update_generated(s: &mut Session) -> Result<(), CmdError> {
         i += 1;
     }
     s.touch();
+    Ok(any_toa)
+}
+
+/// Word's style for table of authorities entries, which a table read from Word already uses.
+const TOA_ENTRY_STYLE: &str = "TableofAuthorities";
+
+/// Add Word's Table of Authorities style if the document doesn't have it: Word's own definition,
+/// a 12 pt hanging indent for a citation that takes more than one line.
+fn add_toa_entry_style(s: &mut Session) {
+    if s.doc.styles.get(TOA_ENTRY_STYLE).is_none() {
+        s.doc.styles.upsert(wordcraft_doc::Style {
+            id: TOA_ENTRY_STYLE.into(),
+            name: "Table of Authorities".into(),
+            kind: wordcraft_doc::StyleKind::Paragraph,
+            based_on: Some("Normal".into()),
+            next: Some("Normal".into()),
+            para: wordcraft_doc::ParaProps { indent_left: Some(12.0), indent_first: Some(-12.0), ..Default::default() },
+            ..Default::default()
+        });
+    }
+}
+
+/// With `\h` a table of authorities starts with its category's name, in the paragraph holding
+/// its field (Word's TOA Heading paragraph, the field first): the text there becomes the name.
+fn toa_heading(s: &mut Session, i: usize, kind: &str) -> Result<(), CmdError> {
+    let f = FieldCode::parse(kind);
+    let category = toa_category(&f);
+    if !f.has('h') || category == 0 {
+        return Ok(());
+    }
+    let name = toa_category_name(category);
+    let p = s.doc.para_mut(StoryRef::Body, &Path::top(i))?;
+    let text: String = p.text.chars().filter(|c| *c != wordcraft_doc::para::OBJ).collect();
+    if text == name {
+        return Ok(());
+    }
+    // Delete the text after the last object (the field), back to front, and put the name there.
+    let after = p.text.rfind(wordcraft_doc::para::OBJ).map_or(0, |o| o + wordcraft_doc::para::OBJ.len_utf8());
+    let props = p.props_of_char(after.min(p.len().saturating_sub(1))).clone();
+    let plain: Vec<(usize, usize)> =
+        p.text.char_indices().filter(|(_, c)| *c != wordcraft_doc::para::OBJ).map(|(at, c)| (at, at + c.len_utf8())).collect();
+    for (a, b) in plain.into_iter().rev() {
+        p.delete(a, b)?;
+    }
+    let at = p.text.rfind(wordcraft_doc::para::OBJ).map_or(0, |o| o + wordcraft_doc::para::OBJ.len_utf8());
+    p.insert_text(at, &name, &CharProps { hidden: None, ..props })?;
+    p.touch();
     Ok(())
 }
 
@@ -1002,8 +1071,243 @@ fn page_of(s: &mut Session, pos: &Pos) -> u32 {
     l.caret(pos).and_then(|c| l.pages.get(c.page)).map(|p| p.number).unwrap_or(1)
 }
 
+/// Word's names for table of authorities categories 1–7 (Mark Citation's list); 8–16 have none.
+pub(crate) fn toa_category_name(c: u32) -> String {
+    match c {
+        1 => "Cases",
+        2 => "Statutes",
+        3 => "Other Authorities",
+        4 => "Rules",
+        5 => "Treatises",
+        6 => "Regulations",
+        7 => "Constitutional Provisions",
+        n => return n.to_string(),
+    }
+    .to_string()
+}
+
+/// A citation-mark field: a `TA` field with no result, so nothing shows. Not hidden text: Word for
+/// Mac's Update Table leaves a mark formatted hidden out of the table (observed in Word for Mac
+/// 16.114: "No table of authorities entries found." until the hidden formatting was removed).
+fn ta_field(instr: String) -> (InlineObject, CharProps) {
+    (InlineObject::Field { instr, result: String::new(), locked: false, dirty: false, code: false, form: String::new() }, CharProps::default())
+}
+
+/// Mark Citation: a hidden `TA` field after the selection with the long citation, the short one
+/// and the category, as Word's Mark writes it. With `all` (Mark All) also a short-citation mark
+/// (`TA \s`) after every other place in the main text where the long or the short citation
+/// appears exactly as typed (whole words) and isn't marked yet, as Microsoft documents Mark All.
+fn mark_citation(s: &mut Session, v: &Value) -> CmdResult {
+    let clean = |t: &str| t.split_whitespace().collect::<Vec<_>>().join(" ").replace('"', "");
+    let long = clean(&p::str(v, "long").or_else(|| p::str(v, "entry")).map(str::to_string).unwrap_or_else(|| s.selected_text()));
+    if long.is_empty() {
+        return Err(CmdError::Params("select a citation or give `long`".into()));
+    }
+    let short = p::str(v, "short").map(clean).filter(|x| !x.is_empty()).unwrap_or_else(|| long.clone());
+    let category = p::u64(v, "category").unwrap_or(1).clamp(1, 16);
+    let (a, b) = s.sel.ordered();
+    let (field, props) = ta_field(format!("TA \\l \"{long}\" \\s \"{short}\" \\c {category}"));
+    s.doc.insert_object(&b, field, &props)?;
+    let mut marked = 1;
+    if p::bool(v, "all").unwrap_or(false) {
+        marked += mark_all(s, &long, &short, (&a, &b))?;
+    }
+    s.clamp_selection();
+    s.touch();
+    Ok(json!({"long": long, "short": short, "category": category, "marked": marked}))
+}
+
+/// Mark All's short-citation marks; how many it added. The selection (`selected`) was just marked.
+fn mark_all(s: &mut Session, long: &str, short: &str, selected: (&Pos, &Pos)) -> Result<usize, CmdError> {
+    let word = |c: Option<char>| c.is_some_and(char::is_alphanumeric);
+    let mut added = 0;
+    for path in s.doc.para_paths(StoryRef::Body) {
+        let Some(p) = s.doc.para(StoryRef::Body, &path) else { continue };
+        let mut hits: Vec<(usize, usize)> = Vec::new();
+        for needle in [long, short] {
+            for (at, m) in p.text.match_indices(needle) {
+                let end = at + m.len();
+                if !word(p.text[..at].chars().next_back()) && !word(p.text[end..].chars().next()) {
+                    hits.push((at, end));
+                }
+            }
+        }
+        // The longest match at each place; none inside another.
+        hits.sort_by_key(|(a, b)| (*a, std::cmp::Reverse(*b)));
+        let mut kept: Vec<(usize, usize)> = Vec::new();
+        for (a, b) in hits {
+            if kept.last().is_none_or(|(_, end)| a >= *end) {
+                kept.push((a, b));
+            }
+        }
+        let in_selection = |a: usize, b: usize| {
+            selected.0.story == StoryRef::Body
+                && selected.0.path == path
+                && selected.1.path == path
+                && a < selected.1.off.saturating_add(wordcraft_doc::para::OBJ.len_utf8())
+                && b > selected.0.off
+        };
+        let marked = |end: usize| matches!(p.object_at(end), Some(InlineObject::Field { instr, .. }) if FieldCode::parse(instr).name == "TA");
+        let ends: Vec<usize> = kept.into_iter().filter(|(a, b)| !in_selection(*a, *b) && !marked(*b)).map(|(_, b)| b).collect();
+        if ends.is_empty() {
+            continue;
+        }
+        let para = s.doc.para_mut(StoryRef::Body, &path)?;
+        for end in ends.into_iter().rev() {
+            let (field, props) = ta_field(format!("TA \\s \"{short}\""));
+            para.insert_object(end, field, &props)?;
+            added += 1;
+        }
+        para.touch();
+    }
+    Ok(added)
+}
+
+/// Insert Table of Authorities: for each category (all those with citations by default, as Word
+/// inserts them; Cases when none are marked yet) a TOA Heading paragraph holding
+/// `TOA \h \c "n"` (and `\p`), which Update Table fills with the category's name and entries.
+fn insert_authorities(s: &mut Session, v: &Value) -> CmdResult {
+    let passim = p::bool(v, "passim").unwrap_or(true);
+    let wanted = p::u64(v, "category").unwrap_or(0).min(16) as u32;
+    let mut categories: Vec<u32> = if wanted > 0 {
+        vec![wanted]
+    } else {
+        let mut used = std::collections::BTreeSet::new();
+        for path in s.doc.para_paths(StoryRef::Body) {
+            for o in s.doc.para(StoryRef::Body, &path).map(|p| p.objects.as_slice()).unwrap_or_default() {
+                if let InlineObject::Field { instr, .. } = o {
+                    let f = FieldCode::parse(instr);
+                    if f.name == "TA" && f.arg('l').is_some() {
+                        // A mark without a category is in no category's table (Word for Mac
+                        // leaves it out of Cases, observed in 16.114).
+                        if toa_category(&f) > 0 {
+                            used.insert(toa_category(&f));
+                        }
+                    }
+                }
+            }
+        }
+        used.into_iter().collect()
+    };
+    if categories.is_empty() {
+        categories.push(1);
+    }
+    let at = delete_selection(s)?;
+    if at.story != StoryRef::Body || at.path.depth() > 0 {
+        return Err(CmdError::Failed("lists go in the main text".into()));
+    }
+    add_toa_heading_style(s);
+    // At the start of a paragraph the tables go in before it; elsewhere it is split there.
+    let i = if at.off == 0 || s.doc.para_at(&at).is_some_and(|p| p.is_empty()) { at.path.last() } else { s.doc.split_paragraph(&at)?.path.last() };
+    for (k, c) in categories.into_iter().enumerate() {
+        let mut head = Paragraph::new().styled(TOA_HEADING_STYLE);
+        let instr = format!("TOA \\h \\c \"{c}\"{}", if passim { " \\p" } else { "" });
+        head.insert_object(
+            0,
+            InlineObject::Field { instr, result: String::new(), locked: false, dirty: false, code: false, form: String::new() },
+            &CharProps::default(),
+        )?;
+        s.doc.insert_block(StoryRef::Body, &Path::top(i + k), Block::Para(head))?;
+    }
+    update_generated(s)?;
+    sel_result(s)
+}
+
+/// Word's style for a table of authorities' category heading.
+const TOA_HEADING_STYLE: &str = "TOAHeading";
+
+/// Add Word's TOA Heading style if the document doesn't have it: bold, 12 pt, 6 pt before.
+fn add_toa_heading_style(s: &mut Session) {
+    if s.doc.styles.get(TOA_HEADING_STYLE).is_none() {
+        s.doc.styles.upsert(wordcraft_doc::Style {
+            id: TOA_HEADING_STYLE.into(),
+            name: "TOA Heading".into(),
+            kind: wordcraft_doc::StyleKind::Paragraph,
+            based_on: Some("Normal".into()),
+            next: Some("Normal".into()),
+            para: wordcraft_doc::ParaProps { space_before: Some(6.0), ..Default::default() },
+            chr: CharProps { bold: Some(true), size: Some(12.0), ..Default::default() },
+            ..Default::default()
+        });
+    }
+}
+
+fn is_toa(instr: &str) -> bool {
+    FieldCode::parse(instr).name == "TOA"
+}
+
+/// The category a `TA` or `TOA` field names (`\c`); 0 when it names none.
+fn toa_category(f: &FieldCode) -> u32 {
+    f.arg('c').and_then(|c| c.trim().parse().ok()).unwrap_or(0)
+}
+
+/// A table of authorities' entries as Word builds them (observed in Word for Mac 16.114): each
+/// long citation (`TA \l`) of the table's category (`\c`; every category without it), in
+/// alphabetical order, with the pages of its own mark and of every mark of its short citation
+/// (`TA \s` alone, as Mark All inserts), and "passim" for five pages or more with `\p`. `\e`
+/// separates a citation from its pages (a tab by default) and `\l` the pages (", ").
+fn toa_entries(s: &mut Session, kind: &str) -> Vec<(String, bool)> {
+    let f = FieldCode::parse(kind);
+    let category = toa_category(&f);
+    let mut marks: Vec<(FieldCode, Pos)> = Vec::new();
+    for path in s.doc.para_paths(StoryRef::Body) {
+        let Some(p) = s.doc.para(StoryRef::Body, &path) else { continue };
+        for off in p.object_offsets() {
+            if let Some(InlineObject::Field { instr, .. }) = p.object_at(off) {
+                let ta = FieldCode::parse(instr);
+                if ta.name == "TA" {
+                    marks.push((ta, Pos { story: StoryRef::Body, path: path.clone(), off }));
+                }
+            }
+        }
+    }
+    // The table's long citations, and the long citation each short one stands for.
+    let mut pages: std::collections::HashMap<String, Vec<u32>> = Default::default();
+    let mut long_of_short: std::collections::HashMap<String, String> = Default::default();
+    for (ta, _) in &marks {
+        if let Some(long) = ta.arg('l').filter(|l| !l.trim().is_empty())
+            && (category == 0 || toa_category(ta) == category)
+        {
+            pages.entry(long.to_string()).or_default();
+            if let Some(short) = ta.arg('s') {
+                long_of_short.entry(short.to_string()).or_insert_with(|| long.to_string());
+            }
+        }
+    }
+    for (ta, pos) in &marks {
+        let long = match ta.arg('l') {
+            Some(l) => Some(l.to_string()).filter(|l| pages.contains_key(l)),
+            None => ta.arg('s').and_then(|short| long_of_short.get(short).cloned()),
+        };
+        let Some(long) = long else { continue };
+        let page = page_of(s, pos);
+        if let Some(list) = pages.get_mut(&long)
+            && !list.contains(&page)
+        {
+            list.push(page);
+        }
+    }
+    let lang = super::default_lang(s);
+    let mut sorted: Vec<(SortKey, String, Vec<u32>)> = pages.into_iter().map(|(long, list)| (sort_key(&long, lang.as_deref()), long, list)).collect();
+    sorted.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
+    let entry_sep = f.arg('e').unwrap_or("\t");
+    let page_sep = f.arg('l').unwrap_or(", ");
+    sorted
+        .into_iter()
+        .map(|(_, long, mut list)| {
+            list.sort_unstable();
+            let numbers =
+                if f.has('p') && list.len() >= 5 { "passim".to_string() } else { list.iter().map(u32::to_string).collect::<Vec<_>>().join(page_sep) };
+            (format!("{long}{entry_sep}{numbers}"), false)
+        })
+        .collect()
+}
+
 /// Entry lines (text, hanging indent) for a generated list.
 fn entries_for(s: &mut Session, kind: &str) -> Vec<(String, bool)> {
+    if is_toa(kind) {
+        return toa_entries(s, kind);
+    }
     if kind.starts_with("BIBLIOGRAPHY") {
         let st = style(&s.bib_style);
         return bib_order(&s.doc, st, super::default_lang(s))
@@ -1662,6 +1966,152 @@ mod tests {
         assert!(labels.contains(&"Plate".to_string()), "{labels:?}");
         assert!(labels.contains(&"Photo Plate".to_string()), "{labels:?}");
         assert!(!labels.iter().any(|l| l == "-" || l.is_empty() || l == "Figure"), "{labels:?}");
+    }
+
+    /// A brief citing Doe v. Roe in full on page 1 and by its short name on pages 2–5, Able v.
+    /// Baker once on page 3 and a statute on page 2; each marked as Word's Mark Citation would.
+    fn marked_brief() -> Session {
+        let paras = [
+            "TABLE OF AUTHORITIES",
+            "Doe v. Roe, 123 So. 3d 456 (Ala. 2020) sets the standard.",
+            "As in Doe v. Roe, the rule holds. Ala. Code § 1-2-3 (1975) applies.",
+            "Able v. Baker, 111 So. 2d 222 (Ala. 1990) is older; Doe v. Roe again.",
+            "Doe v. Roe a third time.",
+            "Doe v. Roe a fourth time.",
+        ];
+        let mut s = Session::new(wordcraft_doc::Document::from_text(&paras.join("\n")));
+        for (text, short, category) in [
+            ("Doe v. Roe, 123 So. 3d 456 (Ala. 2020)", "Doe v. Roe", 1),
+            ("Able v. Baker, 111 So. 2d 222 (Ala. 1990)", "Able", 1),
+            ("Ala. Code § 1-2-3 (1975)", "§ 1-2-3", 2),
+        ] {
+            s.run("select.text", &json!({"text": text})).unwrap();
+            s.run("references.markCitation", &json!({"short": short, "category": category, "all": true})).unwrap();
+        }
+        // A page of its own for each paragraph after the first two.
+        for k in (2..paras.len()).rev() {
+            s.sel = Selection::caret(Pos { story: StoryRef::Body, path: Path::top(k), off: 0 });
+            s.run("insert.pageBreak", &json!({})).unwrap();
+        }
+        s
+    }
+
+    /// Word for Mac's table of authorities, one table per category: its name as the heading, the
+    /// long citations in alphabetical order with the pages of their short citations too, and
+    /// "passim" from five pages (observed in Word for Mac 16.114).
+    #[test]
+    fn table_of_authorities_is_built_as_word_builds_it() {
+        let mut s = marked_brief();
+        s.sel = Selection::caret(Pos { story: StoryRef::Body, path: Path::top(1), off: 0 });
+        s.run("references.tableOfAuthorities", &json!({})).unwrap();
+        let t = s.doc.plain_text(StoryRef::Body);
+        let lines: Vec<&str> = t.lines().take(6).collect();
+        assert_eq!(
+            lines,
+            [
+                "TABLE OF AUTHORITIES",
+                "Cases",
+                "Able v. Baker, 111 So. 2d 222 (Ala. 1990)\t3",
+                "Doe v. Roe, 123 So. 3d 456 (Ala. 2020)\tpassim",
+                "Statutes",
+                "Ala. Code § 1-2-3 (1975)\t2",
+            ],
+            "{t}"
+        );
+        // Without passim the pages are listed.
+        let at = s.doc.body.iter().position(|b| b.as_para().is_some_and(|p| p.plain_text() == "Cases")).unwrap();
+        let p = s.doc.para_mut(StoryRef::Body, &Path::top(at)).unwrap();
+        for o in &mut p.objects {
+            if let InlineObject::Field { instr, .. } = o {
+                *instr = "TOA \\h \\c \"1\"".into();
+            }
+        }
+        s.run("references.updateAuthorities", &json!({})).unwrap();
+        let t = s.doc.plain_text(StoryRef::Body);
+        assert!(t.contains("Doe v. Roe, 123 So. 3d 456 (Ala. 2020)\t1, 2, 3, 4, 5"), "{t}");
+    }
+
+    /// Mark All marks every other place the long or the short citation appears exactly, as whole
+    /// words, with a short-citation mark; not a different case, not inside a longer word, and not
+    /// twice. The marks aren't hidden text, which Word leaves out of its table.
+    #[test]
+    fn mark_all_marks_each_exact_citation_once() {
+        let mut s = Session::new(wordcraft_doc::Document::from_text(
+            "Doe v. Roe, 123 So. 3d 456 (Ala. 2020) sets it.\nAs in Doe v. Roe, and doe v. roe, and Doe v. Roemer.\nAgain Doe v. Roe, 123 So. 3d 456 (Ala. 2020).",
+        ));
+        s.run("select.text", &json!({"text": "Doe v. Roe, 123 So. 3d 456 (Ala. 2020)"})).unwrap();
+        let v = s.run("references.markCitation", &json!({"short": "Doe v. Roe", "category": 1, "all": true})).unwrap();
+        assert_eq!(v["marked"], 3, "{v}");
+        let marks: Vec<String> = fields(&s).into_iter().map(|(i, _)| i).collect();
+        assert_eq!(
+            marks,
+            [
+                "TA \\l \"Doe v. Roe, 123 So. 3d 456 (Ala. 2020)\" \\s \"Doe v. Roe\" \\c 1".to_string(),
+                "TA \\s \"Doe v. Roe\"".to_string(),
+                "TA \\s \"Doe v. Roe\"".to_string(),
+            ]
+        );
+        // Mark All again adds nothing.
+        s.run("select.text", &json!({"text": "Doe v. Roe, 123 So. 3d 456 (Ala. 2020)"})).unwrap();
+        s.run("caret.docEnd", &json!({})).unwrap();
+        let at = s.sel.focus.clone();
+        let again = mark_all(&mut s, "Doe v. Roe, 123 So. 3d 456 (Ala. 2020)", "Doe v. Roe", (&at, &at)).unwrap();
+        assert_eq!(again, 0);
+        for path in s.doc.para_paths(StoryRef::Body) {
+            let p = s.doc.para(StoryRef::Body, &path).unwrap();
+            for off in p.object_offsets() {
+                assert_ne!(p.props_of_char(off).hidden, Some(true), "a mark is hidden text");
+            }
+        }
+    }
+
+    /// A citation mark without a category is in no category's table: Insert Table of Authorities
+    /// makes tables only for the categories marks name (Word for Mac 16.114 leaves such a mark out
+    /// of Cases).
+    #[test]
+    fn a_mark_without_a_category_makes_no_table() {
+        let mut s = Session::new(wordcraft_doc::Document::from_text("Old v. Mark, 1 So. 1 (Ala. 2000) holds.\nAla. Code § 1-2-3 (1975) applies."));
+        s.run("select.text", &json!({"text": "Ala. Code § 1-2-3 (1975)"})).unwrap();
+        s.run("references.markCitation", &json!({"category": 2})).unwrap();
+        let p = s.doc.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+        let end = p.len();
+        let (field, props) = ta_field("TA \\l \"Old v. Mark, 1 So. 1 (Ala. 2000)\"".into());
+        p.insert_object(end, field, &props).unwrap();
+        p.touch();
+        s.run("caret.docStart", &json!({})).unwrap();
+        s.run("references.tableOfAuthorities", &json!({})).unwrap();
+        let t = s.doc.plain_text(StoryRef::Body);
+        assert!(t.starts_with("Statutes\nAla. Code § 1-2-3 (1975)\t1\n"), "{t}");
+        assert!(!t.contains("Cases") && !t.contains("Old v. Mark, 1 So. 1 (Ala. 2000)\t"), "{t}");
+    }
+
+    /// A table of authorities Word built (its entries in Word's Table of Authorities style under a
+    /// TOA Heading paragraph holding the field) is replaced by Update Table, not added to.
+    #[test]
+    fn update_table_replaces_a_table_word_built() {
+        let mut s = marked_brief();
+        let mut head = Paragraph::with_text("Cases", CharProps::default()).styled("TOAHeading");
+        head.insert_object(
+            0,
+            InlineObject::Field {
+                instr: "TOA \\h \\c \"1\" \\p".into(),
+                result: String::new(),
+                locked: false,
+                dirty: false,
+                code: false,
+                form: String::new(),
+            },
+            &CharProps::default(),
+        )
+        .unwrap();
+        let stale = Paragraph::with_text("Stale v. Entry, 1 So. 1 (Ala. 1900)\t9", CharProps::default()).styled("TableofAuthorities");
+        s.doc.insert_block(StoryRef::Body, &Path::top(1), Block::Para(head)).unwrap();
+        s.doc.insert_block(StoryRef::Body, &Path::top(2), Block::Para(stale)).unwrap();
+        s.run("references.updateAuthorities", &json!({})).unwrap();
+        let t = s.doc.plain_text(StoryRef::Body);
+        assert!(!t.contains("Stale v. Entry"), "{t}");
+        assert_eq!(t.matches("Able v. Baker, 111 So. 2d 222 (Ala. 1990)\t").count(), 1, "{t}");
+        assert!(!t.contains("Ala. Code § 1-2-3 (1975)\t"), "Cases lists no statute: {t}");
     }
 
     /// #661: References › Table of Authorities › Update Table picks up citations marked after the table.

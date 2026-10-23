@@ -246,6 +246,7 @@ fn untranslated_interface_text() {
         "caption",
         "index",
         "markEntry",
+        "markCitation",
         "toc",
         "tableOfFigures",
         "sourceManager",

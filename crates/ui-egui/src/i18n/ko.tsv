@@ -2665,3 +2665,16 @@ preview	Title	제목
 	the paragraph is empty	단락이 비어 있습니다
 	the paragraph starts with a space	단락이 공백으로 시작합니다
 	Open a document first	먼저 문서를 여세요
+
+# Mark Citation dialog (table of authorities)
+	Long citation:	전체 인용:
+	Short citation:	짧은 인용:
+	Category:	범주:
+	Citation marked.	인용을 표시했습니다.
+	{n} citations marked.	인용 {n}개를 표시했습니다.
+	Cases	판례
+	Statutes	법령
+	Other Authorities	기타 출처
+	Treatises	논문
+	Regulations	규정
+	Constitutional Provisions	헌법 조항

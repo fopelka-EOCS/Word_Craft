@@ -2448,3 +2448,16 @@
 	the paragraph is empty	lõik on tühi
 	the paragraph starts with a space	lõik algab tühikuga
 	Open a document first	Avage kõigepealt dokument
+
+# Mark Citation dialog (table of authorities)
+	Long citation:	Pikk viide:
+	Short citation:	Lühike viide:
+	Category:	Kategooria:
+	Citation marked.	Viide märgitud.
+	{n} citations marked.	Märgitud viiteid: {n}.
+	Cases	Kohtuasjad
+	Statutes	Seadused
+	Other Authorities	Muud allikad
+	Treatises	Traktaadid
+	Regulations	Määrused
+	Constitutional Provisions	Põhiseaduse sätted

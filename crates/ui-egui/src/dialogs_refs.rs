@@ -1,8 +1,8 @@
 //! References dialogs (#402): Caption (with New Label and Numbering), Cross-reference (#916),
-//! Index and Mark Index Entry, Custom Table of Contents (with Options and the TOC styles), Table of
-//! Figures (#3013), and the Source Manager with Create / Edit Source. Each fills a form from the
+//! Index and Mark Index Entry, Mark Citation, Custom Table of Contents (with Options and the TOC
+//! styles), Table of Figures (#3013), and the Source Manager with Create / Edit Source. Each fills a form from the
 //! session and ends in a command (`references.caption`, `insert.crossReference`, `references.index`,
-//! `references.markEntry`, `references.toc`, `references.tableOfFigures`, `references.sources`,
+//! `references.markEntry`, `references.markCitation`, `references.toc`, `references.tableOfFigures`, `references.sources`,
 //! `references.citation`), so
 //! agents get the same result without the dialog. Shown through [`crate::dialogs::Dialog::Refs`].
 
@@ -33,6 +33,7 @@ pub enum RefsDialog {
     CrossRef(CrossRefForm),
     Index(IndexForm),
     MarkEntry(MarkForm),
+    MarkCitation(CitationForm),
     Toc(TocForm),
     /// Table of Contents › Options…; `was` comes back on Cancel.
     TocOptions {
@@ -61,6 +62,7 @@ impl RefsDialog {
             RefsDialog::CrossRef(_) => "crossReference",
             RefsDialog::Index(_) => "index",
             RefsDialog::MarkEntry(_) => "markEntry",
+            RefsDialog::MarkCitation(_) => "markCitation",
             RefsDialog::Toc(_) => "toc",
             RefsDialog::TocOptions { .. } => "tocOptions",
             RefsDialog::TocStyles { .. } => "tocStyles",
@@ -80,6 +82,7 @@ impl RefsDialog {
             RefsDialog::CrossRef(_) => "Cross-reference",
             RefsDialog::Index(_) => "Index",
             RefsDialog::MarkEntry(_) => "Mark Index Entry",
+            RefsDialog::MarkCitation(_) => "Mark Citation",
             RefsDialog::Toc(_) => "Table of Contents",
             RefsDialog::TocOptions { .. } => "Table of Contents Options",
             RefsDialog::TocStyles { .. } => "Table of Contents Styles",
@@ -91,7 +94,8 @@ impl RefsDialog {
     }
 }
 
-/// The dialog `ui.dialog` opens by `name`: `caption`, `crossReference`, `index`, `markEntry`, `toc`,
+/// The dialog `ui.dialog` opens by `name`: `caption`, `crossReference`, `index`, `markEntry`,
+/// `markCitation`, `toc`,
 /// `tableOfFigures`, `sourceManager` or `createSource` (which inserts a citation of the new source).
 pub fn open(name: &str, app: &WordApp) -> Option<RefsDialog> {
     Some(match name {
@@ -99,6 +103,7 @@ pub fn open(name: &str, app: &WordApp) -> Option<RefsDialog> {
         "crossReference" => RefsDialog::CrossRef(CrossRefForm::read(app, "heading")),
         "index" => RefsDialog::Index(IndexForm::read(app)),
         "markEntry" => RefsDialog::MarkEntry(MarkForm::read(app)),
+        "markCitation" => RefsDialog::MarkCitation(CitationForm::read(app)),
         "toc" => RefsDialog::Toc(TocForm::read(app)),
         "tableOfFigures" => RefsDialog::Figures(FiguresForm::read(app)),
         "sourceManager" => RefsDialog::Sources { selected: None },
@@ -116,6 +121,7 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, d: &mut RefsDialog) -> bool {
         RefsDialog::CrossRef(f) => cross_ref_ui(app, ui, f),
         RefsDialog::Index(f) => index_ui(app, ui, f),
         RefsDialog::MarkEntry(f) => mark_ui(app, ui, f),
+        RefsDialog::MarkCitation(f) => citation_ui(app, ui, f),
         RefsDialog::Toc(f) => toc_ui(app, ui, f),
         RefsDialog::TocOptions { form, was } => toc_options_ui(app, ui, form, was),
         RefsDialog::TocStyles { form, level } => toc_styles_ui(app, ui, form, level),
@@ -717,6 +723,79 @@ fn mark_ui(app: &mut WordApp, ui: &mut Ui, f: &mut MarkForm) -> Next {
             if ui.add_enabled(can, crate::widgets::primary_button(ui, tl!("Mark"))).clicked() {
                 f.message = match app.run("references.markEntry", f.params(false)) {
                     Ok(_) => tl!("Entry marked.").to_string(),
+                    Err(e) => e,
+                };
+            }
+        });
+    });
+    if close { Next::Close } else { Next::Stay }
+}
+
+/// Mark Citation's categories, as Word lists them (8–16 have no name).
+const CATEGORIES: [&str; 7] = ["Cases", "Statutes", "Other Authorities", "Rules", "Treatises", "Regulations", "Constitutional Provisions"];
+
+/// The Mark Citation dialog's fields: the long citation (as the table lists it, from the
+/// selection), the short one (what Mark All also looks for) and the category.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CitationForm {
+    pub long: String,
+    pub short: String,
+    pub category: u64,
+    pub message: String,
+}
+
+impl CitationForm {
+    pub fn read(app: &WordApp) -> CitationForm {
+        let long = app.session.selected_text().split_whitespace().collect::<Vec<_>>().join(" ");
+        CitationForm { short: long.clone(), long, category: 1, message: String::new() }
+    }
+
+    /// `references.markCitation` parameters (`all` for Mark All).
+    pub fn params(&self, all: bool) -> Value {
+        json!({"long": self.long.trim(), "short": self.short.trim(), "category": self.category, "all": all})
+    }
+}
+
+fn citation_ui(app: &mut WordApp, ui: &mut Ui, f: &mut CitationForm) -> Next {
+    egui::Grid::new("ta").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
+        ui.label(tl!("Long citation:"));
+        ui.add(egui::TextEdit::multiline(&mut f.long).desired_rows(3).desired_width(320.0));
+        ui.end_row();
+        ui.label(tl!("Category:"));
+        let name = |c: u64| CATEGORIES.get(c.saturating_sub(1) as usize).map_or_else(|| c.to_string(), |n| tl!(n).to_string());
+        egui::ComboBox::from_id_salt("ta_cat").selected_text(name(f.category)).width(200.0).show_ui(ui, |ui| {
+            for c in 1..=16 {
+                ui.selectable_value(&mut f.category, c, name(c));
+            }
+        });
+        ui.end_row();
+        ui.label(tl!("Short citation:"));
+        ui.add(egui::TextEdit::singleline(&mut f.short).desired_width(320.0));
+        ui.end_row();
+    });
+    if !f.message.is_empty() {
+        ui.label(egui::RichText::new(&f.message).small());
+    }
+    let mut close = false;
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.button(tl!("Close")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                close = true;
+            }
+            let can = !f.long.trim().is_empty();
+            if ui.add_enabled(can, egui::Button::new(tl!("Mark All"))).clicked() {
+                f.message = match app.run("references.markCitation", f.params(true)) {
+                    Ok(v) => {
+                        crate::i18n::fmt(tl!("{n} citations marked."), &[("n", &v.get("marked").and_then(Value::as_u64).unwrap_or(0).to_string())])
+                    }
+                    Err(e) => e,
+                };
+            }
+            if ui.add_enabled(can, crate::widgets::primary_button(ui, tl!("Mark"))).clicked() {
+                f.message = match app.run("references.markCitation", f.params(false)) {
+                    Ok(_) => tl!("Citation marked.").to_string(),
                     Err(e) => e,
                 };
             }
@@ -1441,6 +1520,27 @@ mod tests {
         let text = h.state().session.doc.plain_text(StoryRef::Body);
         assert!(text.ends_with("See Specimen I: A rock"), "{text}");
         assert!(instrs(h.state()).iter().any(|i| i.starts_with("REF _Ref")), "{:?}", instrs(h.state()));
+    }
+
+    /// Mark Citation opens with the selection as the long and the short citation and Cases as the
+    /// category, as Word's does; Mark writes the long mark and Mark All the short ones.
+    #[test]
+    fn mark_citation_dialog_marks_long_and_short_citations() {
+        let mut a = app("Doe v. Roe, 123 So. 3d 456 (Ala. 2020) held it.\nAs in Doe v. Roe, we agree.");
+        a.run("select.text", json!({"text": "Doe v. Roe, 123 So. 3d 456 (Ala. 2020)"})).unwrap();
+        assert_eq!(a.run("references.markCitation", json!({})).unwrap(), json!({"pending": "markCitation"}));
+        let RefsDialog::MarkCitation(mut f) = form(&a) else { panic!() };
+        assert_eq!(
+            (f.long.as_str(), f.short.as_str(), f.category),
+            ("Doe v. Roe, 123 So. 3d 456 (Ala. 2020)", "Doe v. Roe, 123 So. 3d 456 (Ala. 2020)", 1)
+        );
+        f.short = "Doe v. Roe".into();
+        let v = a.run("references.markCitation", f.params(true)).unwrap();
+        assert_eq!(v["marked"], 2, "{v}");
+        assert_eq!(
+            instrs(&a),
+            ["TA \\l \"Doe v. Roe, 123 So. 3d 456 (Ala. 2020)\" \\s \"Doe v. Roe\" \\c 1".to_string(), "TA \\s \"Doe v. Roe\"".to_string()]
+        );
     }
 
     /// #402: Mark Entry opens with the selection; Insert Index opens with Word's defaults and

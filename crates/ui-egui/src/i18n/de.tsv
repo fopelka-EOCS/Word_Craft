@@ -2413,3 +2413,16 @@
 	the paragraph is empty	der Absatz ist leer
 	the paragraph starts with a space	der Absatz beginnt mit einem Leerzeichen
 	Open a document first	Zuerst ein Dokument öffnen
+
+# Mark Citation dialog (table of authorities)
+	Long citation:	Langes Zitat:
+	Short citation:	Kurzes Zitat:
+	Category:	Kategorie:
+	Citation marked.	Zitat markiert.
+	{n} citations marked.	{n} Zitate markiert.
+	Cases	Fälle
+	Statutes	Gesetze
+	Other Authorities	Andere Quellen
+	Treatises	Abhandlungen
+	Regulations	Verordnungen
+	Constitutional Provisions	Verfassungsbestimmungen

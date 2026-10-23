@@ -2645,3 +2645,16 @@ preview	Title	Titel
 	this SmartArt was made in another program: WordCraft shows it but can't edit it	denne SmartArt er lavet i et andet program: WordCraft viser den, men kan ikke redigere den
 	this text box is already linked: break the link first	dette tekstfelt er allerede sammenkædet: fjern først sammenkædningen
 	Open a document first	Åbn først et dokument
+
+# Mark Citation dialog (table of authorities)
+	Long citation:	Lang henvisning:
+	Short citation:	Kort henvisning:
+	Category:	Kategori:
+	Citation marked.	Henvisning markeret.
+	{n} citations marked.	{n} henvisninger markeret.
+	Cases	Sager
+	Statutes	Love
+	Other Authorities	Andre kilder
+	Treatises	Afhandlinger
+	Regulations	Bekendtgørelser
+	Constitutional Provisions	Forfatningsbestemmelser

@@ -2426,3 +2426,16 @@
 	the paragraph is empty	абзац порожній
 	the paragraph starts with a space	абзац починається з пробілу
 	Open a document first	Спочатку відкрийте документ
+
+# Mark Citation dialog (table of authorities)
+	Long citation:	Повне посилання:
+	Short citation:	Коротке посилання:
+	Category:	Категорія:
+	Citation marked.	Посилання позначено.
+	{n} citations marked.	Позначено посилань: {n}.
+	Cases	Справи
+	Statutes	Закони
+	Other Authorities	Інші джерела
+	Treatises	Трактати
+	Regulations	Постанови
+	Constitutional Provisions	Конституційні положення

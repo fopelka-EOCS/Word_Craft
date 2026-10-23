@@ -2811,3 +2811,16 @@ preview	Title	Örnek
 	drop caps can't go in a table	tabloya büyük başlangıç harfi konamaz
 	the document is protected	belge korumalı
 	Open a document first	Önce bir belge açın
+
+# Mark Citation dialog (table of authorities)
+	Long citation:	Uzun alıntı:
+	Short citation:	Kısa alıntı:
+	Category:	Kategori:
+	Citation marked.	Alıntı işaretlendi.
+	{n} citations marked.	{n} alıntı işaretlendi.
+	Cases	Davalar
+	Statutes	Kanunlar
+	Other Authorities	Diğer kaynaklar
+	Treatises	İncelemeler
+	Regulations	Yönetmelikler
+	Constitutional Provisions	Anayasa hükümleri

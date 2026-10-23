@@ -2853,3 +2853,16 @@ template	Letter	Thư
 	drop caps can't go in a table	không thể đặt chữ cái lớn đầu đoạn trong bảng
 	the document is protected	tài liệu đang được bảo vệ
 	Open a document first	Hãy mở một tài liệu trước
+
+# Mark Citation dialog (table of authorities)
+	Long citation:	Trích dẫn đầy đủ:
+	Short citation:	Trích dẫn ngắn:
+	Category:	Thể loại:
+	Citation marked.	Đã đánh dấu trích dẫn.
+	{n} citations marked.	Đã đánh dấu {n} trích dẫn.
+	Cases	Án lệ
+	Statutes	Luật
+	Other Authorities	Nguồn khác
+	Treatises	Chuyên luận
+	Regulations	Quy định
+	Constitutional Provisions	Điều khoản hiến pháp
