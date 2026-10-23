@@ -555,15 +555,22 @@ impl Ctx {
         }
         let mut seg = 0usize;
         let mut u = u0;
+        let mut pending_break = None;
         for (i, n) in a.iter().enumerate() {
             self.nodes += 1;
             if self.nodes > MAX_NODES {
                 break;
             }
             let path = self.path.clone();
+            let first = out.len();
             match n {
                 MNode::Run(r) => {
-                    let first = out.len();
+                    // Empty break carriers add neither spacing nor caret slots. Apply the
+                    // boundary to the next real atom, including a structural node.
+                    pending_break = r.brk.or(pending_break);
+                    if r.text.is_empty() {
+                        continue;
+                    }
                     for part in self.run_atoms(r, st, u, &path) {
                         match part {
                             RunPart::Atom(b) => out.push((b, seg)),
@@ -572,9 +579,6 @@ impl Ctx {
                                 out.push((b, seg));
                             }
                         }
-                    }
-                    if let Some((b, _)) = out.get_mut(first) {
-                        b.brk = r.brk;
                     }
                     u += r.text.chars().count();
                 }
@@ -604,6 +608,9 @@ impl Ctx {
                     out.push((b, seg));
                     u += 1;
                 }
+            }
+            if let Some((b, _)) = out.get_mut(first) {
+                b.brk = pending_break.take();
             }
         }
         out
@@ -2099,6 +2106,42 @@ mod tests {
         let ls = lines(&lay_in(&Math { nodes, ..Default::default() }, "", true, 400.0, &mp));
         let eq_x = ls[0].1.iter().find(|g| g.1 == "=").unwrap().0;
         assert!((ls[1].1[0].0 - eq_x).abs() < 0.01, "{ls:?}");
+    }
+
+    #[test]
+    fn empty_break_run_before_structure_starts_new_line() {
+        let mp = MathProps::default();
+        for alignment in [0, 1] {
+            let mut nodes = vec![MNode::Run(MRun::new("a=b")), MNode::Run(MRun { brk: Some(alignment), ..Default::default() })];
+            nodes.extend(parse_linear("(c)"));
+            assert!(matches!(nodes.last(), Some(MNode::Delim { .. })));
+            let ls = lines(&lay_in(&Math { nodes, ..Default::default() }, "", true, 400.0, &mp));
+            assert_eq!(ls.len(), 2, "{ls:?}");
+            let expected = if alignment == 0 { mp.wrap_indent } else { ls[0].1.iter().find(|g| g.1 == "=").unwrap().0 };
+            assert_eq!(ls[1].1[0].1, "(");
+            assert!((ls[1].1[0].0 - expected).abs() < 0.01, "{ls:?}");
+        }
+    }
+
+    #[test]
+    fn built_fraction_manual_break_has_no_cross_line_gap() {
+        use wordcraft_doc::math_edit::{MathPos, build_up, units};
+
+        let mp = MathProps::default();
+        for latex in [false, true] {
+            for alignment in [0, 1] {
+                let input = if latex { r"\frac{c}{d}" } else { "c/d" };
+                let mut nodes = vec![MNode::Run(MRun::new("a=")), MNode::Run(MRun { brk: Some(alignment), ..MRun::new(input) })];
+                let caret = MathPos::new(vec![], units(&nodes));
+                let caret = build_up(&mut nodes, &caret, latex).expect("complete fraction builds");
+                assert!(nodes.iter().any(|n| matches!(n, MNode::Frac { .. })));
+                let m = lay_in(&Math { nodes, ..Default::default() }, "", true, 400.0, &mp);
+                let end = m.slot(&[], caret.off).unwrap();
+                let start = m.slots.iter().find(|s| s.path.is_empty() && s.off == 2 && (s.y - end.y).abs() < 0.01).unwrap();
+                let expected = if alignment == 0 { mp.wrap_indent } else { lines(&m)[0].1.iter().find(|g| g.1 == "=").unwrap().0 };
+                assert!((start.x - expected).abs() < 0.01, "fraction at {}, expected {expected}", start.x);
+            }
+        }
     }
 
     #[test]
