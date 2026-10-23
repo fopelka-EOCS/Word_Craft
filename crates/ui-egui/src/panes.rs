@@ -550,10 +550,10 @@ pub(crate) fn comment_editor(app: &mut WordApp, ui: &mut Ui, id: u32, font: Opti
         .desired_rows(1)
         .desired_width(f32::INFINITY)
         .hint_text(tl!("Add a comment"));
-    if let Some(f) = font {
-        edit = edit.font(f);
+    if let Some(f) = &font {
+        edit = edit.font(f.clone());
     }
-    let r = ui.add(edit);
+    let r = capped_field(ui, ("comment_edit", id), font.as_ref(), edit);
     if focus {
         r.request_focus();
     }
@@ -569,6 +569,20 @@ pub(crate) fn comment_editor(app: &mut WordApp, ui: &mut Ui, id: u32, font: Opti
             let _ = commit_comment(app, id);
         }
     }
+}
+
+/// Lines of comment text a pane card or balloon shows; longer text scrolls in its field, or ends
+/// in "…" in a balloon that isn't selected (#3382).
+pub(crate) const COMMENT_ROWS: usize = 10;
+
+/// A comment or reply field at most [`COMMENT_ROWS`] lines tall. Longer text scrolls inside it,
+/// and the field keeps its caret in view.
+fn capped_field(ui: &mut Ui, salt: (&str, u32), font: Option<&egui::FontId>, edit: egui::TextEdit<'_>) -> egui::Response {
+    let font = font.cloned().unwrap_or_else(|| egui::FontSelection::Default.resolve(ui.style()));
+    let row = ui.fonts_mut(|f| f.row_height(&font));
+    // Plus the field's margin: 2 pt above and below its text.
+    let max = row * COMMENT_ROWS as f32 + 4.0;
+    egui::ScrollArea::vertical().id_salt(salt).max_height(max).auto_shrink([false, true]).show(ui, |ui| ui.add(edit)).inner
 }
 
 /// A comment field's widget id, per document: egui's own state for the field (its cursor and
@@ -610,10 +624,10 @@ pub(crate) fn reply_editor(app: &mut WordApp, ui: &mut Ui, id: u32, font: Option
         .desired_rows(1)
         .desired_width(f32::INFINITY)
         .hint_text(tl!("Write a reply"));
-    if let Some(f) = font {
-        edit = edit.font(f);
+    if let Some(f) = &font {
+        edit = edit.font(f.clone());
     }
-    let r = ui.add(edit);
+    let r = capped_field(ui, ("comment_reply", id), font.as_ref(), edit);
     if focus {
         r.request_focus();
     }

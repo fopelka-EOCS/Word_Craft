@@ -2199,13 +2199,21 @@ fn mirrored(c: char) -> char {
 /// A read-only balloon's text, wrapped to `width`. egui joins Arabic letters but places them left
 /// to right, so a right-to-left comment read its words backwards. Each wrapped row is put into
 /// display order (Unicode bidi, per paragraph) and a right-to-left paragraph's rows are set against
-/// the right edge. Text without right-to-left letters is laid out exactly as before.
+/// the right edge. Text without right-to-left letters is laid out exactly as before. Past
+/// [`COMMENT_ROWS`](crate::panes::COMMENT_ROWS) rows the text ends in "…".
 fn balloon_text(painter: &egui::Painter, text: String, font: egui::FontId, color: Color32, width: f32) -> std::sync::Arc<egui::Galley> {
+    let cap = |job: &mut egui::text::LayoutJob| {
+        job.wrap.max_rows = crate::panes::COMMENT_ROWS;
+        job.wrap.overflow_character = Some('…');
+    };
     if !has_rtl(&text) {
-        return painter.layout(text, font, color, width);
+        let mut job = egui::text::LayoutJob::simple(text, font, color, width);
+        cap(&mut job);
+        return painter.layout_job(job);
     }
     let format = egui::TextFormat::simple(font.clone(), color);
     let mut job = egui::text::LayoutJob::default();
+    cap(&mut job);
     let mut rows: Vec<(String, bool)> = Vec::new();
     for para in text.split('\n') {
         let info = unicode_bidi::BidiInfo::new(para, None);
@@ -4510,6 +4518,47 @@ mod tests {
         assert_eq!(h.state().session.undo_depth(), depth + 1, "one undo step for the edit");
         assert!(h.state_mut().session.undo());
         assert_eq!(h.state().session.doc.plain_text(StoryRef::Part(part)), "Original");
+    }
+
+    /// #3382: a long comment's balloon, selected or not, stops at about ten lines, so the
+    /// balloon of the next comment stays in view.
+    #[test]
+    fn a_long_comment_balloon_keeps_the_next_one_in_view() {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("document.setText", json!({"text": "Alpha paragraph one.\n\nBeta paragraph two."})).unwrap();
+        a.run("select.text", json!({"text": "Alpha"})).unwrap();
+        let long = (1..=200).map(|i| format!("Line {i}")).collect::<Vec<_>>().join("\n");
+        let first = a.run("review.newComment", json!({"text": long})).unwrap()["id"].as_u64().unwrap() as u32;
+        a.run("select.text", json!({"text": "Beta"})).unwrap();
+        let second = a.run("review.newComment", json!({"text": "Short note."})).unwrap()["id"].as_u64().unwrap() as u32;
+        a.run("view.commentsPane", json!({"value": false})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        for _ in 0..6 {
+            h.step();
+        }
+        let card = |h: &egui_kittest::Harness<'_, WordApp>, id: u32| h.state().canvas.balloon_rects.iter().find(|(i, _)| *i == id).map(|(_, r)| *r);
+        let long_card = card(&h, first).expect("the long comment has a balloon");
+        assert!(long_card.height() < 300.0, "the balloon stops at ten lines: {long_card:?}");
+        assert!(card(&h, second).is_some_and(|r| r.max.y < 900.0), "the next balloon is in view");
+        let at = long_card.left_top() + vec2(30.0, 8.0);
+        h.event(egui::Event::PointerMoved(at));
+        h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() });
+        h.step();
+        h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() });
+        for _ in 0..4 {
+            h.step();
+        }
+        assert_eq!(h.state().canvas.balloon, Some(first), "the click selected the long balloon");
+        let selected = card(&h, first).expect("the selected balloon");
+        assert!(selected.height() < 350.0, "the selected balloon's field scrolls instead: {selected:?}");
+        assert!(card(&h, second).is_some_and(|r| r.max.y < 900.0), "the next balloon is still in view");
     }
 
     /// #960: double-clicking the top margin of a document without a header creates one and
