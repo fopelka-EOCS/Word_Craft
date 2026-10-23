@@ -2426,3 +2426,16 @@
 	the paragraph is empty	o parágrafo está vazio
 	the paragraph starts with a space	o parágrafo começa com um espaço
 	Open a document first	Abra um documento primeiro
+
+# Mark Citation dialog (table of authorities)
+	Long citation:	Citação longa:
+	Short citation:	Citação curta:
+	Category:	Categoria:
+	Citation marked.	Citação marcada.
+	{n} citations marked.	{n} citações marcadas.
+	Cases	Casos
+	Statutes	Leis
+	Other Authorities	Outras autoridades
+	Treatises	Tratados
+	Regulations	Regulamentos
+	Constitutional Provisions	Disposições constitucionais

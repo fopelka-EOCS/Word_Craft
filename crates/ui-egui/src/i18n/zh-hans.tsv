@@ -2426,3 +2426,16 @@
 	the paragraph is empty	段落为空
 	the paragraph starts with a space	段落以空格开头
 	Open a document first	请先打开文档
+
+# Mark Citation dialog (table of authorities)
+	Long citation:	完整引文:
+	Short citation:	简短引文:
+	Category:	类别:
+	Citation marked.	已标记引文。
+	{n} citations marked.	已标记 {n} 条引文。
+	Cases	案例
+	Statutes	法规
+	Other Authorities	其他依据
+	Treatises	专著
+	Regulations	条例
+	Constitutional Provisions	宪法条款

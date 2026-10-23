@@ -2808,6 +2808,8 @@ fn input_dialog(id: &str, params: &Value) -> Option<&'static str> {
             })
         }
         "references.markEntry" if !has("entry") => Some("markEntry"),
+        // Mark Citation without a citation shows its dialog, as Word does.
+        "references.markCitation" if !has("long") && !has("entry") => Some("markCitation"),
         // Cross-reference without a target shows its dialog (#916); scripts get the target list.
         "insert.crossReference" if !has("target") => Some("crossReference"),
         "references.sources" if params.as_object().is_none_or(|m| m.is_empty()) => Some("sourceManager"),

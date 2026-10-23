@@ -2428,3 +2428,16 @@
 	the paragraph is empty	пасус је празан
 	the paragraph starts with a space	пасус почиње размаком
 	Open a document first	Прво отворите документ
+
+# Mark Citation dialog (table of authorities)
+	Long citation:	Дуги цитат:
+	Short citation:	Кратки цитат:
+	Category:	Категорија:
+	Citation marked.	Цитат је означен.
+	{n} citations marked.	Означено цитата: {n}.
+	Cases	Предмети
+	Statutes	Закони
+	Other Authorities	Остали извори
+	Treatises	Расправе
+	Regulations	Прописи
+	Constitutional Provisions	Уставне одредбе

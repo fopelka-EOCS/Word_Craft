@@ -2813,3 +2813,16 @@ preview	Title	Naslov
 	drop caps can't go in a table	početno slovo ne može ići u tablicu
 	the document is protected	dokument je zaštićen
 	Open a document first	Prvo otvorite dokument
+
+# Mark Citation dialog (table of authorities)
+	Long citation:	Dugi citat:
+	Short citation:	Kratki citat:
+	Category:	Kategorija:
+	Citation marked.	Citat je označen.
+	{n} citations marked.	Označeno citata: {n}.
+	Cases	Predmeti
+	Statutes	Zakoni
+	Other Authorities	Ostali izvori
+	Treatises	Rasprave
+	Regulations	Propisi
+	Constitutional Provisions	Ustavne odredbe

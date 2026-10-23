@@ -2415,3 +2415,16 @@
 	the paragraph is empty	段落是空的
 	the paragraph starts with a space	段落以空格開頭
 	Open a document first	請先開啟文件
+
+# Mark Citation dialog (table of authorities)
+	Long citation:	完整引文:
+	Short citation:	簡短引文:
+	Category:	類別:
+	Citation marked.	已標記引文。
+	{n} citations marked.	已標記 {n} 條引文。
+	Cases	案例
+	Statutes	法規
+	Other Authorities	其他依據
+	Treatises	專著
+	Regulations	條例
+	Constitutional Provisions	憲法條款

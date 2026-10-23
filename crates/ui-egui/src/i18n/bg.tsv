@@ -2803,3 +2803,16 @@
 	drop caps can't go in a table	буквицата не може да се постави в таблица
 	the document is protected	документът е защитен
 	Open a document first	Първо отворете документ
+
+# Mark Citation dialog (table of authorities)
+	Long citation:	Пълен цитат:
+	Short citation:	Кратък цитат:
+	Category:	Категория:
+	Citation marked.	Цитатът е маркиран.
+	{n} citations marked.	Маркирани цитати: {n}.
+	Cases	Дела
+	Statutes	Закони
+	Other Authorities	Други източници
+	Treatises	Трактати
+	Regulations	Наредби
+	Constitutional Provisions	Конституционни разпоредби

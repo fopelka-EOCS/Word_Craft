@@ -2414,3 +2414,16 @@
 	the paragraph is empty	段落が空です
 	the paragraph starts with a space	段落がスペースで始まっています
 	Open a document first	先に文書を開いてください
+
+# Mark Citation dialog (table of authorities)
+	Long citation:	完全な引用:
+	Short citation:	短縮形の引用:
+	Category:	分類:
+	Citation marked.	引用文をマークしました。
+	{n} citations marked.	{n} 件の引用文をマークしました。
+	Cases	判例
+	Statutes	法令
+	Other Authorities	その他の典拠
+	Treatises	専門書
+	Regulations	規則
+	Constitutional Provisions	憲法の規定

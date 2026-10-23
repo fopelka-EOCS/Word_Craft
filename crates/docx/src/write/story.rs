@@ -37,12 +37,15 @@ impl Writer<'_> {
         }
         let plan = super::sdt::plan(bl);
         let toc = if top { written_toc_span(bl) } else { None };
+        let toas = if top { toa_spans(bl) } else { Vec::new() };
         // Whether the heading's TOC field was written and still needs its end.
         let mut toc_field_open = false;
         for (i, b) in bl.iter().enumerate() {
             for c in plan.opens.get(i).into_iter().flatten() {
                 super::sdt::open(w, c);
             }
+            self.toa_open_here = toas.iter().any(|(start, _)| *start == i);
+            self.toa_end_here = toas.iter().any(|(_, end)| *end == i);
             if let Some((start, end)) = toc {
                 if i == start {
                     w.raw(TOC_SDT_OPEN);
@@ -239,8 +242,10 @@ impl Writer<'_> {
             self.rev_close(w, &props);
         }
         let toc_end = std::mem::take(&mut self.toc_end_here);
+        let toa_end = std::mem::take(&mut self.toa_end_here);
         self.para_content(w, p, rels, depth);
-        if toc_end {
+        self.toa_open_here = false;
+        if toc_end || toa_end {
             w.raw(r#"<w:r><w:fldChar w:fldCharType="end"/></w:r>"#);
         }
         // Move ranges stay open across a moved paragraph mark; others end with the paragraph.
@@ -853,6 +858,15 @@ impl Writer<'_> {
             // A TOC heading's field opens in the first entry and closes after the last (see `toc_span`).
             self.toc_hold_end = false;
             self.toc_field = Some((instr.to_string(), locked, dirty, props.clone()));
+            return;
+        }
+        if self.toa_open_here && is_toa(instr) {
+            // A table of authorities' field spans its heading's text and its entries, as Word
+            // writes it (see `toa_spans`): it ends after the last entry.
+            self.toa_open_here = false;
+            self.rev_open(w, props);
+            self.field_start(w, instr, locked, dirty, form, props);
+            self.rev_close(w, props);
             return;
         }
         if let Some(e) = wordcraft_doc::eq::Enclosure::parse(instr) {
@@ -1691,6 +1705,42 @@ const TOC_SDT_OPEN: &str =
 
 fn is_toc(instr: &str) -> bool {
     instr.split_whitespace().next().is_some_and(|k| k.eq_ignore_ascii_case("TOC"))
+}
+
+fn is_toa(instr: &str) -> bool {
+    instr.split_whitespace().next().is_some_and(|k| k.eq_ignore_ascii_case("TOA"))
+}
+
+/// The tables of authorities the engine builds: a paragraph holding an empty `TOA` field, then
+/// its entries (Word's Table of Authorities style, or a generated list's), then, as Word saves
+/// one, maybe an empty paragraph its field ends in. Returns (heading, last paragraph) for each,
+/// so the field can be written spanning the heading's text and the entries, as Word does.
+fn toa_spans(bl: &Blocks) -> Vec<(usize, usize)> {
+    let entry =
+        |b: &Block| b.as_para().is_some_and(|p| p.section.is_none() && matches!(p.props.style.as_deref(), Some("TableofAuthorities" | "ListEntry")));
+    let mut out = Vec::new();
+    for (start, b) in bl.iter().enumerate() {
+        let heading = b.as_para().is_some_and(|p| {
+            p.section.is_none()
+                && p.objects.iter().any(|o| matches!(o, InlineObject::Field { instr, result, .. } if is_toa(instr) && result.is_empty()))
+        });
+        if !heading {
+            continue;
+        }
+        let entries = bl[start + 1..].iter().take_while(|b| entry(b)).count();
+        let mut end = start + entries;
+        if let Some(p) = bl.get(end + 1).and_then(|b| b.as_para())
+            && p.section.is_none()
+            && p.text.is_empty()
+            && p.objects.is_empty()
+        {
+            end += 1;
+        }
+        if end > start {
+            out.push((start, end));
+        }
+    }
+    out
 }
 
 /// The body TOC the writer wraps in Word's Table of Contents control (`toc_span`): not one whose

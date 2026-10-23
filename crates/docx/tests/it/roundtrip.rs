@@ -2708,3 +2708,37 @@ fn drop_cap_options_round_trip() {
         (Some(4), Some(true), None, None)
     );
 }
+
+/// A table of authorities is saved as Word saves one: its field opens in the TOA Heading
+/// paragraph, before the category's name, and its result runs through the entries, so Word
+/// updates the table in place instead of adding a second one. Reading it back and saving again
+/// gives the same file.
+#[test]
+fn table_of_authorities_field_spans_its_entries() {
+    let mut head = Paragraph::with_text("Cases", CharProps::default());
+    head.props.style = Some("TOAHeading".into());
+    head.insert_object(
+        0,
+        InlineObject::Field {
+            instr: "TOA \\h \\c \"1\" \\p".into(),
+            result: String::new(),
+            locked: false,
+            dirty: false,
+            code: false,
+            form: String::new(),
+        },
+        &CharProps::default(),
+    )
+    .unwrap();
+    let mut entry = Paragraph::with_text("Able v. Baker, 111 So. 2d 222 (Ala. 1990)\t3", CharProps::default());
+    entry.props.style = Some("TableofAuthorities".into());
+    let d = doc_with(vec![head, entry, Paragraph::with_text("Body text.", CharProps::default())]);
+    let bytes = wordcraft_docx::write(&d).unwrap();
+    let xml = document_xml(&bytes);
+    let at = |s: &str| xml.find(s).unwrap_or_else(|| panic!("{s} in {xml}"));
+    let (begin, sep, end) = (at("fldCharType=\"begin\""), at("fldCharType=\"separate\""), at("fldCharType=\"end\""));
+    assert!(begin < sep && sep < at(">Cases<") && at(">Cases<") < at(">3<") && at(">3<") < end && end < at(">Body text.<"), "{xml}");
+    let r = wordcraft_docx::read(&bytes).unwrap();
+    assert_eq!(paras(&r).iter().map(|p| p.plain_text()).collect::<Vec<_>>(), paras(&d).iter().map(|p| p.plain_text()).collect::<Vec<_>>());
+    assert_eq!(document_xml(&wordcraft_docx::write(&r).unwrap()), xml, "a second save changes nothing");
+}

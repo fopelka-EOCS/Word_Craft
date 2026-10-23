@@ -2776,3 +2776,16 @@ preview	Title	Título
 	the paragraph is empty	el párrafo está vacío
 	the paragraph starts with a space	el párrafo empieza con un espacio
 	Open a document first	Abra primero un documento
+
+# Mark Citation dialog (table of authorities)
+	Long citation:	Cita larga:
+	Short citation:	Cita corta:
+	Category:	Categoría:
+	Citation marked.	Cita marcada.
+	{n} citations marked.	{n} citas marcadas.
+	Cases	Casos
+	Statutes	Leyes
+	Other Authorities	Otras autoridades
+	Treatises	Tratados
+	Regulations	Reglamentos
+	Constitutional Provisions	Disposiciones constitucionales

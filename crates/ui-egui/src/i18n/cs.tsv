@@ -2805,3 +2805,16 @@ preview	Title	Ukázka
 	drop caps can't go in a table	iniciálu nelze vložit do tabulky
 	the document is protected	dokument je chráněný
 	Open a document first	Nejprve otevřete dokument
+
+# Mark Citation dialog (table of authorities)
+	Long citation:	Dlouhá citace:
+	Short citation:	Krátká citace:
+	Category:	Kategorie:
+	Citation marked.	Citace označena.
+	{n} citations marked.	Označené citace: {n}.
+	Cases	Případy
+	Statutes	Zákony
+	Other Authorities	Jiné zdroje
+	Treatises	Odborné publikace
+	Regulations	Předpisy
+	Constitutional Provisions	Ústavní ustanovení

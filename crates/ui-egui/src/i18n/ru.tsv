@@ -2812,3 +2812,16 @@ preview	Title	Пример
 	drop caps can't go in a table	буквицу нельзя поместить в таблицу
 	the document is protected	документ защищён
 	Open a document first	Сначала откройте документ
+
+# Mark Citation dialog (table of authorities)
+	Long citation:	Полная ссылка:
+	Short citation:	Краткая ссылка:
+	Category:	Категория:
+	Citation marked.	Ссылка помечена.
+	{n} citations marked.	Помечено ссылок: {n}.
+	Cases	Дела
+	Statutes	Законы
+	Other Authorities	Другие источники
+	Treatises	Трактаты
+	Regulations	Постановления
+	Constitutional Provisions	Конституционные положения

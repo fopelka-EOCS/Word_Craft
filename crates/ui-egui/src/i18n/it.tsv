@@ -2838,3 +2838,16 @@ template	Letter	Lettera
 	drop caps can't go in a table	un capolettera non può stare in una tabella
 	the document is protected	il documento è protetto
 	Open a document first	Aprire prima un documento
+
+# Mark Citation dialog (table of authorities)
+	Long citation:	Citazione estesa:
+	Short citation:	Citazione breve:
+	Category:	Categoria:
+	Citation marked.	Citazione contrassegnata.
+	{n} citations marked.	{n} citazioni contrassegnate.
+	Cases	Casi
+	Statutes	Statuti
+	Other Authorities	Altre fonti
+	Treatises	Trattati
+	Regulations	Regolamenti
+	Constitutional Provisions	Disposizioni costituzionali

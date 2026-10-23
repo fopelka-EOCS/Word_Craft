@@ -2809,3 +2809,16 @@
 	drop caps can't go in a table	iniciálé nem kerülhet táblázatba
 	the document is protected	a dokumentum védett
 	Open a document first	Először nyisson meg egy dokumentumot
+
+# Mark Citation dialog (table of authorities)
+	Long citation:	Hosszú hivatkozás:
+	Short citation:	Rövid hivatkozás:
+	Category:	Kategória:
+	Citation marked.	Hivatkozás megjelölve.
+	{n} citations marked.	{n} hivatkozás megjelölve.
+	Cases	Esetek
+	Statutes	Törvények
+	Other Authorities	Egyéb források
+	Treatises	Szakmunkák
+	Regulations	Rendeletek
+	Constitutional Provisions	Alkotmányos rendelkezések

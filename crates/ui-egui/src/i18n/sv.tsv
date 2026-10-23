@@ -2841,3 +2841,16 @@ template	Letter	Brev
 	drop caps can't go in a table	en anfang kan inte läggas i en tabell
 	the document is protected	dokumentet är skyddat
 	Open a document first	Öppna först ett dokument
+
+# Mark Citation dialog (table of authorities)
+	Long citation:	Lång källhänvisning:
+	Short citation:	Kort källhänvisning:
+	Category:	Kategori:
+	Citation marked.	Källhänvisning markerad.
+	{n} citations marked.	{n} källhänvisningar markerade.
+	Cases	Rättsfall
+	Statutes	Lagar
+	Other Authorities	Andra källor
+	Treatises	Avhandlingar
+	Regulations	Förordningar
+	Constitutional Provisions	Grundlagsbestämmelser
