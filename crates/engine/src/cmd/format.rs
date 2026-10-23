@@ -435,7 +435,15 @@ fn change_case(s: &mut Session, v: &Value) -> CmdResult {
             let to = if path == b.path { b.off } else { p.len() };
             let chars = live_chars(p, from, to);
             let src: String = chars.iter().map(|(_, c)| c).collect();
-            case_groups(p, &chars, &convert_chars(&src, &mode, from == 0))
+            let turkic: Vec<bool> = chars
+                .iter()
+                .map(|&(off, _)| {
+                    let rc = s.doc.styles.resolve_char(p.props.style.as_deref(), p.props_of_char(off));
+                    let lang = rc.lang.or_else(|| s.editing_lang.clone());
+                    super::tools::is_turkic(lang.as_deref())
+                })
+                .collect();
+            case_groups(p, &chars, &convert_chars(&src, &turkic, &mode, from == 0))
         };
         if groups.is_empty() {
             continue;
@@ -569,37 +577,49 @@ fn is_title(t: &str) -> bool {
 
 #[cfg(test)]
 fn convert(src: &str, mode: &str, para_start: bool) -> String {
-    convert_chars(src, mode, para_start).concat()
+    let non_turkic = vec![false; src.chars().count()];
+    convert_chars(src, &non_turkic, mode, para_start).concat()
 }
 
 /// The case-converted form of each character of `src`, in order (one entry per char, so a
 /// change of length such as ß → SS or İ → i̇ can be applied run by run).
-fn convert_chars(src: &str, mode: &str, para_start: bool) -> Vec<String> {
+fn convert_chars(src: &str, turkic: &[bool], mode: &str, para_start: bool) -> Vec<String> {
     let chars: Vec<char> = src.chars().collect();
+    let is_tr = |i: usize| turkic.get(i).copied().unwrap_or(false);
+    let upper = |i: usize, c: char| -> String { super::tools::upper_char(c, is_tr(i)) };
     // Greek capital sigma lowers to the final form at the end of a word (as `str::to_lowercase`).
     let lower = |i: usize, c: char| -> String {
-        let prev = i.checked_sub(1).and_then(|j| chars.get(j)).is_some_and(|p| p.is_alphabetic());
-        let next = chars.get(i + 1).is_some_and(|n| n.is_alphabetic());
-        if c == 'Σ' && prev && !next { "ς".to_string() } else { c.to_lowercase().collect() }
+        let tr = is_tr(i);
+        if tr {
+            match c {
+                'I' => "\u{131}".to_string(),
+                '\u{130}' => "i".to_string(),
+                _ => c.to_lowercase().collect(),
+            }
+        } else {
+            let prev = i.checked_sub(1).and_then(|j| chars.get(j)).is_some_and(|p| p.is_alphabetic());
+            let next = chars.get(i + 1).is_some_and(|n| n.is_alphabetic());
+            if c == 'Σ' && prev && !next { "ς".to_string() } else { c.to_lowercase().collect() }
+        }
     };
     // Title case capitalises the first word of any selection; sentence case only at a paragraph start.
     let mut up = mode == "title" || para_start;
     let mut out = Vec::with_capacity(chars.len());
     for (i, &c) in chars.iter().enumerate() {
         let new = match mode {
-            "upper" => c.to_uppercase().collect(),
+            "upper" => upper(i, c),
             "lower" => lower(i, c),
             "toggle" => {
                 if c.is_uppercase() {
                     lower(i, c)
                 } else {
-                    c.to_uppercase().collect()
+                    upper(i, c)
                 }
             }
             "title" => {
                 let n = if up && c.is_alphabetic() {
                     up = false;
-                    c.to_uppercase().collect()
+                    upper(i, c)
                 } else {
                     lower(i, c)
                 };
@@ -612,7 +632,7 @@ fn convert_chars(src: &str, mode: &str, para_start: bool) -> Vec<String> {
                 // Sentence case.
                 let n = if up && c.is_alphabetic() {
                     up = false;
-                    c.to_uppercase().collect()
+                    upper(i, c)
                 } else {
                     lower(i, c)
                 };

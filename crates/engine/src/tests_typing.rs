@@ -2073,6 +2073,16 @@ fn autocorrect_capitalisation_follows_turkic_case_mapping() {
     run(&mut s, "review.language", json!({"lang": "en-US", "default": true}));
     typ(&mut s, "İNgilizce ");
     assert_eq!(s.doc.plain_text(StoryRef::Body), "İngilizce ", "no combining dot in any language");
+
+    // Regression check (#3503): Two initial capitals and caps-lock with stray İ in English
+    let mut s = self::s();
+    run(&mut s, "review.language", json!({"lang": "en-US", "default": true}));
+    typ(&mut s, "Wİrd ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Wird ", "two initial capitals lowercases İ to i in English");
+    let mut s = self::s();
+    run(&mut s, "review.language", json!({"lang": "en-US", "default": true}));
+    typ(&mut s, "wİRD ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Wird ", "caps-lock slip fixes wİRD to Wird in English");
 }
 
 // Spelling as you type (#1552): the word being typed gets no red squiggle until the caret leaves
