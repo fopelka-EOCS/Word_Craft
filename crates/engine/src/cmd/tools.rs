@@ -385,7 +385,9 @@ fn autocorrect_options(s: &mut Session, v: &Value) -> CmdResult {
     if let Some(e) = p::str(v, "deleteException") {
         let e = e.trim().to_lowercase();
         ac.exceptions.retain(|r| *r != e);
-        if NOT_SENTENCE_END.contains(&e.as_str()) && !ac.exceptions_removed.contains(&e) {
+        // A built-in one (English, or German for German text) is remembered as removed.
+        let built_in = NOT_SENTENCE_END.contains(&e.as_str()) || GERMAN_NOT_SENTENCE_END.contains(&e.as_str());
+        if built_in && !ac.exceptions_removed.contains(&e) {
             ac.exceptions_removed.push(e);
         }
     }
@@ -1016,7 +1018,8 @@ pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError>
     let sentence_on = if before_word.trim().is_empty() && f.path.cell().is_some() { ac.cap_cells } else { ac.cap_sentences };
     let mut exceptions = ac.exception_list();
     if german {
-        exceptions.extend(GERMAN_NOT_SENTENCE_END.iter().map(|a| a.to_string()));
+        let removed = |a: &&&str| ac.exceptions_removed.iter().any(|r| r.eq_ignore_ascii_case(a));
+        exceptions.extend(GERMAN_NOT_SENTENCE_END.iter().filter(|a| !removed(a)).map(|a| a.to_string()));
     }
     // A replacement of several words ("brb" → "be right back") is capitalised by its first.
     let first = word.split_whitespace().next().unwrap_or("");
@@ -1065,12 +1068,12 @@ pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError>
 /// The lowercase token before a word that starts a sentence ("there." in "there. world"), as
 /// [`starts_sentence`] reads it; empty at the start of a paragraph.
 fn prev_token(before: &str) -> String {
-    let t = before.trim_end().trim_end_matches(|c: char| "\"'”’)]".contains(c));
+    let t = before.trim_end().trim_end_matches(|c: char| CLOSING_QUOTES.contains(c));
     // Only full stops: Word's exception was observed with "there." (`there?` isn't added).
     if !t.ends_with('.') {
         return String::new();
     }
-    t.rsplit(char::is_whitespace).next().unwrap_or("").trim_start_matches(|c: char| "\"'“‘([".contains(c)).to_lowercase()
+    t.rsplit(char::is_whitespace).next().unwrap_or("").trim_start_matches(|c: char| OPENING_QUOTES.contains(c)).to_lowercase()
 }
 
 /// Turkish, Azerbaijani (and Crimean Tatar) map `i`/`İ` and `ı`/`I` as pairs (#1923).
@@ -1275,6 +1278,11 @@ pub(crate) fn is_german(tag: Option<&str>) -> bool {
 /// Names of days, capitalised as you type (Capitalize names of days).
 const DAYS: [&str; 7] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
+/// What may follow a sentence's full stop (`„Hallo.“ Danach`) or precede its last word: brackets
+/// and the quotes of English, German (“ ‘ close) and Swiss German (» › close), either way round.
+const CLOSING_QUOTES: &str = "\"'”’“‘»›«‹)]";
+const OPENING_QUOTES: &str = "\"'“‘„‚«»‹›([";
+
 /// Does a word typed after `before` (the paragraph text up to the word) begin a sentence?
 /// `exceptions` are the lowercase abbreviations whose full stop doesn't end one; with
 /// `ordinals`, neither does a number's (German `am 3. oktober`, `die 2. auflage`).
@@ -1286,11 +1294,11 @@ fn starts_sentence(before: &str, exceptions: &[String], ordinals: bool) -> bool 
     if t.len() == before.len() {
         return false; // no space between the previous text and the word
     }
-    let t = t.trim_end_matches(|c: char| "\"'”’)]".contains(c));
+    let t = t.trim_end_matches(|c: char| CLOSING_QUOTES.contains(c));
     if !t.ends_with(['.', '!', '?']) || t.ends_with("..") || t.ends_with('…') {
         return false;
     }
-    let prev = t.rsplit(char::is_whitespace).next().unwrap_or(t).trim_start_matches(|c: char| "\"'“‘([".contains(c));
+    let prev = t.rsplit(char::is_whitespace).next().unwrap_or(t).trim_start_matches(|c: char| OPENING_QUOTES.contains(c));
     let lower = prev.to_lowercase();
     // "J." (an initial) or a known abbreviation.
     let initial = prev.chars().count() == 2 && prev.chars().next().is_some_and(char::is_uppercase);

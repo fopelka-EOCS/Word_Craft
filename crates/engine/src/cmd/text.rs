@@ -51,7 +51,8 @@ fn quote_pairs(tag: Option<&str>) -> ((&'static str, &'static str), (&'static st
     if !super::tools::is_german(tag) {
         return (("\u{201C}", "\u{201D}"), ("\u{2018}", "\u{2019}"));
     }
-    let region = tag.unwrap_or("").split(['-', '_']).nth(1).unwrap_or("");
+    // The region is the first two-letter subtag after the language, past a script (`de-Latn-CH`).
+    let region = tag.unwrap_or("").split(['-', '_']).skip(1).find(|r| r.len() == 2).unwrap_or("");
     if region.eq_ignore_ascii_case("CH") || region.eq_ignore_ascii_case("LI") {
         (("\u{00AB}", "\u{00BB}"), ("\u{2039}", "\u{203A}"))
     } else {
@@ -72,9 +73,9 @@ fn autoformat(s: &mut Session, text: &str) -> Option<String> {
     let para = s.doc.para_at(f)?;
     let before = para.text.get(..f.off)?;
     let prev = before.chars().next_back();
-    // The quotes follow the language of the text being typed into (#735): the character before
-    // the caret, else the paragraph's own formatting.
-    let lang = super::tools::text_lang(s, f, f.off.saturating_sub(1));
+    // The quotes follow the language of the text being typed (#735): a language just set at the
+    // caret, else the character before the caret, else the paragraph's own formatting.
+    let lang = s.pending.as_ref().and_then(|p| p.lang.clone()).or_else(|| super::tools::text_lang(s, f, f.off.saturating_sub(1)));
     let (double, single) = quote_pairs(lang.as_deref());
     // A quote opens after a space, a bracket, a dash, a guillemet or low quote, or the other
     // kind's opening quote in this language (nesting; German „…‚…‘…“ closes after ‘).

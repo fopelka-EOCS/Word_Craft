@@ -519,6 +519,10 @@ fn smart_quotes_follow_the_texts_language() {
     let mut s = in_lang("de-CH");
     typ(&mut s, "\"Er sagte 'Grüezi'\" ");
     assert_eq!(s.doc.plain_text(StoryRef::Body), "«Er sagte ‹Grüezi›» ");
+    // A script subtag doesn't hide the region: de-Latn-CH is Swiss.
+    let mut s = in_lang("de-Latn-CH");
+    typ(&mut s, "\"Grüezi\" ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "«Grüezi» ");
     // English text keeps “…” and ‘…’, also with the apostrophe rule.
     let mut s = in_lang("en-GB");
     typ(&mut s, "she said \"hi\" and 'bye', don't ");
@@ -531,6 +535,12 @@ fn smart_quotes_follow_the_texts_language() {
     run(&mut s, "caret.docEnd", json!({}));
     typ(&mut s, " \"ja\" ");
     assert_eq!(s.doc.plain_text(StoryRef::Body), "Er sagte „ja“ ");
+    // German set at the caret after English text: the next quote is already German.
+    let mut s = in_lang("en-US");
+    typ(&mut s, "Hello ");
+    run(&mut s, "review.language", json!({"lang": "de-DE"}));
+    typ(&mut s, "\"ja\" ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Hello „ja“ ");
     // A German interface writes German: untagged text follows the editing language.
     let mut s = self::s();
     s.editing_lang = Some("de-DE".into());
@@ -546,6 +556,18 @@ fn german_abbreviations_and_ordinals_dont_end_sentences() {
     let mut s = in_lang("de-DE");
     typ(&mut s, "das gilt z.B. für alle, vgl. dazu Abs. drei bzw. vier. am 3. oktober ggf. mehr. ende ");
     assert_eq!(s.doc.plain_text(StoryRef::Body), "Das gilt z.B. für alle, vgl. dazu Abs. drei bzw. vier. Am 3. oktober ggf. mehr. Ende ");
+    // A sentence ending inside German or Swiss quotes still ends: the next word is capitalised.
+    let mut s = in_lang("de-DE");
+    typ(&mut s, "er rief „Hallo.“ danach ‚ging‘ er. dann ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Er rief „Hallo.“ Danach ‚ging‘ er. Dann ");
+    let mut s = in_lang("de-CH");
+    typ(&mut s, "er rief «Hallo.» danach ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Er rief «Hallo.» Danach ");
+    // A German exception the user deleted no longer stops the capital.
+    let mut s = in_lang("de-DE");
+    run(&mut s, "tools.autocorrect", json!({"deleteException": "bzw."}));
+    typ(&mut s, "drei bzw. vier ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Drei bzw. Vier ");
     // English text: a number's full stop still ends a sentence.
     let mut s = in_lang("en-US");
     typ(&mut s, "we won 3. then it ended ");
