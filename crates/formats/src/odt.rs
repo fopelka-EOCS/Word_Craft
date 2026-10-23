@@ -1160,19 +1160,26 @@ fn events(xml: &[u8], mut f: impl FnMut(Ev)) -> bool {
     let mut r = quick_xml::Reader::from_reader(xml);
     let cfg = r.config_mut();
     cfg.trim_text(false);
-    cfg.check_end_names = false;
-    cfg.allow_unmatched_ends = true;
+    cfg.check_end_names = true;
+    cfg.allow_unmatched_ends = false;
     let mut buf = Vec::new();
+    let mut depth = 0usize;
     loop {
         buf.clear();
         match r.read_event_into(&mut buf) {
-            Ok(Event::Start(e)) => f(Ev::Start(String::from_utf8_lossy(e.name().as_ref()).into_owned(), attrs_of(&e))),
+            Ok(Event::Start(e)) => {
+                depth = depth.saturating_add(1);
+                f(Ev::Start(String::from_utf8_lossy(e.name().as_ref()).into_owned(), attrs_of(&e)));
+            }
             Ok(Event::Empty(e)) => {
                 let n = String::from_utf8_lossy(e.name().as_ref()).into_owned();
                 f(Ev::Start(n.clone(), attrs_of(&e)));
                 f(Ev::End(n));
             }
-            Ok(Event::End(e)) => f(Ev::End(String::from_utf8_lossy(e.name().as_ref()).into_owned())),
+            Ok(Event::End(e)) => {
+                depth = depth.saturating_sub(1);
+                f(Ev::End(String::from_utf8_lossy(e.name().as_ref()).into_owned()));
+            }
             Ok(Event::Text(t)) => f(Ev::Text(t.decode().map(|c| c.into_owned()).unwrap_or_default())),
             Ok(Event::CData(t)) => f(Ev::Text(String::from_utf8_lossy(&t).into_owned())),
             Ok(Event::GeneralRef(r)) => {
@@ -1187,7 +1194,7 @@ fn events(xml: &[u8], mut f: impl FnMut(Ev)) -> bool {
                 };
                 f(Ev::Text(s));
             }
-            Ok(Event::Eof) => return true,
+            Ok(Event::Eof) => return depth == 0,
             Err(_) => return false,
             Ok(_) => {}
         }
@@ -2141,10 +2148,6 @@ impl Body<'_> {
                 let repeat = repeat_count(a, "table:number-columns-repeated", wordcraft_doc::table::MAX_COLS);
                 let shading = get(a, "table:style-name").and_then(|s| self.styles.cell_background(s));
                 let valign = get(a, "table:style-name").and_then(|s| self.styles.cell_valign(s));
-                if let Some(t) = self.tables.last_mut() {
-                    // Every copy of a spanning cell is owed its own covered columns.
-                    t.hcover = (span as usize - 1) * repeat;
-                }
                 self.cells.push(Cell { colspan: span, rowspan: rows, shading, valign, ..Default::default() });
                 self.cell_repeat.push(repeat);
                 self.containers.push(Vec::new());
@@ -2156,7 +2159,9 @@ impl Body<'_> {
                     let owed = t.hcover.min(n);
                     t.hcover -= owed;
                     n -= owed;
-                    while n > 0 && t.row.len() < wordcraft_doc::table::MAX_COLS {
+                    let occupied = t.row.iter().fold(0usize, |cols, c| cols.saturating_add(c.colspan.max(1) as usize));
+                    n = n.min(wordcraft_doc::table::MAX_COLS.saturating_sub(occupied));
+                    while n > 0 {
                         t.row.push(Cell { covered: true, ..Default::default() });
                         n -= 1;
                     }
@@ -2417,10 +2422,12 @@ impl Body<'_> {
                 let repeat = self.cell_repeat.pop().unwrap_or(1);
                 cell.blocks = blocks;
                 if let Some(t) = self.tables.last_mut() {
-                    for _ in 0..repeat {
-                        if t.row.len() >= wordcraft_doc::table::MAX_COLS {
-                            break;
-                        }
+                    let span = cell.colspan.max(1) as usize;
+                    let occupied = t.row.iter().fold(0usize, |n, c| n.saturating_add(c.colspan.max(1) as usize));
+                    let copies = repeat.min(wordcraft_doc::table::MAX_COLS.saturating_sub(occupied) / span);
+                    // Every retained copy of a spanning cell is owed its own covered columns.
+                    t.hcover = span.saturating_sub(1).saturating_mul(copies);
+                    for _ in 0..copies {
                         t.row.push(cell.clone());
                     }
                 }
@@ -3165,6 +3172,22 @@ mod tests {
     }
 
     #[test]
+    fn repeated_spanning_cells_respect_the_column_cap() {
+        let max_cols = wordcraft_doc::table::MAX_COLS;
+        let content = format!(
+            r#"<office:document-content {NS_T}><office:body><office:text><table:table><table:table-row><table:table-cell table:number-columns-spanned="2" table:number-columns-repeated="{max_cols}"><text:p>x</text:p></table:table-cell><table:covered-table-cell table:number-columns-repeated="{max_cols}"/></table:table-row></table:table></office:text></office:body></office:document-content>"#
+        );
+        let f = parse(&package(&content, None)).unwrap();
+        let Some(FBlock::Table(t)) = f.blocks.iter().find(|b| matches!(b, FBlock::Table(_))) else { panic!("no table") };
+        let row = &t.rows[0];
+        let occupied: usize = row.iter().map(|c| c.colspan as usize).sum();
+        assert!(occupied <= max_cols, "{occupied} occupied columns exceed {max_cols}");
+        assert_eq!(row.len(), max_cols / 2 + 1);
+        assert_eq!(occupied, max_cols);
+        assert!(row.last().is_some_and(|c| c.covered));
+    }
+
+    #[test]
     fn malformed_content_is_an_error_not_a_partial_document() {
         // #1342: a valid prefix followed by corruption fails the import, so a partial read
         // cannot be mistaken for the file's content and saved or merged.
@@ -3176,6 +3199,22 @@ mod tests {
         let ok = format!("{prefix}</office:text></office:body></office:document-content>");
         let doc = import(&package(&ok, None)).unwrap();
         assert_eq!(doc.plain_text(wordcraft_doc::StoryRef::Body), "Good");
+    }
+
+    #[test]
+    fn xml_events_reject_unclosed_and_mismatched_outer_tags() {
+        let unclosed = format!(r#"<office:document-content {NS_T}><office:body><office:text><text:p>Good</text:p></office:text>"#);
+        let mismatched = format!(
+            r#"<office:document-content {NS_T}><office:body><office:text><text:p>Good</office:text></office:body></office:document-content>"#
+        );
+        let mut accepted = Vec::new();
+        for (label, content) in [("unclosed", &unclosed), ("mismatched", &mismatched)] {
+            match import(&package(content, None)) {
+                Ok(_) => accepted.push(label),
+                Err(err) => assert!(err.contains("not well-formed"), "{err}"),
+            }
+        }
+        assert!(accepted.is_empty(), "malformed XML imported: {accepted:?}");
     }
 
     #[test]
