@@ -1103,7 +1103,9 @@ impl Writer<'_> {
                 w.close("a:ln");
             }
             None => {
-                w.open("a:ln", &[]);
+                let width = emu(stroke_width.clamp(0.0, 100.0));
+                let ln: &[(&str, &str)] = if *stroke_width > 0.0 { &[("w", width.as_str())] } else { &[] };
+                w.open("a:ln", ln);
                 w.empty("a:noFill", &[]);
                 line_dash(w, &extra.dash);
                 w.close("a:ln");
