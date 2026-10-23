@@ -2617,3 +2617,6 @@ preview	Title	제목
 	More tabs	탭 더 보기
 # #3013: Insert Table of Figures
 	Include label and number	레이블 및 번호 포함
+# #3603: legacy form fields
+	Legacy Form Fields	레거시 양식 필드
+	Fill In Legacy Form Field	레거시 양식 필드 채우기

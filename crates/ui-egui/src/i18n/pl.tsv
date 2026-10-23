@@ -2795,3 +2795,6 @@ preview	Title	Tytuł
 	This document has no bookmarks.	This document has no bookmarks.
 	Type a page number, or +2 / -1.	Type a page number, or +2 / -1.
 	Wait for the print job to finish submitting before closing.	Wait for the print job to finish submitting before closing.
+# #3603: legacy form fields
+	Legacy Form Fields	Starsze pola formularza
+	Fill In Legacy Form Field	Wypełnij starsze pole formularza

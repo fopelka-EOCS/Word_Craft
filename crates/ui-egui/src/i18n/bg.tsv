@@ -2764,3 +2764,6 @@
 	More tabs	Още раздели
 # #3013: Insert Table of Figures
 	Include label and number	Включване на етикета и номера
+# #3603: legacy form fields
+	Legacy Form Fields	Наследени полета на формуляр
+	Fill In Legacy Form Field	Попълване на наследено поле на формуляр

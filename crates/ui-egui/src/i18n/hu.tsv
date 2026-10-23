@@ -2770,3 +2770,6 @@
 	More tabs	További lapok
 # #3013: Insert Table of Figures
 	Include label and number	Címkével és számmal
+# #3603: legacy form fields
+	Legacy Form Fields	Örökölt űrlapmezők
+	Fill In Legacy Form Field	Örökölt űrlapmező kitöltése

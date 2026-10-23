@@ -2802,3 +2802,6 @@ template	Letter	Brev
 	More tabs	Fler flikar
 # #3013: Insert Table of Figures
 	Include label and number	Ta med etikett och nummer
+# #3603: legacy form fields
+	Legacy Form Fields	Äldre formulärfält
+	Fill In Legacy Form Field	Fyll i äldre formulärfält

@@ -2763,3 +2763,6 @@ preview	Title	Naslov
 	{names} and {n} more	{names} and {n} more
 	{name} options	{name} options
 	{width} × {height} pixels	{width} × {height} pixels
+# #3603: legacy form fields
+	Legacy Form Fields	Starejša polja obrazca
+	Fill In Legacy Form Field	Izpolni starejše polje obrazca

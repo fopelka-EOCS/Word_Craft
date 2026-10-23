@@ -2766,3 +2766,6 @@ preview	Title	Ukázka
 	More tabs	Další karty
 # #3013: Insert Table of Figures
 	Include label and number	Zahrnout popisek a číslo
+# #3603: legacy form fields
+	Legacy Form Fields	Starší pole formuláře
+	Fill In Legacy Form Field	Vyplnit starší pole formuláře

@@ -2762,3 +2762,6 @@ template	Letter	Scrisoare
 	cm	cm
 	mm	mm
 	pi	pi
+# #3603: legacy form fields
+	Legacy Form Fields	Câmpuri de formular moștenite
+	Fill In Legacy Form Field	Completare câmp de formular moștenit

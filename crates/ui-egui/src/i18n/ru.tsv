@@ -2773,3 +2773,6 @@ preview	Title	Пример
 	More tabs	Другие вкладки
 # #3013: Insert Table of Figures
 	Include label and number	Включить подпись и номер
+# #3603: legacy form fields
+	Legacy Form Fields	Поля устаревших форм
+	Fill In Legacy Form Field	Заполнить поле устаревшей формы

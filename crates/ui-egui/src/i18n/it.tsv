@@ -2799,3 +2799,6 @@ template	Letter	Lettera
 	More tabs	Altre schede
 # #3013: Insert Table of Figures
 	Include label and number	Includi etichetta e numero
+# #3603: legacy form fields
+	Legacy Form Fields	Campi modulo legacy
+	Fill In Legacy Form Field	Compila campo modulo legacy

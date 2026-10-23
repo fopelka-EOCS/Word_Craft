@@ -2367,3 +2367,6 @@
 	More tabs	その他のタブ
 # #3013: Insert Table of Figures
 	Include label and number	ラベルと番号を含める
+# #3603: legacy form fields
+	Legacy Form Fields	旧式のフォーム フィールド
+	Fill In Legacy Form Field	旧式のフォーム フィールドに入力

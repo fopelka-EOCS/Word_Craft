@@ -2814,3 +2814,6 @@ template	Letter	Thư
 	More tabs	Các tab khác
 # #3013: Insert Table of Figures
 	Include label and number	Bao gồm nhãn và số
+# #3603: legacy form fields
+	Legacy Form Fields	Trường biểu mẫu cũ
+	Fill In Legacy Form Field	Điền trường biểu mẫu cũ
