@@ -1725,7 +1725,21 @@ impl Reader<'_> {
                 !t.eq_ignore_ascii_case("f") && !t.eq_ignore_ascii_case("false") && t != "0"
             })
         };
-        let stroke = on("stroked").then(|| attr("strokecolor").map_or(Some(Rgb::BLACK), vml_color)).flatten();
+        // A `v:stroke` switches the outline on or off (`on`, which Word lets override the shape's
+        // `stroked`) and can make it fully transparent (`opacity`), as Google Docs writes its
+        // invisible horizontal rules (ECMA-376 Part 4 §19.1.2.21). Freeforms keep the stroke's
+        // opacity themselves (below).
+        let stroke_el = shape.child("v:stroke").or_else(|| shapetype.and_then(|t| t.child("v:stroke")));
+        let enabled = match stroke_el.and_then(|s| s.attr("on")) {
+            Some(v) => {
+                let t = v.trim();
+                !(t.eq_ignore_ascii_case("f") || t.eq_ignore_ascii_case("false") || t == "0")
+            }
+            None => on("stroked"),
+        };
+        let freeform_stroke = enabled.then(|| attr("strokecolor").map_or(Some(Rgb::BLACK), vml_color)).flatten();
+        let transparent = stroke_el.and_then(|s| s.attr("opacity")).and_then(vml_opacity) == Some(0.0);
+        let stroke = freeform_stroke.filter(|_| !transparent);
         let stroke_width = attr("strokeweight").and_then(|v| measure(v, 1.0)).unwrap_or(0.75).clamp(0.0, 100.0);
         let fill = vml_fill(shape, shapetype);
         let kind = match shape.local() {
@@ -1842,7 +1856,7 @@ impl Reader<'_> {
         {
             let opacity = |el: &str| shape.child(el).and_then(|e| e.attr("opacity")).and_then(vml_opacity).unwrap_or(1.0);
             let fill = fill.filter(|_| !vp.no_fill && opacity("v:fill") > 0.0);
-            let stroke = stroke.filter(|_| !vp.no_stroke);
+            let stroke = freeform_stroke.filter(|_| !vp.no_stroke);
             if stroke.is_none() && fill.is_none() {
                 return None;
             }
