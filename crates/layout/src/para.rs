@@ -2053,6 +2053,8 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
     let mut skipped = 0;
     // A left tab past the right indent that wrapped to start the next line.
     let mut wrapped_tab: Option<usize> = None;
+    // Where tabs that ran behind a float left the text: the next span's line starts there.
+    let mut carry: Option<f32> = None;
     loop {
         // A line already sits on this row (a span before this one may have been skipped).
         let beside = !row_rest.is_empty() && lines.len() > row_first;
@@ -2090,7 +2092,15 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                 }
             }
         };
-        let mut x = left;
+        // A span that ends before the carried place is passed over: the text goes to the row's next
+        // span. On the row's last one (spaces after the last tab can carry past its end) it starts at
+        // the span's left instead of past the margin; not compared with Word.
+        let line_carry = carry.take();
+        if line_carry.is_some_and(|c| c >= right_edge - 0.01) && !row_rest.is_empty() {
+            carry = line_carry;
+            continue;
+        }
+        let mut x = line_carry.filter(|c| *c < right_edge - 0.01).map_or(left, |c| c.max(left));
         // Label on the first line.
         if first && let Some(lab) = pl.label.as_mut() {
             // The number is aligned at the first-line indent: its left edge, centre or right edge.
@@ -2129,6 +2139,7 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
         let mut pending_tab: Option<(usize, TabStop, f32)> = None; // tab cluster, stop, x where tab started
         let mut space_w = 0.0f32; // width of the spaces so far on this line
         let mut has_tab = false;
+        let mut behind_float: Option<f32> = None; // where a tab that ran behind a float went
         while j < n {
             let Some(c) = pl.clusters.get(j).cloned() else { break };
             match c.kind {
@@ -2156,6 +2167,26 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                     }
                     xs.push(x);
                     if ptab.is_none() && stop.pos > right_edge + 0.01 && stop.align == TabAlign::Left {
+                        if right_edge < base_right - 0.01
+                            && env.doc.settings.compat_mode < wordcraft_doc::COMPAT_MODE_CURRENT
+                            && row_rest.back().is_some_and(|s| stop.pos < s.1 - 0.01)
+                            && (c0..j).any(|k| pl.clusters.get(k).is_some_and(|c| c.kind != ClKind::Marker))
+                        {
+                            // A float cuts the line short before the stop and the row goes on past
+                            // it, and past the stop. Before Word 2013 mode the tab still goes to its
+                            // stop, behind the float, and the text after it goes on in the next span,
+                            // from there at the earliest; in Word 2013 mode it starts the next span
+                            // and goes to the first stop there (below). One Word PDF for each mode; the
+                            // mode as the switch is inferred (they also differ in header against body).
+                            if let Some(c) = pl.clusters.get_mut(j) {
+                                c.adv = 0.0;
+                            }
+                            x = stop.pos.max(x);
+                            behind_float = Some(x);
+                            last_break = Some(j);
+                            j += 1;
+                            continue;
+                        }
                         // Not when only markers (a bookmark, say) are before it: the line is empty.
                         if (c0..j).any(|k| pl.clusters.get(k).is_some_and(|c| c.kind != ClKind::Marker)) {
                             // Tab past the right indent wraps: like Word, it starts the next line
@@ -2358,6 +2389,10 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
         }
         if skip {
             skipped += 1;
+            // The word goes on to the row's next span, still from the carried place.
+            if !row_rest.is_empty() {
+                carry = line_carry;
+            }
             if row_rest.is_empty() {
                 top = if lines.len() > row_first {
                     top + even_row(lines.get_mut(row_first..).unwrap_or_default())
@@ -2372,6 +2407,9 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                 };
             }
             continue;
+        }
+        if let Some(bx) = behind_float.filter(|_| end == LineEnd::Wrap) {
+            carry = Some(x.max(bx));
         }
         if end == LineEnd::Para || end == LineEnd::Wrap {
             let xc = x;
