@@ -5297,6 +5297,7 @@ dependencies = [
  "image",
  "js-sys",
  "log",
+ "miniz_oxide 0.8.9",
  "proptest",
  "quick-xml",
  "wordcraft-doc",
