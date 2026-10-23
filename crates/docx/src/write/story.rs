@@ -44,8 +44,12 @@ impl Writer<'_> {
             for c in plan.opens.get(i).into_iter().flatten() {
                 super::sdt::open(w, c);
             }
-            self.toa_open_here = toas.iter().any(|(start, _)| *start == i);
-            self.toa_end_here = toas.iter().any(|(_, end)| *end == i);
+            // Only the body's own blocks: a text box in a TOA heading writes blocks of its own,
+            // which must not clear the heading's flags before its field is written.
+            if top {
+                self.toa_open_here = toas.iter().any(|(start, _)| *start == i);
+                self.toa_end_here = toas.iter().any(|(_, end)| *end == i);
+            }
             if let Some((start, end)) = toc {
                 if i == start {
                     w.raw(TOC_SDT_OPEN);
@@ -242,9 +246,11 @@ impl Writer<'_> {
             self.rev_close(w, &props);
         }
         let toc_end = std::mem::take(&mut self.toc_end_here);
-        let toa_end = std::mem::take(&mut self.toa_end_here);
+        let toa_end = top && std::mem::take(&mut self.toa_end_here);
         self.para_content(w, p, rels, depth);
-        self.toa_open_here = false;
+        if top {
+            self.toa_open_here = false;
+        }
         if toc_end || toa_end {
             w.raw(r#"<w:r><w:fldChar w:fldCharType="end"/></w:r>"#);
         }
@@ -1712,12 +1718,11 @@ fn is_toa(instr: &str) -> bool {
 }
 
 /// The tables of authorities the engine builds: a paragraph holding an empty `TOA` field, then
-/// its entries (Word's Table of Authorities style, or a generated list's), then, as Word saves
+/// its entries (Word's Table of Authorities style; nothing else is taken as one), then, as Word saves
 /// one, maybe an empty paragraph its field ends in. Returns (heading, last paragraph) for each,
 /// so the field can be written spanning the heading's text and the entries, as Word does.
 fn toa_spans(bl: &Blocks) -> Vec<(usize, usize)> {
-    let entry =
-        |b: &Block| b.as_para().is_some_and(|p| p.section.is_none() && matches!(p.props.style.as_deref(), Some("TableofAuthorities" | "ListEntry")));
+    let entry = |b: &Block| b.as_para().is_some_and(|p| p.section.is_none() && matches!(p.props.style.as_deref(), Some("TableofAuthorities")));
     let mut out = Vec::new();
     for (start, b) in bl.iter().enumerate() {
         let heading = b.as_para().is_some_and(|p| {

@@ -1178,7 +1178,11 @@ fn insert_authorities(s: &mut Session, v: &Value) -> CmdResult {
                 if let InlineObject::Field { instr, .. } = o {
                     let f = FieldCode::parse(instr);
                     if f.name == "TA" && f.arg('l').is_some() {
-                        used.insert(toa_category(&f).max(1));
+                        // A mark without a category is in no category's table (Word for Mac
+                        // leaves it out of Cases, observed in 16.114).
+                        if toa_category(&f) > 0 {
+                            used.insert(toa_category(&f));
+                        }
                     }
                 }
             }
@@ -2059,6 +2063,26 @@ mod tests {
                 assert_ne!(p.props_of_char(off).hidden, Some(true), "a mark is hidden text");
             }
         }
+    }
+
+    /// A citation mark without a category is in no category's table: Insert Table of Authorities
+    /// makes tables only for the categories marks name (Word for Mac 16.114 leaves such a mark out
+    /// of Cases).
+    #[test]
+    fn a_mark_without_a_category_makes_no_table() {
+        let mut s = Session::new(wordcraft_doc::Document::from_text("Old v. Mark, 1 So. 1 (Ala. 2000) holds.\nAla. Code § 1-2-3 (1975) applies."));
+        s.run("select.text", &json!({"text": "Ala. Code § 1-2-3 (1975)"})).unwrap();
+        s.run("references.markCitation", &json!({"category": 2})).unwrap();
+        let p = s.doc.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+        let end = p.len();
+        let (field, props) = ta_field("TA \\l \"Old v. Mark, 1 So. 1 (Ala. 2000)\"".into());
+        p.insert_object(end, field, &props).unwrap();
+        p.touch();
+        s.run("caret.docStart", &json!({})).unwrap();
+        s.run("references.tableOfAuthorities", &json!({})).unwrap();
+        let t = s.doc.plain_text(StoryRef::Body);
+        assert!(t.starts_with("Statutes\nAla. Code § 1-2-3 (1975)\t1\n"), "{t}");
+        assert!(!t.contains("Cases") && !t.contains("Old v. Mark, 1 So. 1 (Ala. 2000)\t"), "{t}");
     }
 
     /// A table of authorities Word built (its entries in Word's Table of Authorities style under a
