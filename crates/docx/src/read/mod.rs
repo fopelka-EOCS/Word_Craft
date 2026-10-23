@@ -101,6 +101,9 @@ pub(crate) struct Reader<'p> {
     pub theme_fills: shape_style::ThemeFills,
     /// The fill of the group being read (what its members' `a:grpFill` stands for).
     pub group_fill: Option<wordcraft_doc::fill::Fill>,
+    /// The package has no default table style (no styles part, or none marked `w:default`):
+    /// Word then gives tables no cell margins rather than its Normal Table's 0.08".
+    pub no_default_table_style: bool,
 }
 
 /// The package path that internal relationship `id` points at, if it has type `kind` (an `rt`
@@ -166,6 +169,7 @@ pub(crate) fn read_opened(pkg: &Package) -> Result<Document, DocxError> {
         txbx_links: Vec::new(),
         theme_fills: Default::default(),
         group_fill: None,
+        no_default_table_style: true,
     };
     r.pc.major_font = r.doc.settings.major_font.clone();
     r.pc.minor_font = r.doc.settings.minor_font.clone();
@@ -920,6 +924,8 @@ impl Reader<'_> {
         }
         // Built-in styles' behaviour (gallery, priority, visibility), written back as is.
         sheet.latent_styles = root.child("w:latentStyles").map(|l| l.to_xml()).filter(|x| x.len() <= MAX_LATENT_STYLES_XML);
+        // Ids whose kept (last) definition is a default table style.
+        let mut default_tables: Vec<String> = Vec::new();
         for s in root.children("w:style").take(10_000) {
             let Some(raw_id) = s.attr("w:styleId").filter(|i| !i.is_empty()) else { continue };
             let id = self.pc.style_id(raw_id);
@@ -964,6 +970,10 @@ impl Reader<'_> {
                 let parts = self.table_style_parts(s, &mut st);
                 st.table = (parts != TableStyleParts::default()).then_some(parts);
             }
+            default_tables.retain(|d| *d != id);
+            if kind == StyleKind::Table && s.attr("w:default").is_some_and(|v| matches!(v, "1" | "true" | "on")) {
+                default_tables.push(id.clone());
+            }
             // A style defined twice (some generators write their own Heading 1 after a
             // placeholder one) is the last definition, whole: Word drops the earlier one rather
             // than merging the two (observed with synthetic documents).
@@ -972,6 +982,7 @@ impl Reader<'_> {
                 None => sheet.styles.push(st),
             }
         }
+        self.no_default_table_style = default_tables.is_empty();
         // Styles that give only a list level take the list from the style they are based on
         // (Heading 3: level 3 of Heading 2's outline list).
         let fixed: Vec<Option<wordcraft_doc::props::NumRef>> = sheet
