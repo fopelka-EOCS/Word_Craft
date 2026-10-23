@@ -460,12 +460,12 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("review.combine", "Combine", "Review › Compare", compare).params(COMPARE_PARAMS),
         CommandSpec::new("file.accessibility", "Check Accessibility", "Review › Accessibility", accessibility).pure(),
         CommandSpec::new("file.inspect", "Inspect Document", "File › Info", inspect_doc)
-            .params(r#"{"remove"?: ["comments", "revisions", "properties", "hidden", "headers"]} → {found: {comments, revisions, properties, hiddenText, hiddenCount, hidden: [{story: "body|header|footer|footnote|endnote|comment|textBox", part?, text}] (at most 1000), truncated, unsupported: [{story, object: "table|opaque", ..}] (hidden text not inspected: table styles, verbatim objects), headers}, removed, residual: [..] (hidden text a removal couldn't reach), removedNotes: [{kind, part, text}] (notes whose hidden reference was removed)}; whole hidden paragraphs go with their marks"#),
+            .params(r#"{"remove"?: ["comments", "revisions", "properties", "hidden", "headers"]} → {found: {comments, revisions, properties, hiddenText, hiddenCount, hidden: [{story: "body|header|footer|footnote|endnote|comment|textBox", part?, text}] (at most 1000), truncated, unsupported: [{story, object: "table|opaque", ..}] (hidden text not inspected: table styles, verbatim objects), headers}, removed, residual: [..] (hidden text a removal couldn't reach), removedNotes: [{kind, part, text}] (notes whose hidden reference was removed)}; whole hidden paragraphs go with their marks; the removals are refused while the document tracks changes"#),
         CommandSpec::new("file.protect", "Protect Document", "File › Info", |s, v| {
             let mode = p::str(v, "mode").unwrap_or("readOnly");
             s.run("review.restrict", &json!({"mode": mode}))
         })
-        .params(r#"{"mode": "none|readOnly|comments|trackedChanges"}"#),
+        .params(r#"{"mode": "none|readOnly|comments|trackedChanges"} (starting enforcement; "none" doesn't stop a protected document — use review.restrict {"stop": true})"#),
         CommandSpec::new("file.versions", "Version History", "File › Info", |s, v| {
             if let Some(label) = p::str(v, "save") {
                 s.versions.push((label.to_string(), super::now_iso(), s.doc.clone()));
@@ -475,8 +475,21 @@ pub fn specs() -> Vec<CommandSpec> {
             }
             if let Some(i) = p::u64(v, "restore") {
                 let (_, _, d) = s.versions.get(i as usize).cloned().ok_or_else(|| CmdError::Params("no such version".into()))?;
+                // The restore replaces the whole document, including the content the protection
+                // kept read-only, so the protection is stopped first (with its password, when it
+                // has one) — a restore must not go around it.
+                super::protect::check_version_restore(s)?;
                 s.checkpoint("Restore Version");
+                // A snapshot's own protection is stale: it was taken at some earlier moment, and
+                // restoring it must not bring a protection back that the live document doesn't
+                // have (#1327 follow-up).
+                let protection = s.doc.settings.protection.clone();
+                let protect_hash = s.doc.settings.protect_hash.clone();
+                let protect_formatting = s.doc.settings.protect_formatting;
                 s.doc = d;
+                s.doc.settings.protection = protection;
+                s.doc.settings.protect_hash = protect_hash;
+                s.doc.settings.protect_formatting = protect_formatting;
                 s.touch();
                 s.clamp_selection();
             }
@@ -489,17 +502,20 @@ pub fn specs() -> Vec<CommandSpec> {
         .pure(),
         CommandSpec::new("file.newFromTemplate", "New from Template", "File › New", |s, v| {
             let path = p::req_str(v, "path")?;
-            let doc = crate::io::open_path(std::path::Path::new(path)).map_err(CmdError::Failed)?;
+            let mut doc = crate::io::open_path(std::path::Path::new(path)).map_err(CmdError::Failed)?;
+            // As in Word, the new document is attached to the template it came from (#2852).
+            doc.settings.attached_template = Some(path.to_string());
             s.set_document(doc);
             s.path = None;
             s.dirty = true;
             sel_result(s)
         })
-        .params(r#"{"path": string}"#)
+        .params(r#"{"path": string} → a new, untitled document from the template, attached to it"#)
         .pure(),
         CommandSpec::new("file.saveTemplate", "Save as Template", "File › Save As", |s, v| {
             let path = p::req_str(v, "path")?;
-            let path = if path.ends_with(".dotx") { path.to_string() } else { format!("{path}.dotx") };
+            // A .dotm keeps its name (#2852); anything else becomes a .dotx.
+            let path = if super::user_templates::is_template_name(path) { path.to_string() } else { format!("{path}.dotx") };
             crate::io::save_path(std::path::Path::new(&path), &s.doc).map_err(CmdError::Failed)?;
             Ok(json!({"path": path}))
         })
@@ -629,14 +645,19 @@ pub fn specs() -> Vec<CommandSpec> {
         .params(r#"{"header"?: pt, "footer"?: pt}"#),
         CommandSpec::new("table.cellMargins", "Cell Margins", "Table Layout › Alignment", |s, v| {
             let Some((tp, _, _)) = s.sel.focus.path.cell() else { return Err(CmdError::Disabled("not in a table".into())) };
+            let story = s.sel.focus.story;
+            let current = {
+                let table = s.doc.table(story, &tp).ok_or_else(|| CmdError::Failed("no table".into()))?;
+                let style = table.props.style.as_deref().and_then(|id| s.doc.styles.table_style(id));
+                table.props.cell_margins.or(style.and_then(|st| st.parts.cell_margins)).unwrap_or([0.0, 5.4, 0.0, 5.4])
+            };
             let m = [
-                p::f32(v, "top").unwrap_or(0.0),
-                p::f32(v, "left").unwrap_or(5.4),
-                p::f32(v, "bottom").unwrap_or(0.0),
-                p::f32(v, "right").unwrap_or(5.4),
+                p::f32(v, "top").unwrap_or(current[0]),
+                p::f32(v, "left").unwrap_or(current[1]),
+                p::f32(v, "bottom").unwrap_or(current[2]),
+                p::f32(v, "right").unwrap_or(current[3]),
             ]
             .map(|x| x.clamp(0.0, 144.0));
-            let story = s.sel.focus.story;
             s.doc.table_mut(story, &tp)?.props.cell_margins = Some(m);
             for path in s.doc.para_paths(story).into_iter().filter(|p| p.0.starts_with(&tp.0) && p.0.len() > tp.0.len()) {
                 s.doc.para_mut(story, &path)?.touch();
@@ -699,7 +720,7 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .params(r#"{"format": "decimal|upperRoman|lowerLetter…", "text"?: "%1.", "start"?: n}"#),
         CommandSpec::new("review.language", "Language", "Review › Language", language).params(
-            r#"{"lang"?: "en-US|en-GB|pl-PL|fr-FR|…" (BCP 47; default en-US), "noProof"?: bool, "detect"?: bool (detect language automatically, a preference), "default"?: bool (also the document's default language)}"#,
+            r#"{"lang"?: "en-US|en-GB|pl-PL|fr-FR|…" (BCP 47; default en-US), "noProof"?: bool, "detect"?: bool (detect language automatically, a preference), "default"?: bool (also the document's default and the saved language for future blank documents)}"#,
         ),
         CommandSpec::new("review.showMarkup", "Show Markup", "Review › Tracking", |s, v| {
             s.view.show_markup = p::bool(v, "value").unwrap_or(!s.view.show_markup);
@@ -752,7 +773,8 @@ pub fn specs() -> Vec<CommandSpec> {
 }
 
 /// Set Proofing Language: the selection's language and "do not check spelling or grammar",
-/// or (`default`) the document's default language; `detect` is the per-user preference.
+/// or (`default`) the document's default and the saved language for future blank documents;
+/// `detect` is the per-user detection preference.
 /// Nothing at all sets US English, as before.
 fn language(s: &mut Session, v: &Value) -> CmdResult {
     let lang = match p::str(v, "lang") {
@@ -784,14 +806,18 @@ fn language(s: &mut Session, v: &Value) -> CmdResult {
     if lang.is_none() && no_proof.is_none() {
         return Ok(json!({"detect": s.prefs.detect_language}));
     }
-    super::format::apply(s, &|c| {
+    let result = super::format::apply(s, &|c| {
         if let Some(l) = &lang {
             c.lang = Some(l.clone());
         }
         if let Some(np) = no_proof {
             c.no_proof = Some(np);
         }
-    })
+    })?;
+    if p::bool(v, "default") == Some(true) {
+        s.prefs.default_language = lang;
+    }
+    Ok(result)
 }
 
 fn macros(s: &mut Session, v: &Value) -> CmdResult {
@@ -892,8 +918,8 @@ pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError>
         word = format!("{}{fixed}{}", word.get(..at).unwrap_or(""), word.get(at + letters.len()..).unwrap_or(""));
     }
     // A whole-word replacement, else "wait..." → "wait…". Proofing decides what is English the
-    // same way (#835).
-    let english = s.doc.para_at(&f).is_none_or(|_| wordcraft_proof::ProofLang::from_tag(lang.as_deref()) == wordcraft_proof::ProofLang::En);
+    // same way (#835); every English (en-GB, en-CA…) counts (#1281).
+    let english = s.doc.para_at(&f).is_none_or(|_| wordcraft_proof::ProofLang::from_tag(lang.as_deref()).is_english());
     let found = if ac.replace_text { ac.replacement_in(&word, english) } else { None };
     let (from, rep) = match found {
         Some(r) => (start, Some(r)),
@@ -1263,6 +1289,9 @@ fn compare(s: &mut Session, v: &Value) -> CmdResult {
         // The result is a new, untitled document: saving it never overwrites either file.
         s.path = None;
         s.file_name = None;
+        // Version snapshots belong to the document they were taken from, including when
+        // Compare creates an untitled result from the current document.
+        s.clear_versions();
     }
     s.sel = Selection::caret(s.doc.start_of(StoryRef::Body));
     Ok(json!({"changes": changes, "author": author, "notHonoured": not_honoured}))
@@ -1411,6 +1440,13 @@ fn accessibility(s: &mut Session, _: &Value) -> CmdResult {
 fn inspect_doc(s: &mut Session, v: &Value) -> CmdResult {
     let remove: Vec<String> =
         v.get("remove").and_then(Value::as_array).map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
+    // The removals aren't tracked: they delete straight from the document, so on a document that
+    // tracks changes the text would go with no revision to show for it, and the revision trail
+    // would be broken behind the user's back. Refuse the whole removal instead of quietly
+    // untracking it. Reading the document (no `remove`) is always allowed.
+    if !remove.is_empty() && s.doc.settings.track_changes {
+        return Err(CmdError::Disabled("the document tracks changes: stop tracking before removing content".into()));
+    }
     let hidden = hidden_text(&s.doc);
     let report = json!({
         "comments": s.doc.comments.len(),
@@ -2025,7 +2061,11 @@ mod tests {
         let mut s = Session::new(Document::from_text("locked"));
         s.run("review.restrict", &json!({"mode": "readOnly"})).unwrap();
         assert!(s.run("text.insert", &json!({"text": "x"})).is_err());
-        s.run("review.restrict", &json!({"mode": "none"})).unwrap();
+        // The "none" mode is the shorthand for stopping the protection, and it doesn't stop a
+        // protected document: only the explicit stop does (#1327 follow-up).
+        assert!(s.run("review.restrict", &json!({"mode": "none"})).is_err());
+        assert!(s.run("text.insert", &json!({"text": "x"})).is_err());
+        s.run("review.restrict", &json!({"stop": true})).unwrap();
         assert!(s.run("text.insert", &json!({"text": "x"})).is_ok());
     }
 
@@ -2054,5 +2094,41 @@ mod tests {
         s.run("review.language", &json!({"lang": "de-DE", "default": true})).unwrap();
         assert_eq!(s.doc.styles.default_chr.lang.as_deref(), Some("de-DE"));
         assert!(s.run("review.language", &json!({"lang": "<script>"})).is_err());
+    }
+
+    /// The inspector's removals delete straight from the document, so they aren't tracked: on a
+    /// document that tracks changes the text would go with no revision to show for it, and the
+    /// revision trail would be broken behind the user's back. The removal is refused instead,
+    /// and the document is left as it was.
+    #[test]
+    fn inspect_removals_are_refused_while_the_document_tracks_changes() {
+        let mut s = Session::new(Document::from_text("Visible text.\nHidden text."));
+        s.run("select.text", &json!({"text": "Hidden"})).unwrap();
+        s.run("format.hidden", &json!({"value": true})).unwrap();
+        // Tracking without Restrict Editing isolates the Inspector guard from the protected
+        // document check added separately in #3285.
+        s.run("review.trackChanges", &json!({"value": true})).unwrap();
+        assert!(s.doc.settings.track_changes, "the document doesn't track changes");
+        let before = s.doc.clone();
+        let err = s.run("file.inspect", &json!({"remove": ["hidden"]})).unwrap_err();
+        assert!(matches!(err, CmdError::Disabled(_)), "{err}");
+        assert_eq!(s.doc, before, "the document changed despite the refusal");
+        // Reading the document stays allowed.
+        let found = s.run("file.inspect", &json!({})).unwrap();
+        assert_eq!(found["found"]["hiddenText"], true, "{found}");
+    }
+
+    /// A document that doesn't track changes is inspected as before: the hidden text goes.
+    #[test]
+    fn inspect_removals_work_when_the_document_does_not_track_changes() {
+        let mut s = Session::new(Document::from_text("Visible text.\nHidden text."));
+        s.run("select.text", &json!({"text": "Hidden"})).unwrap();
+        s.run("format.hidden", &json!({"value": true})).unwrap();
+        assert!(!s.doc.settings.track_changes);
+        let out = s.run("file.inspect", &json!({"remove": ["hidden"]})).unwrap();
+        assert_eq!(out["residual"], json!([]), "{out}");
+        let text = s.doc.plain_text(StoryRef::Body);
+        assert!(!text.contains("Hidden"), "the hidden text is still there: {text}");
+        assert!(text.contains("Visible text."), "{text}");
     }
 }
