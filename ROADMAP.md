@@ -108,7 +108,7 @@ Weights and evidence per area: [docs/target-app-parity.md](docs/target-app-parit
 | Arabic | ar | none (document shaping and bidi work; no mirrored UI) | 0% |
 | French | fr | partial (interface complete, native-speaker reviewed; no proofing) | 100% (2,615 entries) |
 | Portuguese | pt-br (pt-PT none) | partial | ~95% |
-| Indonesian | id | none | 0% |
+| Indonesian | id | partial (interface complete, review pending; proofing: id-ID) | 100% (2,732 entries) |
 | Japanese | ja | partial | ~95% |
 | German | de | partial (#574) | ~95% |
 | Korean | ko | partial (interface catalog; proofing unavailable) | 100% (2,463 entries) |
@@ -117,6 +117,10 @@ Weights and evidence per area: [docs/target-app-parity.md](docs/target-app-parit
 Also shipped: Traditional Chinese (`zh-hant`), Ukrainian (`uk`), Serbian (`sr`, `sr-latn`, #250), Russian (`ru`) and Polish (`pl`), all partial (~95%). Bulgarian (`bg`) covers everything the interface audit finds (2,419 entries); Swedish (`sv`) covers that too, plus 44 newer strings no other catalog has yet (2,504 entries). Slovenian (`sl`) covers every key of every catalog. Estonian (`et`), Italian (`it`, #594) and Czech (`cs`) now have complete interface catalogs, and Turkish (`tr`) a complete 2,325-entry one (every key of the Russian catalog), all with
 system-locale selection and a saved language choice (Italian also has 51 strings none of the others had yet); Estonian proofing is not included. Hungarian (`hu`) has a
 complete 2,419-entry catalog, also without proofing. Vietnamese (`vi`, #1434) has a complete
+2,448-entry catalog, also without proofing. Indonesian (`id`, #572) has a 2,732-entry catalog — every
+key of every other catalog, including the paper-size, bookmark and print-dialog strings — and
+already has proofing (#498), so its interface writes `id-ID` documents.
+Proofing: English, Polish, Portuguese and Russian (spelling, grammar, hyphenation), plus Czech and Indonesian (system Hunspell spelling, generic checks), chosen per run from its language. Word ships
 2,448-entry catalog, also without proofing. Croatian (`hr`, #1271) has a complete catalog.
 Proofing: English, Polish, Portuguese, Italian, Croatian, Turkish and Russian (spelling, grammar; hyphenation except Croatian), plus Czech and Indonesian (system Hunspell spelling, generic checks), chosen per run from its language; Bulgarian and German hyphenation only. Word ships
 30 interface languages and proofing for ~50. Detail: [docs/localization-parity.md](docs/localization-parity.md).
@@ -572,6 +576,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-22 | minor | Progress log: Indonesian interface catalog, 2,732 entries (#572) |
 | 2026-10-22 | trivial | Progress log: a click in the footer while editing the header moves there |
 | 2026-10-18 | trivial | Explicit New/Open is not interrupted by startup recovery discovery; older copies stay available and Recover follows the interface theme. |
 | 2026-10-17 | trivial | Progress log: Home › Underline drop-down (#2738) |

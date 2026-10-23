@@ -1,6 +1,6 @@
 # Localization parity with Microsoft Word
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-21 · **Change:** trivial (Slovenian interface catalog: every key of every other catalog, 2,614 entries; previously minor: Romanian interface catalog; previously trivial: the File › Home greeting is translated in every catalog; previously trivial: Japanese row: ruby (Phonetic Guide) is supported and HTML export/import keeps it, #1681; previously trivial: Russian sorting keeps ё with е and recognises decomposed ё/й; previously minor: English dialects: en-GB, en-CA, en-AU and the other British-spelling Englishes proof their own spellings and flag the other dialect's, #1281, #1045; previously minor: how to install the Hunspell dictionaries on Windows, macOS and Linux: `docs/spelling-dictionaries.md`; previously minor: Read Aloud speaks each sentence in its own language, #1843; previously minor: Indonesian proofing: id-ID spelling from the installed Hunspell dictionary, dictionary-driven suggestions, generic checks with Indonesian messages, #498; previously trivial: print-area strings translated in every catalog; previously trivial: Italian: the interface audit checks the Italian catalog, `Privacy Settings` wording; previously trivial: Italian grammar: `po'`, `qual è`, `È`, `un`/`un'` rules; more elisions and truncations in spelling; previously trivial: Czech interface catalog completed, 2,447 entries; previously trivial: interface audit runs in CI again: size labels translated, 20 strings in every catalog, Read Aloud error race fixed, #1128; previously trivial: Review › Language reaches every language again — Set Proofing Language… and Set As Default, #860; previously minor: Italian proofing: it-IT spelling from the installed Hunspell dictionary, accent-first suggestions, conservative grammar with Italian messages; previously minor: Portuguese proofing; previously trivial: Turkish interface catalog completed, 2,325 entries, #774; previously minor: Hungarian interface added; previously trivial: sorting and table numbers follow the text's language, #836, #837; previously minor: Polish interface; Polish proofing — spelling, grammar, hyphenation — and a proofing language per run; previously minor: Turkish interface added; previously major: first version; catalogs measured from `crates/ui-egui/src/i18n`, Word's languages from its bundle listing) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-22 · **Change:** minor (Indonesian (`id`) interface catalog, 2,732 entries — every key of every other catalog — and the legacy `in` locale code, #572; previously minor: English dialects: en-GB, en-CA, en-AU and the other British-spelling Englishes proof their own spellings and flag the other dialect's, #1281, #1045; previously minor: how to install the Hunspell dictionaries on Windows, macOS and Linux: `docs/spelling-dictionaries.md`; previously minor: Read Aloud speaks each sentence in its own language, #1843; previously minor: Indonesian proofing: id-ID spelling from the installed Hunspell dictionary, dictionary-driven suggestions, generic checks with Indonesian messages, #498; previously trivial: print-area strings translated in every catalog; previously trivial: Italian: the interface audit checks the Italian catalog, `Privacy Settings` wording; previously trivial: Italian grammar: `po'`, `qual è`, `È`, `un`/`un'` rules; more elisions and truncations in spelling; previously trivial: Czech interface catalog completed, 2,447 entries; previously trivial: interface audit runs in CI again: size labels translated, 20 strings in every catalog, Read Aloud error race fixed, #1128; previously trivial: Review › Language reaches every language again — Set Proofing Language… and Set As Default, #860; previously minor: Italian proofing: it-IT spelling from the installed Hunspell dictionary, accent-first suggestions, conservative grammar with Italian messages; previously minor: Portuguese proofing; previously trivial: Turkish interface catalog completed, 2,325 entries, #774; previously minor: Hungarian interface added; previously trivial: sorting and table numbers follow the text's language, #836, #837; previously minor: Polish interface; Polish proofing — spelling, grammar, hyphenation — and a proofing language per run; previously minor: Turkish interface added; previously major: first version; catalogs measured from `crates/ui-egui/src/i18n`, Word's languages from its bundle listing) · **Target:** Microsoft Word (Microsoft 365) for Mac 16.113.4
 
 Interface languages, script support and proofing per language. How translation works (catalog
 format, adding a language, clean-room rule): `crates/ui-egui/src/i18n/mod.rs`.
@@ -19,11 +19,12 @@ native-speaker review (human).
 
 ## What WordCraft ships (measured)
 
-- **27 interface languages**: English plus `zh-hans`, `zh-hant`, `ja`, Korean `ko` (#1216), `uk`, `es`, `pt-br`,
-  Serbian `sr`/`sr-latn` (#250), Estonian `et`, Turkish `tr`, Russian `ru`, Italian `it` (#594), German `de` (#574), Polish `pl`, Czech `cs`, Hungarian `hu`, French `fr`, Bulgarian `bg`, Vietnamese `vi` (#1434), Swedish `sv` (#1219), Croatian `hr` (#1271), Romanian `ro`, Slovenian `sl`, Dutch `nl` and Danish `da` (#2722). Catalogs have 2,061–2,674 entries
+- **28 interface languages**: English plus `zh-hans`, `zh-hant`, `ja`, Korean `ko` (#1216), `uk`, `es`, `pt-br`,
+  Serbian `sr`/`sr-latn` (#250), Estonian `et`, Turkish `tr`, Russian `ru`, Italian `it` (#594), German `de` (#574), Polish `pl`, Czech `cs`, Hungarian `hu`, French `fr`, Bulgarian `bg`, Vietnamese `vi` (#1434), Swedish `sv` (#1219), Croatian `hr` (#1271), Romanian `ro`, Slovenian `sl`, Dutch `nl`, Danish `da` (#2722) and Indonesian `id` (#572). Catalogs have 2,061–2,732 entries
   each; Polish has every key of every other catalog, including the built-in style names and the equation gallery, except the citation style names only Hungarian, Bulgarian, Swedish, Romanian and Slovenian translate so far (a test checks it). A test (`every_tab_and_command_is_translated`) enforces that every ribbon tab, command
   label and ribbon location is translated in every language.
-  `pl`, `pl-PL` and `pl_PL.UTF-8` system locales pick Polish automatically.
+  `pl`, `pl-PL` and `pl_PL.UTF-8` system locales pick Polish automatically, and `id`, `id-ID` and
+  the former ISO 639 code `in` (Windows still reports `in-ID`) pick Indonesian.
 - Of the 675 English strings a scan extracts from `tl!(…)` calls and command labels/locations, each
   catalog covers **661 (98%)**. Some newer dialog and pane strings (Equation tab tooltips, Zotero,
   Read Aloud) aren't wrapped in `tl!` yet, so they show in English in every
@@ -38,7 +39,7 @@ native-speaker review (human).
 - Document scripts: shaping via HarfRust (HarfBuzz port) for every script; bidi (UAX #9) and Arabic
   shaping tested (#207); IME on all desktop platforms (winit fixes pending, #155–#164).
 
-## The twelve key languages
+## The thirteen key languages
 
 Status: `full` = every user-visible string translated and the script renders and edits correctly;
 `partial`; `menus only`; `none`. Hours are to `full`, Opus 5.5 agent wall-clock, excluding the
@@ -53,7 +54,7 @@ shared items below.
 | Arabic | ar | 0 | ❌ | shaping, joining, lam-alef, bidi ✅ (#207); no kashida; **no mirrored UI** | no | none | 6–8 |
 | French | fr | 2,615 entries (complete catalog) | all | Latin ✅ | no | partial (no proofing) | 1–2 (proofing) |
 | Portuguese | pt-br (pt-PT none) | ~930; 98% / ~95% (pt-BR) | most | Latin ✅ | no | partial | 2–4 (pt-BR finish + pt-PT) |
-| Indonesian | id | 0 | ❌ | Latin ✅ | no | none | 3–4 |
+| Indonesian | id | 2,732 entries (every key of every catalog) | all | Latin ✅ | no | partial (interface complete, review pending) | 0–1 (review) |
 | Japanese | ja | ~930; 98% / ~95% | most | CJK ✅, IME ✅; ruby (Phonetic Guide) over its base text, kept by HTML export/import (#1681); no vertical text or document grid | no | partial | 3–5 |
 | German | de | 2,021 entries; same key set as zh-hans (#574); 98% of extracted, ~95% of visible | most | Latin ✅ | no | partial | 1–2 |
 | Korean | ko | 2,463 entries (all catalog keys and preview context) | most; newer panes English | Hangul ✅ (Korean-first embedded/system UI font fallback); macOS Korean IME fixes pending (#163, #164) | no | partial | 3–5 |
@@ -68,6 +69,17 @@ catalog is an AI-assisted draft whose terminology and running app were reviewed 
 speaker. Swedish proofing is not included; terminology: [`localization-sv.md`](localization-sv.md).
 Romanian (`ro-RO` and `ro-MD` system locales, `{"value":"ro"}`) has 2,674 entries covering every key of the other catalogs. Commands use the noun form ("Salvare", "Deschidere…") and messages address the user formally. Counts keep the number and noun as the English does; Romanian proofing is a separate change. The catalog is an AI-assisted draft that a native speaker has not yet reviewed line by line.
 Croatian (`hr-HR` system locales, `{"value":"hr"}`) has 2,507 entries: every key of the reference catalog, built-in style names and the equation gallery. Counts use count-neutral wording (`Riječi: 21`) because Croatian numerals take three noun forms. The catalog was written and checked by a native speaker; Croatian proofing is a separate change.
+Indonesian (`id`, `id-ID`, `in_ID.UTF-8`, `{"value":"id"}`) has 2,732 entries: every key of every
+other catalog, so built-in style names, the equation gallery, paper sizes, bookmarks, the print
+dialog, shape gradients, the Format Shape pane, the English dialects and personal templates are
+translated too. It was written from the meaning of the English labels in this repository
+(AI-assisted; native-speaker review still pending) in ordinary Indonesian computing vocabulary:
+File › Berkas, Home › Beranda, Insert › Sisipkan, Layout › Tata Letak, Review › Tinjauan,
+View › Tampilan, styles › Gaya, tables › Tabel, paragraphs › Paragraf. Counts use count-neutral
+wording (`{words} kata`) because Indonesian nouns take no plural inflection, and the built-in
+"Letter" template is `Surat` (its own `template` context) while the paper size of the same English
+name stays `Letter`. Indonesian proofing already exists (#498), so when no saved proofing-language
+default exists, an `id` interface writes `id-ID` documents.
 Estonian uses the existing fonts, follows `et-EE` system locales, and is available in Options or
 through `ui.language` with `{"value":"et"}`. Its 1,307 entries cover the existing interface catalog.
 Estonian spelling, grammar, dates and document templates are not added by the interface catalog.
@@ -92,13 +104,15 @@ gallery, watermarks, paper sizes and preview tiles. The Czech coverage test
 enforces both reference catalogs and retains the Chinese catalog coverage; counts keep the existing
 count-neutral wording (`Počet slov: 21`). Czech proofing is not included.
 
-When no saved proofing-language default exists, Polish, Portuguese and Czech interfaces write
-new documents and opened TXT/Markdown text in their proofing languages (`pl-PL`, `pt-BR`, `cs-CZ`).
+When no saved proofing-language default exists, Polish, Portuguese, Czech and Indonesian interfaces
+write new documents and opened TXT/Markdown text in their proofing languages (`pl-PL`, `pt-BR`,
+`cs-CZ`, `id-ID`).
 
 **Interface audit (runs in CI).** `untranslated_interface_text` lays the app out in a pseudo-language
 (every tab, File page, dialog, pane, the right-click menu, and a hover and a click on every ribbon
 control) and fails on visible text that skipped the catalog; then Russian, Hungarian, Turkish and
-Bulgarian must have every string it looked up. Proper names (citation styles such as APA or
+Bulgarian must have every string it looked up; so must Italian, Swedish, Croatian, Polish and
+Indonesian. Proper names (citation styles such as APA or
 GOST, LaTeX, Unicode) and `bad parameters:` errors, which name a command's JSON parameters for
 scripts and MCP, stay English. Size labels (Envelopes, Labels, Layout › Size) are translated
 patterns (`{name}   {height} × {width} in`) with the region's decimal separator; paper names
@@ -210,12 +224,7 @@ WordCraft keeps 2,54 cm).
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-21 | trivial | Japanese row: ruby (Phonetic Guide) is supported over its base text and HTML export/import keeps it (#1681); the row had listed ruby as missing |
-| 2026-10-20 | trivial | Russian sorting keeps ё with е and recognises decomposed ё/й; synthetic ordering, case and index-heading regressions; broader parity estimates unchanged |
-| 2026-10-20 | trivial | File › Home's greeting (Good morning / afternoon / evening) added to the nine catalogs that lacked it (de, et, ja, pt-br, sr, sr-latn, uk, zh-hans, zh-hant); a test keeps it in every language |
-| 2026-10-20 | trivial | Cuban and Peruvian Spanish table numbers use decimal points for parsing and formula results, matching CLDR and the existing region settings; regression covers grouped values and a Spain control |
-| 2026-10-20 | trivial | Set As Default persists the proofing language across restarts; command and dialog regressions cover new documents, interface changes, existing document languages and rejection rollback (#2882); readiness estimates unchanged |
-| 2026-10-18 | trivial | German hyphenation: runs in `de` (any region) use the TeX German patterns for the reformed spelling (MIT) instead of the English ones; still no German spelling or grammar |
+| 2026-10-22 | minor | Indonesian (`id`) interface catalog: 2,732 entries (every key of every other catalog — built-in style names, equation gallery, paper sizes, bookmarks, the print dialog, shape gradients, the Format Shape pane, the English dialects and personal templates), `id-*` and legacy `in-*` system locales, a saved preference, the `template` context for "Letter" (template `Surat`, paper size `Letter`), count-neutral `{words} kata`, catalog and coverage tests, and the interface audit checks Indonesian; an `id` interface writes `id-ID` documents (Indonesian proofing landed in #498); native-speaker review pending |
 | 2026-10-14 | trivial | The sentence-capital rule (English, Polish, Croatian, Italian, Turkish, Portuguese) skips the first word of a list item (#1741) |
 | 2026-10-16 | minor | Indonesian proofing (#498): id-ID spelling from the installed Hunspell `id_ID` dictionary (not bundled), Czech's dictionary-driven suggestions, repeated-word (hyphenated reduplication offered) and spacing checks with Indonesian messages; Review › Language, the status bar, Set Proofing Language and File › Options › Proofing list Indonesian; estimates unchanged |
 | 2026-10-16 | trivial | Read Aloud picks a voice for the sentence's language (run tag, else script) when the default voice doesn't speak it, reads Windows text as UTF-8 |
