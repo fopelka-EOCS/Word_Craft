@@ -1683,7 +1683,7 @@ fn preview_layout_shows_a_command_without_running_it() {
     run(&mut s, "caret.docEnd", json!({}));
     let (doc, sel, rev) = (s.doc.clone(), s.sel.clone(), s.rev());
     let cells = |l: &wordcraft_layout::DocLayout| l.index.keys().filter(|(st, p)| *st == StoryRef::Body && p.0.len() == 4).count();
-    let (_, preview) = s.preview_layout("insert.table", &json!({"rows": 4, "cols": 3})).expect("a table can be inserted here");
+    let (_, _, preview) = s.preview_layout("insert.table", &json!({"rows": 4, "cols": 3})).expect("a table can be inserted here");
     assert_eq!(cells(&preview), 12, "four rows of three cells");
     // At the caret: after "Lanterns", the second block.
     let tables: std::collections::BTreeSet<u32> =
@@ -1704,13 +1704,41 @@ fn preview_layout_comes_with_the_document_it_lays_out() {
     let mut s = Session::new(wordcraft_doc::Document::from_text("Lanterns\nKites"));
     run(&mut s, "caret.docStart", json!({}));
     run(&mut s, "caret.end", json!({}));
-    let (doc, preview) = s.preview_layout("insert.table", &json!({"rows": 2, "cols": 2})).expect("a table can be inserted here");
+    let (doc, _, preview) = s.preview_layout("insert.table", &json!({"rows": 2, "cols": 2})).expect("a table can be inserted here");
     for (story, path) in preview.index.keys().filter(|(st, _)| *st == StoryRef::Body) {
         assert!(doc.para(*story, path).is_some(), "{path:?} names a paragraph of the previewed document");
     }
     let kites = preview.index.keys().find(|(st, p)| *st == StoryRef::Body && doc.para(*st, p).is_some_and(|p| p.text == "Kites"));
     assert!(kites.is_some_and(|(_, p)| p.0.len() == 1 && p.0[0] > 1), "Kites is laid out after the table: {kites:?}");
     assert_eq!(s.doc.plain_text(StoryRef::Body), "Lanterns\nKites", "the document itself has no table");
+}
+
+/// #3931 review: the word being typed has no spelling squiggle on the preview either, though
+/// the table moves the copy's caret off it and splits its paragraph.
+#[test]
+fn preview_layout_keeps_the_word_being_typed_unmarked() {
+    let mut s = Session::new(wordcraft_doc::Document::from_text("helo"));
+    s.view.proofing = true;
+    run(&mut s, "caret.docEnd", json!({}));
+    run(&mut s, "text.insert", json!({"text": " wrld"}));
+    let marks = |l: &wordcraft_layout::DocLayout, doc: &wordcraft_doc::Document| -> Vec<String> {
+        let text = &doc.para(StoryRef::Body, &wordcraft_doc::Path(vec![0])).unwrap().text;
+        l.pages[0]
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                wordcraft_layout::Placed::Lines { para, path, .. } if path.0 == [0] => {
+                    Some(para.issues.iter().filter(|i| !i.2).map(|i| text[i.0..i.1].to_string()).collect::<Vec<_>>())
+                }
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    };
+    let doc = s.doc.clone();
+    assert_eq!(marks(&s.layout(), &doc), ["helo"], "the page itself: only the finished word is marked");
+    let (copy, _, preview) = s.preview_layout("insert.table", &json!({"rows": 2, "cols": 2})).unwrap();
+    assert_eq!(marks(&preview, &copy), ["helo"]);
 }
 
 #[test]

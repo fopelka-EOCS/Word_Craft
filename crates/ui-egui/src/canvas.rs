@@ -202,11 +202,12 @@ pub struct CanvasState {
     /// The rows and columns hovered in Insert › Table's grid this frame: the page shows that
     /// table where it would go (#3931). Set by the grid each frame, taken by [`show`].
     pub(crate) table_preview: Option<(usize, usize)>,
-    /// The last previewed table's layout and the copy of the document it was laid out from, with
+    /// The last previewed table's layout, the copy of the document it was laid out from and the
+    /// copy's selection, with
     /// what it was laid out for (rows, columns, document id, revision, selection, and the
     /// document's own layout, which a view change replaces), so a still pointer doesn't lay the
     /// document out every frame. Set only while the page shows the preview.
-    table_preview_layout: Option<(TablePreviewKey, wordcraft_doc::Document, std::sync::Arc<DocLayout>)>,
+    table_preview_layout: Option<(TablePreviewKey, wordcraft_doc::Document, wordcraft_engine::Selection, std::sync::Arc<DocLayout>)>,
 }
 
 type TablePreviewKey = ((usize, usize, u64, u64, wordcraft_engine::Selection), std::sync::Arc<DocLayout>);
@@ -958,15 +959,15 @@ fn shown_layout(app: &mut WordApp) -> std::sync::Arc<DocLayout> {
     // The caret can move, or the view change, with the grid still hovered: the table then goes
     // somewhere else, or the page is laid out to another width.
     let key = ((rows, cols, app.session.document_id(), app.session.rev(), app.session.sel.clone()), app.session.layout());
-    if let Some((k, _, l)) = &app.canvas.table_preview_layout
+    if let Some((k, _, _, l)) = &app.canvas.table_preview_layout
         && k.0 == key.0
         && std::sync::Arc::ptr_eq(&k.1, &key.1)
     {
         return l.clone();
     }
     match app.session.preview_layout("insert.table", &json!({"rows": rows, "cols": cols})) {
-        Some((doc, l)) => {
-            app.canvas.table_preview_layout = Some((key, doc, l.clone()));
+        Some((doc, sel, l)) => {
+            app.canvas.table_preview_layout = Some((key, doc, sel, l.clone()));
             l
         }
         None => {
@@ -979,7 +980,13 @@ fn shown_layout(app: &mut WordApp) -> std::sync::Arc<DocLayout> {
 /// The document the pages of [`shown_layout`] are drawn from: the previewed copy while the page
 /// shows Insert › Table's preview, whose paragraph paths are the layout's (#3931).
 fn page_doc(app: &WordApp) -> &wordcraft_doc::Document {
-    app.canvas.table_preview_layout.as_ref().map_or(&app.session.doc, |(_, doc, _)| doc)
+    app.canvas.table_preview_layout.as_ref().map_or(&app.session.doc, |(_, doc, _, _)| doc)
+}
+
+/// The previewed copy's selection while the page shows Insert › Table's preview: the caret and
+/// selection are drawn from it, as the document's own name other places in the preview's layout.
+fn preview_sel(app: &WordApp) -> Option<&wordcraft_engine::Selection> {
+    app.canvas.table_preview_layout.as_ref().map(|(_, _, sel, _)| sel)
 }
 
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
@@ -1128,7 +1135,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         }
     }
     // Where the selection really ends, also when it took whole table cells.
-    let caret = layout.caret_on(&app.session.sel_ends().focus, app.session.page_hint);
+    let caret = layout.caret_on(&preview_sel(app).unwrap_or(app.session.sel_ends()).focus, app.session.page_hint);
     // Editing a header/footer (or a note) dims the body; once per frame, for every page.
     let dim_body = dims_body(app, &layout);
     if let Some(c) = caret
@@ -1498,8 +1505,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         } else {
             balloons(app, ui, &painter, &rects, &layout, geo.scale, view_rect);
         }
-        // Find › Reading Highlight.
-        let marks: Vec<(Pos, Pos)> = app.session.find_highlights().iter().take(5000).cloned().collect();
+        // Find › Reading Highlight. Its places are the document's, not the preview's.
+        let marks: Vec<(Pos, Pos)> =
+            if preview_sel(app).is_some() { Vec::new() } else { app.session.find_highlights().iter().take(5000).cloned().collect() };
         for (a, b) in &marks {
             for (pi, r) in layout.selection_rects(&app.session.doc, a, b, app.session.page_hint) {
                 if let Some(pr) = rects.get(pi) {
@@ -1512,7 +1520,14 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         // Selection (a selected object shows its frame instead): whole table cells shade the
         // cells (an empty one too), a column selection each row's piece, text running into or
         // across a table the whole cells of the rows it takes.
-        let selected: Vec<_> = if crate::objects::selected(app).is_some() {
+        let selected: Vec<_> = if let Some(sel) = preview_sel(app) {
+            let (a, b) = sel.ordered();
+            if a == b {
+                Vec::new()
+            } else {
+                wordcraft_engine::cmd::table_mouse::selection_rects(&layout, page_doc(app), &a, &b, app.session.page_hint)
+            }
+        } else if crate::objects::selected(app).is_some() {
             Vec::new()
         } else if let Some(range) = app.session.cell_range() {
             wordcraft_engine::cmd::table_mouse::cell_rects(&layout, &app.session.doc, range)
@@ -1626,7 +1641,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             }
         }
         if !math_caret
-            && let Some(c) = layout.caret_on(&app.session.sel.focus, app.session.page_hint)
+            && let Some(c) = layout.caret_on(&preview_sel(app).unwrap_or(&app.session.sel).focus, app.session.page_hint)
             && let Some(pr) = rects.get(c.page)
         {
             let scale = layout.pages.get(c.page).map_or(geo.scale, |page| page_screen_scale(*pr, page, geo.scale));
@@ -1679,7 +1694,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 [pos2(x.round() + 0.5, y0), pos2(x.round() + 0.5, y1)]
             };
             // The caret glides and fades like Word's (`caret_glide`).
-            let shown = app.session.sel.is_collapsed() && focused;
+            let shown = preview_sel(app).unwrap_or(&app.session.sel).is_collapsed() && focused;
             let look = crate::caret_glide::look(app, ui, content_origin, &geo, bar, shown, since, on);
             if shown && look.opacity > 0.0 {
                 let color = preedit_color.unwrap_or_else(|| caret_color(app));
@@ -3732,6 +3747,25 @@ mod tests {
         assert!(std::ptr::eq(page_doc(&app), &app.session.doc), "no preview: the document's own pages");
     }
 
+    /// #3931 review: with a selection the table replaces it in the copy, so the page draws the
+    /// copy's caret, in the table, and no selection: the document's selection names text that has
+    /// moved in the preview's layout.
+    #[test]
+    fn the_preview_draws_the_copy_caret_and_selection() {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Lanterns\nKites")), crate::Services::default());
+        app.session.sel = wordcraft_engine::Selection { anchor: Pos::body(0, 3), focus: Pos::body(1, 2) };
+        app.canvas.table_preview = Some((2, 2));
+        let layout = shown_layout(&mut app);
+        let sel = preview_sel(&app).expect("the preview's selection").clone();
+        assert!(sel.is_collapsed(), "the table took the selection's place");
+        assert_ne!(sel, app.session.sel);
+        let c = layout.caret_on(&sel.focus, 0).expect("the caret is on the preview's page");
+        assert!(layout.pages[c.page].items.iter().any(|it| matches!(it, Placed::Lines { path, .. } if path.0.len() == 4 && *path == sel.focus.path)));
+        assert!(sel.focus.path.cell().is_some(), "the caret is in the table");
+        assert_eq!(shown_layout(&mut app).index, app.session.layout().index);
+        assert!(preview_sel(&app).is_none(), "no preview: the document's own selection");
+    }
+
     /// #3931 review: the preview is laid out again when the caret moves or the view changes with
     /// the grid still hovered, so the page shows the table where a click would put it, at the
     /// view's width.
@@ -3747,7 +3781,7 @@ mod tests {
         app.canvas.table_preview = Some((2, 2));
         let at_start = tables(&shown_layout(&mut app));
         assert_ne!(at_start, at_end, "the caret moved: so did the table");
-        let (_, fresh) = app.session.preview_layout("insert.table", &json!({"rows": 2, "cols": 2})).unwrap();
+        let (_, _, fresh) = app.session.preview_layout("insert.table", &json!({"rows": 2, "cols": 2})).unwrap();
         assert_eq!(at_start, tables(&fresh));
         app.session.view.mode = wordcraft_layout::ViewMode::Web;
         app.session.view.web_width = 300.0;
