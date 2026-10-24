@@ -172,6 +172,10 @@ pub struct Line {
     /// The text's own ascent and descent on this line, without line-spacing leading (the caret's extent).
     pub text_asc: f32,
     pub text_desc: f32,
+    /// The room below the text's descent (below a picture-only last line's pictures): multiple
+    /// spacing's extra leading (none on a document grid). The last line on a page may hang it
+    /// into the bottom margin.
+    pub hang: f32,
     /// Cluster index range.
     pub c0: usize,
     pub c1: usize,
@@ -1446,15 +1450,10 @@ pub(crate) fn left_out(doc: &Document, rc: &ResolvedChar, show_hidden: bool, hid
     (rc.hidden && !show_hidden) || hide_deleted.hides(doc, rc.del)
 }
 
-/// Lay out one paragraph.
-pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
-    let doc = env.doc;
-    let mut rp = doc.styles.resolve_para_in(&p.props, env.table.map(|t| &t.para));
-    if let Some(spacing) = env.read_line_spacing.filter(|s| s.is_finite() && (1.0..=2.0).contains(s)) {
-        rp.line_spacing = wordcraft_doc::props::LineSpacing::Multiple(spacing);
-    }
+/// Indents in characters and list level indents, on top of the styles' (`level`: the list level
+/// of the paragraph's label, if it has one).
+fn apply_indents(doc: &Document, p: &Paragraph, rp: &mut ResolvedPara, table_chr: Option<&CharProps>, level: Option<&Level>) {
     let para_style = p.props.style.as_deref();
-    let table_chr = env.table.map(|t| &t.chr);
     // Indents in characters are measured in the paragraph mark's font size.
     if rp.indent_chars.iter().any(|c| *c != 0.0) {
         rp.set_char_unit(doc.styles.resolve_char_in(para_style, table_chr, &p.mark).size);
@@ -1464,7 +1463,7 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
     // that switches its style's list off (`num: 0`) drops the styles' indents, as Word does.
     let own_left = p.props.indent_left.is_some() || p.props.indent_left_chars.is_some_and(|c| c != 0.0);
     let own_first = p.props.indent_first.is_some() || p.props.indent_first_chars.is_some_and(|c| c != 0.0);
-    if let Some((_, lvl)) = &env.label {
+    if let Some(lvl) = level {
         let (style_left, style_first) =
             if p.props.numbering.is_some() { (false, false) } else { doc.styles.indents_over_list(para_style.unwrap_or("Normal")) };
         if !own_left && !style_left {
@@ -1481,6 +1480,35 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
             rp.indent_first = 0.0;
         }
     }
+}
+
+/// A paragraph's properties as [`layout_para`] resolves them (list level and character-unit
+/// indents, table style), without laying it out or counting its list label: for comparing
+/// neighbouring paragraphs.
+pub(crate) fn effective_para(doc: &Document, p: &Paragraph, table: Option<&CellText>) -> ResolvedPara {
+    let mut rp = doc.styles.resolve_para_in(&p.props, table.map(|t| &t.para));
+    // The level whose label the paragraph would get (as `Counters::next_label` finds it).
+    let level = p
+        .props
+        .numbering
+        .or(rp.numbering)
+        .filter(|n| n.num != 0)
+        .and_then(|n| doc.numbering.level(n.num, n.level.min(8)))
+        .filter(|l| l.format != wordcraft_doc::section::NumFormat::None);
+    apply_indents(doc, p, &mut rp, table.map(|t| &t.chr), level);
+    rp
+}
+
+/// Lay out one paragraph.
+pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
+    let doc = env.doc;
+    let mut rp = doc.styles.resolve_para_in(&p.props, env.table.map(|t| &t.para));
+    if let Some(spacing) = env.read_line_spacing.filter(|s| s.is_finite() && (1.0..=2.0).contains(s)) {
+        rp.line_spacing = wordcraft_doc::props::LineSpacing::Multiple(spacing);
+    }
+    let para_style = p.props.style.as_deref();
+    let table_chr = env.table.map(|t| &t.chr);
+    apply_indents(doc, p, &mut rp, table_chr, env.label.as_ref().map(|(_, l)| l));
     let resolve = |c: &CharProps| -> Arc<ResolvedChar> { Arc::new(doc.styles.resolve_char_in(para_style, table_chr, c)) };
     let levels = bidi_levels(&p.text, rp.bidi);
     let mut b =
@@ -2444,6 +2472,8 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
         // The tallest picture on the line (it sits on the baseline).
         let mut obj_asc = 0.0f32;
         let mut any = false;
+        // Whether the line holds anything but pictures (text, an equation, a break).
+        let mut text = false;
         let dropped = pl.drop_cap.map_or(0, |d| d.0);
         for (k, c) in pl.clusters.get(c0..c1).into_iter().flatten().enumerate() {
             // Spaces and tabs never make a line taller, whatever their size: Word sizes a line by
@@ -2459,14 +2489,17 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                 // and descent, and grows above the baseline to fit a taller picture.
                 let (a, d) = if matches!(c.kind, ClKind::Object(_)) && c.obj_h > 0.0 {
                     if pl.maths.iter().any(|(k, _)| c.kind == ClKind::Object(*k)) {
+                        // An equation is text: its ascent and descent count like the text's.
                         // Exact spacing keeps the run's baseline; tall math may overflow the
                         // fixed line box without moving adjacent text up by its denominator.
+                        text = true;
                         if matches!(rp.line_spacing, LineSpacing::Exactly(_)) { (st.ascent, st.descent) } else { (c.obj_h, c.obj_d) }
                     } else {
                         obj_asc = obj_asc.max(c.obj_h);
                         (st.ascent, st.descent)
                     }
                 } else {
+                    text = true;
                     // `obj_h` is set on text clusters only under ruby text, which the line grows to fit.
                     let (a, d) = st.line_extent();
                     (a.max(c.obj_h + st.shift), d)
@@ -2482,9 +2515,25 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
             asc = st.ascent;
             desc = st.descent;
         }
+        // A list label is text too.
+        let text = text || (first && pl.label.is_some());
+        // Line spacing scales the text's height, never a picture's: a line with text is at least
+        // as tall as its tallest picture plus the descent below the baseline. The last line of a
+        // paragraph that holds only pictures keeps no descent: the picture fills it from the top
+        // and multiple spacing adds only its extra leading below (Word reference PDFs: 14.13pt
+        // pictures alone in single-spaced 10pt Calibri table cells make 14.13pt rows; a 68.25pt
+        // logo at 1.15 lines of 11pt Calibri makes a 70.3pt line, not 71.2pt). Picture lines that
+        // wrap keep the descent between them (docxide-pdf's header fixture case121). At-least
+        // spacing below the picture's height keeps no descent either (Word 365 probes on #1172:
+        // at least 12pt under 100–140pt pictures adds nothing); exact spacing has its own baseline (below).
+        let only_pictures_below = match rp.line_spacing {
+            LineSpacing::Multiple(m) if !text && end == LineEnd::Para => Some(((asc + desc) * (m - 1.0)).max(0.0)),
+            LineSpacing::AtLeast(_) if !text && end == LineEnd::Para => Some(0.0),
+            _ => None,
+        };
         let text_natural = asc + desc;
         let (text_asc, text_desc) = (asc.max(obj_asc), desc);
-        let text_pictures = if obj_asc > asc { obj_asc + desc } else { 0.0 };
+        let text_pictures = if obj_asc > asc { obj_asc + only_pictures_below.unwrap_or(desc) } else { 0.0 };
         let mut label_extra = 0.0;
         if first && let Some(lab) = &pl.label {
             if !matches!(rp.line_spacing, LineSpacing::Exactly(_)) {
@@ -2500,10 +2549,9 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
             }
         }
         // Keep the picture floor independent of list-label metrics and line-spacing multipliers.
-        // shortcut: Word leaves less than a full descent below a line of only pictures (0.5pt to
-        // 1.9pt in docxide-pdf's header fixtures case121/case123, where the descent is 3.3pt), and
-        // no rule tried so far (none, only the text's descent) matched both; it needs Word probes.
+        // On a grid the pictures are centred with the descent (the no-descent rule is off it).
         let natural = asc + desc;
+        let below = only_pictures_below.unwrap_or(desc);
         let pictures = if obj_asc > asc { obj_asc + desc } else { 0.0 };
         // Document grid: the line takes whole line pitches, its text centred in them.
         let (height, centred) = match (rp.line_spacing, grid) {
@@ -2513,11 +2561,24 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
             (LineSpacing::AtLeast(v), None) => (natural.max(text_pictures).max(v), false),
             (LineSpacing::Exactly(v), _) => (v, false),
         };
+        // The descent the line keeps under its baseline: none under a picture-only last line
+        // (multiple spacing, off the grid), so all of the room below its pictures may hang. At-least
+        // spacing needs its whole line on the page.
+        let multiple = matches!(rp.line_spacing, LineSpacing::Multiple(_));
+        let kept_desc = if obj_asc > asc && !centred && multiple && only_pictures_below.is_some() { 0.0 } else { desc };
         let baseline = if centred {
             let up = asc.max(obj_asc);
             top + ((height - up - desc) / 2.0).max(0.0) + up
+        } else if obj_asc > asc && matches!(rp.line_spacing, LineSpacing::Exactly(_)) {
+            // A picture taller than the text sits on a baseline four fifths down an exact line,
+            // with text beside it or not (Word 365 probes on #1172: 32pt below it at exactly 160pt,
+            // 2.4pt at exactly 12pt).
+            top + height * 0.8
+        } else if obj_asc > asc && only_pictures_below.is_some() && matches!(rp.line_spacing, LineSpacing::AtLeast(_)) {
+            // An at-least line taller than its pictures has them on its bottom edge (ibid.).
+            top + height
         } else {
-            top + baseline_offset(rp.line_spacing, asc, height, desc).max(obj_asc.min(height - desc))
+            top + baseline_offset(rp.line_spacing, asc, height, desc).max(obj_asc.min(height - below))
         };
 
         // Alignment / justification (trailing spaces hang).
@@ -2607,6 +2668,8 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
             baseline,
             text_asc,
             text_desc,
+            // On a grid the text is centred in its pitches: no evidence that the slack may hang.
+            hang: if centred || !multiple { 0.0 } else { (top + height - baseline - kept_desc).max(0.0) },
             c0,
             c1,
             xs,
@@ -2649,12 +2712,14 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                 };
                 let x0 = rp.indent_left;
                 let (x0, left, right) = if rtl_para { (width - x0, width - base_right, width - x0) } else { (x0, x0, base_right) };
+                let baseline = top + if grid.is_some() { h - desc } else { baseline_offset(rp.line_spacing, asc, h, desc) };
                 lines.push(Line {
                     top,
                     height: h,
-                    baseline: top + if grid.is_some() { h - desc } else { baseline_offset(rp.line_spacing, asc, h, desc) },
+                    baseline,
                     text_asc: asc,
                     text_desc: desc,
+                    hang: (top + h - baseline - desc).max(0.0),
                     c0: n,
                     c1: n,
                     xs: vec![x0],
