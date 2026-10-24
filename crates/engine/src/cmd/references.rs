@@ -350,8 +350,8 @@ fn toc_range(s: &Session) -> Option<(usize, usize)> {
 /// section break, entries), and its title belongs to the table (#4041).
 fn toc_title(s: &Session, start: usize) -> Option<usize> {
     let mut section = false;
-    // A few blank lines at most: the title is right above the break.
-    for i in (start.saturating_sub(4)..start).rev() {
+    // Only empty paragraphs are crossed, however many there are.
+    for i in (0..start).rev() {
         let p = s.doc.body.get(i)?.as_para()?;
         if p.is_empty() && p.objects.is_empty() {
             section |= p.section.is_some();

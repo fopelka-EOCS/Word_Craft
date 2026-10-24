@@ -9544,19 +9544,20 @@ fn export_png_refuses_a_path_that_is_not_png() {
 fn toc_title_above_a_section_break_goes_with_the_toc() {
     use wordcraft_doc::para::InlineObject;
     use wordcraft_doc::props::CharProps;
-    let file = |title_style: &str| {
-        let mut s = Session::new(wordcraft_doc::Document::from_text("Table of Contents\n\nOld entry\t1\nAlpha\nBeta"));
+    let file = |title_style: &str, blanks: usize| {
+        let text = format!("Table of Contents\n{}\nOld entry\t1\nAlpha\nBeta", "\n".repeat(blanks - 1));
+        let mut s = Session::new(wordcraft_doc::Document::from_text(&text));
         run(&mut s, "caret.set", json!({"pos": Pos::body(0, 0)}));
         run(&mut s, "styles.apply", json!({"style": title_style}));
-        run(&mut s, "caret.set", json!({"pos": Pos::body(1, 0)}));
+        run(&mut s, "caret.set", json!({"pos": Pos::body(blanks, 0)}));
         run(&mut s, "layout.break", json!({"kind": "continuous"}));
-        s.doc.remove_block(StoryRef::Body, &wordcraft_doc::Path::top(2)).unwrap();
-        let p = s.doc.para_mut(StoryRef::Body, &wordcraft_doc::Path::top(2)).unwrap();
+        s.doc.remove_block(StoryRef::Body, &wordcraft_doc::Path::top(blanks + 1)).unwrap();
+        let p = s.doc.para_mut(StoryRef::Body, &wordcraft_doc::Path::top(blanks + 1)).unwrap();
         let n = p.len();
         p.insert_object(n, InlineObject::FieldEnd, &CharProps::default()).unwrap();
         p.insert_object(0, InlineObject::FieldStart { instr: r#"TOC \o "1-2" \h"#.into(), locked: false, dirty: false }, &CharProps::default())
             .unwrap();
-        for (i, style) in [(3, "Heading 1"), (4, "Heading 2")] {
+        for (i, style) in [(blanks + 2, "Heading 1"), (blanks + 3, "Heading 2")] {
             run(&mut s, "caret.set", json!({"pos": Pos::body(i, 0)}));
             run(&mut s, "styles.apply", json!({"style": style}));
         }
@@ -9567,7 +9568,7 @@ fn toc_title_above_a_section_break_goes_with_the_toc() {
     };
     let style = |s: &Session, i: usize| s.doc.body.get(i).and_then(|b| b.as_para()).and_then(|p| p.props.style.clone());
     let headings = |s: &Session| s.doc.body.iter().filter_map(|b| b.as_para()).filter(|p| p.props.style.as_deref() == Some("TOCHeading")).count();
-    let mut s = file("TOC Heading");
+    let mut s = file("TOC Heading", 1);
     let before = text(&s);
     assert!(before.starts_with("Table of Contents\n\n"), "{before}");
     for _ in 0..2 {
@@ -9581,7 +9582,7 @@ fn toc_title_above_a_section_break_goes_with_the_toc() {
     }
     while s.undo() {}
     assert!(text(&s).starts_with("Table of Contents\n"));
-    let mut s = file("TOC Heading");
+    let mut s = file("TOC Heading", 1);
     run(&mut s, "references.removeToc", json!({}));
     let t = text(&s);
     assert_eq!(headings(&s), 0, "{t}");
@@ -9589,7 +9590,11 @@ fn toc_title_above_a_section_break_goes_with_the_toc() {
     assert!(s.doc.body.first().and_then(|b| b.as_para()).is_some_and(|p| p.section.is_some()), "the section break stays: {t}");
     assert!(t.contains("Alpha\nBeta"), "{t}");
     // A paragraph above the break that isn't a TOC Heading isn't the table's.
-    let mut s = file("Normal");
+    // However many blank lines lie between the title and the field's paragraph.
+    let mut s = file("TOC Heading", 6);
+    run(&mut s, "references.removeToc", json!({}));
+    assert_eq!(headings(&s), 0, "{}", text(&s));
+    let mut s = file("Normal", 1);
     run(&mut s, "references.removeToc", json!({}));
     assert!(text(&s).starts_with("Table of Contents\n"), "{}", text(&s));
 }
