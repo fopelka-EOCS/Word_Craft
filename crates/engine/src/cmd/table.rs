@@ -330,6 +330,28 @@ fn set_column_share(t: &mut Table, r: usize, c: usize, pct: f32) {
     });
 }
 
+/// A column or cell in Percent gives a table with no preferred width one too: the share of the
+/// text column it takes now (6 cm of 16 cm → 37.5 %), so its percentages have a whole and the
+/// table stays where it is. A table with a width (points or a share) keeps it; so does one whose
+/// share can't be kept as it's drawn (over 100 % or under 1 %, a grid that isn't one width per
+/// column) and one where `text_column` is `None` (nested, not in the body, columns of text of
+/// different widths).
+fn share_of_text(t: &mut Table, text_column: Option<f32>) {
+    if t.props.width.is_some() || t.props.width_pct.is_some() {
+        return;
+    }
+    let Some(base) = text_column.filter(|w| w.is_finite() && *w > 0.0) else { return };
+    // The layout draws a grid like that its own way, not at these widths.
+    if t.grid.len() != t.cols() || t.grid.iter().any(|w| !w.is_finite() || *w <= 0.0) {
+        return;
+    }
+    let pct = t.grid.iter().sum::<f32>() / base * 100.0;
+    // A table drawn across the text column may come a hair over it.
+    if (1.0..=100.05).contains(&pct) {
+        t.props.width_pct = Some(pct.min(100.0));
+    }
+}
+
 // Table Properties › Text wrapping and Positioning (#2428).
 use wordcraft_doc::para::{Anchor, FloatAlign};
 use wordcraft_doc::props::TableFloat;
@@ -571,6 +593,12 @@ fn properties(s: &mut Session, v: &Value) -> CmdResult {
         Some(x) => return Err(CmdError::Params(format!("unknown table wrapping `{x}`"))),
     };
     let position = v.get("position").map(position).transpose()?;
+    // What a table's share is of: its column of text, as the layout takes a percentage, for a
+    // table in the body's own flow. With columns of different widths it isn't known which.
+    let text_column = (s.sel.focus.story == StoryRef::Body && tp.depth() == 0).then(|| super::page::sect(s).column_boxes()).and_then(|boxes| {
+        let w = boxes.first()?.1;
+        boxes.iter().all(|b| (b.1 - w).abs() < 0.01).then_some(w)
+    });
     with_table(s, |t| {
         // Text wraps around a floating table (`around`), with the alignment this call sets, if
         // any: it's applied to `props.align` further down.
@@ -617,6 +645,10 @@ fn properties(s: &mut Session, v: &Value) -> CmdResult {
         // A share of the table's width: the column takes it now and its cells keep the share.
         if let Some(pct) = column_pct {
             set_column_share(t, r, c, pct);
+        }
+        // A table width set in the same call (below) still wins.
+        if column_pct.is_some() || cell_pct.is_some() {
+            share_of_text(t, text_column);
         }
         if let Some(w) = width {
             t.props.width = w;

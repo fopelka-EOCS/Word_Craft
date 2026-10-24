@@ -2054,6 +2054,99 @@ fn table_properties_columns_keep_their_kinds_and_shares() {
     assert_eq!((cell.margins, cell.partial_margins), (None, None), "the table's margins, no side from the file");
 }
 
+/// Table Properties (#2428): a column or cell in Percent gives a table with no preferred width
+/// its share of its column of text as it stands (6 cm of 16 cm → 37.5 %), so it's drawn as wide
+/// as before; a table with a width, one whose share can't be kept as drawn, one beside columns
+/// of different widths or a nested one keeps what it has, and a table width set in the same call
+/// wins.
+#[test]
+fn table_properties_a_percentage_makes_the_table_a_share_of_the_text() {
+    let table = |s: &Session| s.doc.body.iter().find_map(|b| b.as_table()).unwrap().clone();
+    let tenths = |p: Option<f32>| p.map(|p| (p * 10.0).round() as i32);
+    // How wide the top-level table is drawn on page 1.
+    let drawn = |s: &mut Session| {
+        let l = s.layout();
+        let (lo, hi) = l.pages[0].items.iter().fold((f32::MAX, f32::MIN), |(lo, hi), it| match it {
+            wordcraft_layout::Placed::Cell { rect, row: 0, table, .. } if table.0.len() == 1 => (lo.min(rect.x), hi.max(rect.x + rect.w)),
+            _ => (lo, hi),
+        });
+        hi - lo
+    };
+    let text = s().doc.sections().first().map(|(_, sp)| sp.text_width()).unwrap();
+    let one = json!({"count": 1});
+    let two = json!({"count": 2});
+    let uneven = json!({"widths": [[150.0, 24.0], [text - 174.0, 0.0]]});
+    let col = json!({"columnWidthPct": 33.3});
+    for (why, columns, share, width, width_pct, call, want) in [
+        ("a narrower table: its share", &one, 0.125, None, None, &col, Some(37.5)),
+        ("a cell in Percent too", &one, 0.125, None, None, &json!({"cellWidthPct": 33.3}), Some(37.5)),
+        ("a table across the text column", &one, 1.0 / 3.0, None, None, &col, Some(100.0)),
+        ("two columns of text: a share of one", &two, 0.25, None, None, &col, Some(75.0)),
+        ("columns of text of different widths", &uneven, 0.25, None, None, &col, None),
+        ("a width in points stays", &one, 0.125, Some(300.0), None, &col, None),
+        ("a share stays", &one, 0.125, None, Some(80.0), &col, Some(80.0)),
+        ("wider than the text column", &one, 0.5, None, None, &col, None),
+        ("under 1 %", &one, 0.003, None, None, &json!({"cellWidthPct": 33.3}), None),
+        ("a share set with it wins", &one, 0.125, None, None, &json!({"columnWidthPct": 33.3, "widthPct": 50.0}), Some(50.0)),
+        ("automatic set with it wins", &one, 0.125, None, None, &json!({"columnWidthPct": 33.3, "width": null}), None),
+        ("a cell in points", &one, 0.125, None, None, &json!({"cellWidth": 40.0}), None),
+    ] {
+        let mut s = s();
+        run(&mut s, "layout.columns", columns.clone());
+        run(&mut s, "insert.table", json!({"rows": 2, "cols": 3}));
+        let base = s.doc.sections().first().and_then(|(_, sp)| sp.column_boxes().first().map(|b| b.1)).unwrap();
+        let t = s
+            .doc
+            .body
+            .iter_mut()
+            .find_map(|b| match std::sync::Arc::make_mut(b) {
+                wordcraft_doc::Block::Table(t) => Some(t),
+                _ => None,
+            })
+            .unwrap();
+        t.grid = vec![base * share; 3];
+        (t.props.width, t.props.width_pct) = (width, width_pct);
+        crate::cmd::table::sync_cell_widths(t);
+        s.touch();
+        let before = drawn(&mut s);
+        run(&mut s, "table.properties", call.clone());
+        let t = table(&s);
+        assert_eq!(tenths(t.props.width_pct), tenths(want), "{why}");
+        assert_eq!(t.props.width, width, "{why}: the width in points");
+        if call.get("widthPct").is_none() {
+            let after = drawn(&mut s);
+            assert!((after - before).abs() < 0.5, "{why}: drawn as wide as before: {after} vs {before}");
+        }
+    }
+    // A grid that isn't one width per column is drawn the layout's own way: no share from it.
+    {
+        let mut s = s();
+        run(&mut s, "insert.table", json!({"rows": 2, "cols": 3}));
+        let t = s
+            .doc
+            .body
+            .iter_mut()
+            .find_map(|b| match std::sync::Arc::make_mut(b) {
+                wordcraft_doc::Block::Table(t) => Some(t),
+                _ => None,
+            })
+            .unwrap();
+        t.grid.truncate(2);
+        s.touch();
+        run(&mut s, "table.properties", json!({"cellWidthPct": 30.0}));
+        assert_eq!(table(&s).props.width_pct, None, "a short grid");
+    }
+    // A nested table is a share of its cell, not of the text column: it keeps no width.
+    let mut s = s();
+    run(&mut s, "insert.table", json!({"rows": 1, "cols": 1}));
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
+    let (tp, _, _) = s.sel.focus.path.cell().unwrap();
+    assert_eq!(tp.depth(), 1, "the caret is in the nested table");
+    run(&mut s, "table.properties", json!({"columnWidthPct": 25.0}));
+    let inner = s.doc.table(StoryRef::Body, &tp).unwrap();
+    assert_eq!((inner.props.width, inner.props.width_pct), (None, None));
+}
+
 /// Table Properties (#2428): an alignment moves a table that already wraps, and a position alone
 /// floats an in-line table where its alignment put it.
 #[test]
