@@ -907,6 +907,16 @@ impl WordApp {
             self.dialog = dialogs::Dialog::open(name, self);
             return Ok(json!({"pending": name}));
         }
+        // New Comment without text opens a field for it at its place (the balloon, else the
+        // Comments pane), and the comment is added when it is posted. A document that refuses
+        // comments refuses this one now, with the engine's reason, instead of after it is typed.
+        if id == "review.newComment"
+            && params.get("text").and_then(Value::as_str).is_none_or(|t| t.trim().is_empty())
+            && widgets::enabled(self, id)
+            && wordcraft_engine::cmd::protect::refuses(&self.session, id).is_none()
+        {
+            return Ok(panes::start_comment(self, None));
+        }
         if (self.session.dirty || self.save_unconfirmed() || refused.is_some()) && discards_document(id, &params) {
             let name = self.prompt_name();
             self.dialog = Some(dialogs::Dialog::SaveChanges {
@@ -1832,6 +1842,20 @@ impl WordApp {
                 self.status(tl!("Click the empty text box the text should continue in (Esc cancels)"));
                 json!({"pending": "link"})
             }
+            // A comment written the way the user writes one: `ui.newComment` opens its field at
+            // the selection (with `text` typed in), `ui.postComment` adds it to the document and
+            // `ui.cancelComment` drops it. `review.newComment` with text adds one at once.
+            "ui.newComment" => {
+                if !widgets::enabled(self, "review.newComment") {
+                    return Some(Err("comments can't be added here".into()));
+                }
+                if let Some(why) = wordcraft_engine::cmd::protect::refuses(&self.session, "review.newComment") {
+                    return Some(Err(why));
+                }
+                panes::start_comment(self, s("text").map(str::to_string))
+            }
+            "ui.postComment" => return Some(panes::post_comment(self)),
+            "ui.cancelComment" => json!({"cancelled": panes::cancel_comment(self)}),
             _ => return None,
         }))
     }
@@ -4694,6 +4718,51 @@ mod tests {
         frame(&mut a, vec![btn(body, true)]);
         frame(&mut a, vec![btn(body, false)]);
         assert_eq!(a.canvas.balloon, None, "a click on the page leaves the balloon");
+    }
+
+    /// Scripts and agents add comments as before: New Comment with text adds it at once (an empty
+    /// one without), with no prompt and no field. `ui.newComment`, `ui.postComment` and
+    /// `ui.cancelComment` write one the user's way.
+    #[test]
+    fn scripts_add_comments_at_once_or_through_the_field() {
+        let mut a = app();
+        a.run("text.insert", json!({"text": "Alpha paragraph one."})).unwrap();
+        a.run("select.text", json!({"text": "paragraph"})).unwrap();
+        for (how, text) in [("run", "From run"), ("execute", "From execute")] {
+            let p = json!({"text": text});
+            let r = if how == "run" { a.run("review.newComment", p) } else { a.execute("review.newComment", p) };
+            assert!(r.unwrap()["id"].is_u64(), "{how} added the comment");
+        }
+        assert!(a.execute("review.newComment", json!({})).unwrap()["id"].is_u64(), "an agent's empty comment, as before");
+        assert_eq!(a.session.doc.comments.len(), 3);
+        assert!(a.dialog.is_none() && !panes::writing(&a), "no prompt, no field");
+        // The user's way, step by step.
+        let r = a.execute("ui.newComment", json!({"text": "Typed by an agent"})).unwrap();
+        assert_eq!(r["pending"], "comment");
+        assert!(a.dialog.is_none(), "programmatic calls open no dialog");
+        assert_eq!(a.session.doc.comments.len(), 3, "nothing is added before Post");
+        let id = a.execute("ui.postComment", json!({})).unwrap()["id"].as_u64().unwrap() as u32;
+        let part = a.session.doc.comments[&id].part;
+        assert_eq!(a.session.doc.plain_text(wordcraft_doc::StoryRef::Part(part)), "Typed by an agent");
+        assert!(a.execute("ui.postComment", json!({})).is_err(), "nothing left to post");
+        a.execute("ui.newComment", json!({})).unwrap();
+        assert!(a.execute("ui.postComment", json!({})).is_err(), "an empty comment isn't posted");
+        let (rev, depth) = (a.session.rev(), a.session.undo_depth());
+        assert_eq!(a.execute("ui.cancelComment", json!({})).unwrap(), json!({"cancelled": true}));
+        assert_eq!(a.execute("ui.cancelComment", json!({})).unwrap(), json!({"cancelled": false}));
+        assert_eq!((a.session.rev(), a.session.undo_depth()), (rev, depth), "cancelling changed nothing");
+        assert_eq!(a.session.doc.comments.len(), 4);
+        // Junk is refused or ignored, never a panic.
+        for junk in [json!(null), json!({"text": 7}), json!({"text": ["x"]}), json!("text")] {
+            let _ = a.execute("ui.newComment", junk.clone());
+            let _ = a.execute("ui.postComment", junk.clone());
+            let _ = a.execute("ui.cancelComment", junk);
+        }
+        // Where comments can't be added, the field doesn't open, and New Comment says why.
+        a.session.doc.settings.protection = Some("readOnly".into());
+        assert!(a.execute("ui.newComment", json!({})).is_err());
+        assert!(a.run("review.newComment", json!({})).is_err());
+        assert!(!panes::writing(&a));
     }
 
     /// #1055: with "only for the selected text" the margin column is gone and just the comment

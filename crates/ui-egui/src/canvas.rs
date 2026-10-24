@@ -149,16 +149,19 @@ pub struct CanvasState {
     pub(crate) viewport: Option<egui::Rect>,
     /// Pages per row last frame; when it changes the caret's page is scrolled back into view.
     pub cols: usize,
-    /// The comment whose balloon is selected (its text is editable in place, like Word's).
+    /// The comment whose balloon is selected: its thread with Reply, Edit (the user's own
+    /// comments), Resolve and Delete, like Word's.
     pub balloon: Option<u32>,
-    /// Give the selected balloon's text field keyboard focus on its next frame.
+    /// Give the selected balloon the keyboard on its next frame, so typing doesn't go into the page.
     pub(crate) balloon_focus: bool,
-    /// The selected balloon shows a reply field.
-    pub(crate) balloon_reply: bool,
     /// The selected balloon's height last frame (screen points), for its click area.
     balloon_h: f32,
     /// Screen rects of the comment balloons last frame (for the control channel and tests).
     pub balloon_rects: Vec<(u32, Rect)>,
+    /// The balloon of the comment being written ([`crate::panes::start_comment`]): its height last
+    /// frame and its screen rect.
+    draft_h: f32,
+    pub draft_rect: Option<Rect>,
     /// A paste event arrived since the last Mod+V release (see `keys::canvas_events`).
     pub(crate) pasted: bool,
     /// A V (or Paste key) press reached the canvas since its last release. egui-winit keeps Mod+V
@@ -298,9 +301,10 @@ impl Default for CanvasState {
             cols: 1,
             balloon: None,
             balloon_focus: false,
-            balloon_reply: false,
             balloon_h: 0.0,
             balloon_rects: Vec::new(),
+            draft_h: 0.0,
+            draft_rect: None,
             table_tool: None,
             table_stroke: None,
             table_resize: None,
@@ -427,7 +431,11 @@ const FLOAT_WIDTH: f32 = 216.0;
 fn floating_comments(app: &WordApp) -> bool {
     let s = &app.session;
     let m = &s.prefs.markup;
-    s.balloons_shown() && m.comments && m.comment_display == CommentDisplay::Selected && !s.doc.comments.is_empty() && markup_width(app) <= 0.0
+    s.balloons_shown()
+        && m.comments
+        && m.comment_display == CommentDisplay::Selected
+        && (!s.doc.comments.is_empty() || crate::panes::writing_in_balloon(app))
+        && markup_width(app) <= 0.0
 }
 
 /// The comment shown when only the selected one is: the clicked balloon, else the comment whose
@@ -445,7 +453,8 @@ pub fn markup_width(app: &WordApp) -> f32 {
         return 0.0;
     }
     let m = &s.prefs.markup;
-    let comments = m.comments && !s.doc.comments.is_empty() && m.comment_display == CommentDisplay::Margin;
+    // A comment being written has its balloon there too.
+    let comments = m.comments && (!s.doc.comments.is_empty() || crate::panes::writing_in_balloon(app)) && m.comment_display == CommentDisplay::Margin;
     let [has_formats, has_moves, has_deletions] = match app.canvas.markup_facts.get() {
         Some((rev, facts)) if rev == (s.document_id(), s.rev()) => facts,
         _ => {
@@ -1688,13 +1697,18 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     // the scroll area is built, so it reads last frame's viewport.
     app.canvas.viewport = Some(out.inner_rect);
     let (resp, rects) = out.inner;
-    // A click on the page leaves the selected comment balloon.
-    if app.canvas.balloon.is_some()
+    // A click on the page leaves the comment fields and the selected balloon. Nothing typed in a
+    // field is posted by it: empty fields close, and the others keep their text (and their balloon
+    // stays selected) until Post or Cancel.
+    if (app.canvas.balloon.is_some() || crate::panes::has_fields(app))
         && ui.input(|i| i.pointer.any_pressed())
         && resp.contains_pointer()
         && !ui.input(|i| i.pointer.latest_pos()).is_some_and(|p| over_balloon(app, p))
     {
-        deselect_balloon(app);
+        crate::panes::leave_fields(app);
+        if app.canvas.balloon.is_some_and(|id| !crate::panes::thread_has_fields(app, id)) {
+            deselect_balloon(app);
+        }
     }
     // Space and Enter also set `Response::clicked` on a focused click-sensing widget
     // (egui's fake primary click). `request_focus` always interrupts IME; on X11 that
@@ -1927,10 +1941,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
 }
 
 /// Comment balloons in the markup area right of each page, joined to their anchors, with each
-/// comment's replies under it. Clicking a balloon selects it, like Word: its text becomes editable
-/// in place, with Reply, Resolve and Delete (the same commands as the Comments pane).
+/// comment's replies under it, who wrote each. Clicking a balloon selects it, like Word:
+/// Reply, Edit (on the user's own comments), Resolve and Delete (the same commands as the Comments
+/// pane). A comment being written has its own balloon with its field, Post and Cancel.
 fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Rect], layout: &DocLayout, scale: f32, view: Rect) {
     app.canvas.balloon_rects.clear();
+    app.canvas.draft_rect = None;
     let mw = markup_width(app);
     let float = floating_comments(app);
     if app.canvas.balloon.is_some_and(|id| (mw <= 0.0 && !float) || !app.session.doc.comments.contains_key(&id)) {
@@ -1943,6 +1959,8 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
     let clip = view;
     let only_shown = app.session.prefs.markup.comment_display == CommentDisplay::Selected;
     let shown = shown_comment(app);
+    // The comment being written, at the start of its place (the caret's when that can't be shown).
+    let writing = if crate::panes::writing_in_balloon(app) { crate::panes::writing_at(app) } else { None };
     // Replies hang under the comment they answer rather than getting balloons of their own.
     let is_reply = |c: &wordcraft_doc::Comment| c.parent.is_some_and(|p| app.session.doc.comments.contains_key(&p));
     let mut replies: HashMap<u32, Vec<u32>> = HashMap::new();
@@ -1959,11 +1977,22 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
     let comments = if m.comments { wordcraft_engine::cmd::review::comment_list(&app.session) } else { Vec::new() };
     for (id, pos) in comments {
         let Some(pos) = pos else { continue };
-        if app.session.doc.comments.get(&id).is_some_and(is_reply) || (only_shown && shown != Some(id)) {
+        // Showing one comment at a time, the one being written is it.
+        if app.session.doc.comments.get(&id).is_some_and(is_reply) || (only_shown && (writing.is_some() || shown != Some(id))) {
             continue;
         }
         let Some(c) = layout.caret_on(&pos, app.session.page_hint) else { continue };
         by_page.entry(c.page).or_default().push((c.x, c.top + c.height, Balloon::Comment(id), pos));
+    }
+    if let Some(pos) = writing {
+        let caret = app.session.sel.focus.clone();
+        if let Some((c, pos)) = layout
+            .caret_on(&pos, app.session.page_hint)
+            .map(|c| (c, pos))
+            .or_else(|| layout.caret_on(&caret, app.session.page_hint).map(|c| (c, caret)))
+        {
+            by_page.entry(c.page).or_default().push((c.x, c.top + c.height, Balloon::Writing, pos));
+        }
     }
     let formats = if m.formatting { wordcraft_engine::cmd::review::format_changes(&app.session) } else { Vec::new() };
     for (pos, author, props) in formats.into_iter().take(500) {
@@ -2004,7 +2033,8 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
     for pi in pages {
         let Some(list) = by_page.get_mut(&pi) else { continue };
         let Some(pr) = rects.get(pi) else { continue };
-        if !pr.expand(400.0).intersects(clip) {
+        // The comment being written keeps its field (and the keyboard) while scrolled away.
+        if !pr.expand(400.0).intersects(clip) && !list.iter().any(|b| matches!(b.2, Balloon::Writing)) {
             continue;
         }
         list.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.total_cmp(&b.0)));
@@ -2018,19 +2048,24 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
             if beside + w <= view.max.x - 8.0 { (beside, w, false) } else { ((view.max.x - w - 8.0).max(view.min.x + 8.0), w, true) }
         };
         let mut next_y = pr.min.y;
+        // An author's colour, and the colour of their leader across the page.
+        let mut color_of = |author: &str| {
+            let ai = authors.iter().position(|a| a == author).unwrap_or_else(|| {
+                authors.push(author.to_string());
+                authors.len() - 1
+            });
+            let color = palette.get(ai % palette.len()).copied().unwrap_or(t.blue);
+            (color, leaders.get(ai % leaders.len()).copied().unwrap_or(color))
+        };
         for (ax, ay, item, pos) in list.iter() {
+            let fs = (11.0 * page_scale / PX_PER_PT).clamp(8.0, 16.0);
+            let anchor = pos2(pr.min.x + ax * page_scale, pr.min.y + ay * page_scale);
             let id = match item {
                 Balloon::Comment(id) => id,
                 Balloon::Format(author, text) => {
                     // A read-only card: who formatted, and how.
                     let author = author_name(author);
-                    let ai = authors.iter().position(|a| *a == author).unwrap_or_else(|| {
-                        authors.push(author.clone());
-                        authors.len() - 1
-                    });
-                    let color = palette.get(ai % palette.len()).copied().unwrap_or(t.blue);
-                    let fs = (11.0 * page_scale / PX_PER_PT).clamp(8.0, 16.0);
-                    let anchor = pos2(pr.min.x + ax * page_scale, pr.min.y + ay * page_scale);
+                    let (color, leader) = color_of(&author);
                     let top = (anchor.y - 12.0).max(next_y);
                     let head = painter.layout(author, semibold(fs), t.text, w - 16.0);
                     let body = painter.layout(text.clone(), regular(fs), t.text_dim, w - 16.0);
@@ -2040,7 +2075,7 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
                         continue;
                     }
                     let lead = Stroke::new(1.0, color.linear_multiply(0.7));
-                    let on_page = Stroke::new(1.0, leaders.get(ai % leaders.len()).copied().unwrap_or(color).linear_multiply(0.7));
+                    let on_page = Stroke::new(1.0, leader.linear_multiply(0.7));
                     dashed(painter, anchor, pos2(pr.max.x, anchor.y), on_page);
                     painter.line_segment([pos2(pr.max.x, anchor.y), pos2(x0, top + 10.0)], lead);
                     card_shapes(painter, &t, card, color, false, None);
@@ -2050,37 +2085,48 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
                     painter.galley(pos2(card.min.x + 10.0, y + hh + 4.0), body, t.text_dim);
                     continue;
                 }
+                Balloon::Writing => {
+                    let (color, leader) = color_of(&author_name(&app.session.author));
+                    let top = (anchor.y + if over_page { 4.0 } else { -12.0 }).max(next_y);
+                    let lead = Stroke::new(1.5, color);
+                    if !over_page {
+                        dashed(painter, anchor, pos2(pr.max.x, anchor.y), Stroke::new(1.5, leader));
+                        painter.line_segment([pos2(pr.max.x, anchor.y), pos2(x0, top + 10.0)], lead);
+                    }
+                    let card = Rect::from_min_size(pos2(x0, top), vec2(w, app.canvas.draft_h.max(24.0)));
+                    let card = writing_balloon(app, ui, painter, card, fs, color);
+                    next_y = card.max.y + 6.0;
+                    app.canvas.draft_rect = Some(card);
+                    continue;
+                }
             };
             let Some(c) = app.session.doc.comments.get(id) else { continue };
             let resolved = c.resolved;
             let author = author_name(&c.author);
-            let ai = authors.iter().position(|a| *a == author).unwrap_or_else(|| {
-                authors.push(author.clone());
-                authors.len() - 1
-            });
-            let color = palette.get(ai % palette.len()).copied().unwrap_or(t.blue);
-            let fs = (11.0 * page_scale / PX_PER_PT).clamp(8.0, 16.0);
+            let (color, leader) = color_of(&author);
             let thread: Vec<u32> = replies.get(id).cloned().unwrap_or_default();
-            let anchor = pos2(pr.min.x + ax * page_scale, pr.min.y + ay * page_scale);
             // Over the page the card goes under the commented line, not on it.
             let top = (anchor.y + if over_page { 4.0 } else { -12.0 }).max(next_y);
             let active = app.canvas.balloon == Some(*id);
-            // Lay out a read-only balloon's text: the comment, then each reply under a rule.
-            let mut lines: Vec<(std::sync::Arc<egui::Galley>, f32)> = Vec::new();
+            // Lay out a read-only balloon's text: the comment, then each reply under a rule, each
+            // with who wrote it. (galley, gap above, a rule above, colour)
+            let mut lines: Vec<(std::sync::Arc<egui::Galley>, f32, bool, Color32)> = Vec::new();
             let card = if active {
                 Rect::from_min_size(pos2(x0, top), vec2(w, app.canvas.balloon_h.max(24.0)))
             } else {
                 let dim = |r: bool| if r { t.text_dim } else { t.text };
-                lines.push((balloon_text(painter, author, semibold(fs), t.text, w - 16.0), 0.0));
-                let body = app.session.doc.plain_text(StoryRef::Part(c.part));
-                lines.push((balloon_text(painter, body.trim().to_string(), regular(fs), dim(resolved), w - 16.0), 4.0));
-                for rid in &thread {
-                    let Some(r) = app.session.doc.comments.get(rid) else { continue };
-                    lines.push((balloon_text(painter, author_name(&r.author), semibold(fs), t.text, w - 16.0), 9.0));
+                for (i, cid) in std::iter::once(*id).chain(thread.iter().copied()).enumerate() {
+                    let Some(r) = app.session.doc.comments.get(&cid) else { continue };
+                    lines.push((
+                        balloon_text(painter, author_name(&r.author), semibold(fs), t.text, w - 16.0),
+                        if i == 0 { 0.0 } else { 9.0 },
+                        i > 0,
+                        t.text,
+                    ));
                     let text = app.session.doc.plain_text(StoryRef::Part(r.part));
-                    lines.push((balloon_text(painter, text.trim().to_string(), regular(fs), dim(resolved), w - 16.0), 4.0));
+                    lines.push((balloon_text(painter, text.trim().to_string(), regular(fs), dim(resolved), w - 16.0), 4.0, false, dim(resolved)));
                 }
-                let h = lines.iter().map(|(g, gap)| g.size().y + gap).sum::<f32>() + 12.0;
+                let h = lines.iter().map(|(g, gap, ..)| g.size().y + gap).sum::<f32>() + 12.0;
                 Rect::from_min_size(pos2(x0, top), vec2(w, h))
             };
             if !card.intersects(clip) {
@@ -2091,10 +2137,7 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
             // Leader: from the anchor along the text to the page edge, then to the card.
             let lead = Stroke::new(if selected { 1.5 } else { 1.0 }, color.linear_multiply(if selected { 1.0 } else { 0.7 }));
             if !over_page {
-                let on_page = Stroke::new(
-                    lead.width,
-                    leaders.get(ai % leaders.len()).copied().unwrap_or(color).linear_multiply(if selected { 1.0 } else { 0.7 }),
-                );
+                let on_page = Stroke::new(lead.width, leader.linear_multiply(if selected { 1.0 } else { 0.7 }));
                 dashed(painter, anchor, pos2(pr.max.x, anchor.y), on_page);
                 painter.line_segment([pos2(pr.max.x, anchor.y), pos2(x0, top + 10.0)], lead);
             }
@@ -2103,14 +2146,14 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
             } else {
                 card_shapes(painter, &t, card, color, selected, None);
                 let mut y = card.min.y + 6.0;
-                for (i, (g, gap)) in lines.into_iter().enumerate() {
+                for (g, gap, rule, color) in lines {
                     y += gap;
-                    if i >= 2 && i % 2 == 0 {
+                    if rule {
                         // A reply starts: a hairline between it and what it answers.
                         painter.hline(card.min.x + 10.0..=card.max.x - 8.0, y - gap / 2.0, Stroke::new(1.0, t.border));
                     }
                     let h = g.size().y;
-                    painter.galley(pos2(card.min.x + 10.0, y), g, t.text);
+                    painter.galley(pos2(card.min.x + 10.0, y), g, color);
                     y += h;
                 }
                 let r = ui.interact(card, ui.id().with(("balloon", *id)), Sense::click());
@@ -2135,12 +2178,14 @@ fn balloons(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, rects: &[Re
 /// What a balloon in the markup area shows.
 enum Balloon {
     Comment(u32),
+    /// The comment being written ([`crate::panes::start_comment`]).
+    Writing,
     /// A tracked formatting change, move or deletion: its author and "Formatted: …" /
     /// "Moved from" / "Deleted: …".
     Format(String, String),
 }
 
-fn author_name(a: &str) -> String {
+pub(crate) fn author_name(a: &str) -> String {
     if a.is_empty() { tl!("Author").to_string() } else { a.to_string() }
 }
 
@@ -2277,42 +2322,67 @@ fn balloon_text(painter: &egui::Painter, text: String, font: egui::FontId, color
     painter.layout_job(job)
 }
 
-/// The selected balloon: the comment and its replies as editable fields (each edit is one undo
-/// step via `review.editComment`), an optional reply field, and Reply / Resolve / Delete.
-/// `card` carries last frame's size; returns this frame's.
+/// A posted comment's text, read-only, laid out as the balloons lay it out (right-to-left text
+/// reads from the right), wrapped to the width there is.
+pub(crate) fn comment_text(ui: &mut Ui, text: &str, font: egui::FontId, color: Color32) -> egui::Response {
+    let g = balloon_text(ui.painter(), text.to_string(), font, color, ui.available_width().max(20.0));
+    ui.add(egui::Label::new(g))
+}
+
+/// The selected balloon: the comment and its replies, each with who wrote it, then
+/// Reply, Edit (the user's own comment), Resolve and Delete. A reply's Edit is beside its author.
+/// An open Edit or reply shows its field. `card` carries last frame's size, and the card's size
+/// this frame is returned.
 #[allow(clippy::too_many_arguments)]
 fn active_balloon(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, id: u32, thread: &[u32], card: Rect, fs: f32, color: Color32) -> Rect {
     let t = Tokens::get(ui.ctx());
     let slot = painter.add(egui::Shape::Noop);
-    // The card's own click area sits under its fields, so a click on its padding stays here.
-    let _ = ui.interact(card, ui.id().with(("balloon", id)), Sense::click());
+    // The card's own click area sits under its fields, so a click on its padding stays here. It
+    // has the keyboard once selected, so typing doesn't go into the page. Escape leaves it.
+    let r = ui.interact(card, ui.id().with(("balloon", id)), Sense::click());
+    if std::mem::take(&mut app.canvas.balloon_focus) {
+        r.request_focus();
+        app.canvas.want_focus = false;
+    }
+    let leave = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape));
     let inner = Rect::from_min_max(pos2(card.min.x + 10.0, card.min.y + 6.0), pos2(card.max.x - 6.0, card.min.y + 20_000.0));
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(egui::Layout::top_down(egui::Align::Min)));
     child.spacing_mut().item_spacing.y = 3.0;
     let (font, bold, small) = (regular(fs), semibold(fs), regular((fs * 0.9).max(8.0)));
-    let focus = std::mem::take(&mut app.canvas.balloon_focus);
-    let name = |app: &WordApp, cid: u32| app.session.doc.comments.get(&cid).map(|c| author_name(&c.author)).unwrap_or_default();
+    let button = |ui: &mut Ui, s: &str| ui.add(egui::Button::new(egui::RichText::new(s).font(small.clone())).small()).clicked();
     let resolved = app.session.doc.comments.get(&id).is_some_and(|c| c.resolved);
-    child.horizontal(|ui| {
-        ui.label(egui::RichText::new(name(app, id)).font(bold.clone()).color(t.text));
-        if resolved {
-            ui.label(egui::RichText::new(tl!("Resolved")).font(small.clone()).color(t.resolved_text));
+    let mut edit = None;
+    for (i, cid) in std::iter::once(id).chain(thread.iter().copied()).enumerate() {
+        let Some(c) = app.session.doc.comments.get(&cid) else { continue };
+        let name = author_name(&c.author);
+        if i > 0 {
+            child.add_space(4.0);
         }
-    });
-    crate::panes::comment_editor(app, &mut child, id, Some(font.clone()), focus && !app.canvas.balloon_reply);
-    for rid in thread {
-        child.add_space(4.0);
-        child.label(egui::RichText::new(name(app, *rid)).font(bold.clone()).color(t.text));
-        crate::panes::comment_editor(app, &mut child, *rid, Some(font.clone()), false);
+        // A reply's Edit sits beside its author, and the comment's is with the buttons below.
+        let reply_edit = i > 0 && crate::panes::can_edit(app, cid) && !crate::panes::editing(app, cid);
+        child.horizontal(|ui| {
+            ui.label(egui::RichText::new(name).font(bold.clone()).color(t.text));
+            if i == 0 && resolved {
+                ui.label(egui::RichText::new(tl!("Resolved")).font(small.clone()).color(t.resolved_text));
+            }
+            if reply_edit && button(ui, tl!("Edit")) {
+                edit = Some(cid);
+            }
+        });
+        crate::panes::comment_body(app, &mut child, cid, Some(font.clone()), Some(small.clone()));
     }
-    if app.canvas.balloon_reply && crate::panes::reply_editor(app, &mut child, id, Some(font.clone()), focus) {
-        app.canvas.balloon_reply = false;
-    }
+    crate::panes::reply_field(app, &mut child, id, Some(font.clone()), Some(small.clone()));
     let (mut reply, mut resolve, mut delete) = (false, false, false);
     child.add_space(2.0);
-    child.horizontal(|ui| {
-        let button = |ui: &mut Ui, s: &str| ui.add(egui::Button::new(egui::RichText::new(s).font(small.clone())).small()).clicked();
-        reply = button(ui, tl!("Reply"));
+    let (can_reply, own) = (
+        !crate::panes::replying(app, id) && crate::widgets::enabled(app, "review.reply"),
+        crate::panes::can_edit(app, id) && !crate::panes::editing(app, id),
+    );
+    child.horizontal_wrapped(|ui| {
+        reply = can_reply && button(ui, tl!("Reply"));
+        if own && button(ui, tl!("Edit")) {
+            edit = Some(id);
+        }
         resolve = button(ui, if resolved { tl!("Reopen") } else { tl!("Resolve") });
         delete = button(ui, tl!("Delete"));
     });
@@ -2320,8 +2390,10 @@ fn active_balloon(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, id: u
     app.canvas.balloon_h = card.height();
     card_shapes(painter, &t, card, color, true, Some(slot));
     if reply {
-        app.canvas.balloon_reply = true;
-        app.canvas.balloon_focus = true;
+        crate::panes::begin_reply(app, id);
+    }
+    if let Some(cid) = edit {
+        crate::panes::begin_edit(app, cid);
     }
     if resolve {
         let _ = app.run("review.resolveComment", json!({"id": id}));
@@ -2329,12 +2401,31 @@ fn active_balloon(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, id: u
     if delete {
         deselect_balloon(app);
         let _ = app.run("review.deleteComment", json!({"id": id}));
+    } else if leave && !crate::panes::thread_has_fields(app, id) {
+        deselect_balloon(app);
+        app.canvas.want_focus = true;
     }
     card
 }
 
-/// Select a comment's balloon (its text gets the keyboard), writing back any edit in the one
-/// selected before.
+/// The balloon of the comment being written: the user's name, the field, Post and Cancel.
+/// `card` carries last frame's size; returns this frame's.
+fn writing_balloon(app: &mut WordApp, ui: &mut Ui, painter: &egui::Painter, card: Rect, fs: f32, color: Color32) -> Rect {
+    let t = Tokens::get(ui.ctx());
+    let slot = painter.add(egui::Shape::Noop);
+    let _ = ui.interact(card, ui.id().with("writing_balloon"), Sense::click());
+    let inner = Rect::from_min_max(pos2(card.min.x + 10.0, card.min.y + 6.0), pos2(card.max.x - 6.0, card.min.y + 20_000.0));
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(egui::Layout::top_down(egui::Align::Min)));
+    child.spacing_mut().item_spacing.y = 3.0;
+    child.label(egui::RichText::new(author_name(&app.session.author)).font(semibold(fs)).color(t.text));
+    crate::panes::compose_field(app, &mut child, Some(regular(fs)), Some(regular((fs * 0.9).max(8.0))));
+    let card = Rect::from_min_max(card.min, pos2(card.max.x, child.min_rect().max.y + 6.0));
+    app.canvas.draft_h = card.height();
+    card_shapes(painter, &t, card, color, true, Some(slot));
+    card
+}
+
+/// Select a comment's balloon: it shows its buttons and has the keyboard.
 pub fn select_balloon(app: &mut WordApp, id: u32) {
     if app.canvas.balloon == Some(id) {
         return;
@@ -2347,22 +2438,14 @@ pub fn select_balloon(app: &mut WordApp, id: u32) {
 
 /// A press over a balloon card belongs to the card, though the canvas under it also contains the pointer (#1013).
 fn over_balloon(app: &WordApp, p: Pos2) -> bool {
-    app.canvas.balloon_rects.iter().any(|(_, r)| r.contains(p))
+    app.canvas.balloon_rects.iter().any(|(_, r)| r.contains(p)) || app.canvas.draft_rect.is_some_and(|r| r.contains(p))
 }
 
-/// Leave the selected balloon, writing back what was typed in it (its fields may not be drawn
-/// again to notice they lost focus).
+/// Leave the selected balloon. What was typed in its fields stays with them, unposted, for when it
+/// is selected again (or the document is saved, [`crate::panes::flush_comment_drafts`]).
 pub fn deselect_balloon(app: &mut WordApp) {
-    let Some(id) = app.canvas.balloon.take() else { return };
-    app.canvas.balloon_reply = false;
+    app.canvas.balloon = None;
     app.canvas.balloon_focus = false;
-    let thread: Vec<u32> =
-        std::iter::once(id).chain(app.session.doc.comments.iter().filter(|(_, c)| c.parent == Some(id)).map(|(k, _)| *k)).collect();
-    for c in thread {
-        // A refusal is on the status line; the draft stays for when the balloon is selected again.
-        let _ = crate::panes::commit_comment(app, c);
-    }
-    let _ = crate::panes::commit_reply(app, id);
 }
 
 fn dashed(p: &egui::Painter, a: Pos2, b: Pos2, s: Stroke) {
@@ -4569,7 +4652,8 @@ mod tests {
     }
 
     /// #1085: a selected balloon's buttons work (pressing them is not a click on the page that
-    /// leaves the balloon): a new comment with no text resolves and deletes from its balloon.
+    /// leaves the balloon): an empty comment (an agent's New Comment without text) resolves and
+    /// deletes from its balloon.
     #[test]
     fn an_empty_comment_balloon_deletes() {
         for body in ["", "Some text here"] {
@@ -4578,7 +4662,7 @@ mod tests {
                 a.run("text.insert", json!({"text": body})).unwrap();
                 a.run("select.text", json!({"text": "text"})).unwrap();
             }
-            let id = a.run("review.newComment", json!({})).unwrap()["id"].as_u64().unwrap() as u32;
+            let id = a.execute("review.newComment", json!({})).unwrap()["id"].as_u64().unwrap() as u32;
             a.run("view.commentsPane", json!({"value": false})).unwrap();
             let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
                 |ui, app: &mut WordApp| {
@@ -4641,8 +4725,6 @@ mod tests {
         assert!(painted.is_some_and(|l| std::sync::Arc::ptr_eq(&l, &latest)), "the frame painted the layout with the typed character");
     }
 
-    /// #167: a comment balloon edits in place like Word's: click it, type, leave it, and the
-    /// comment has the new text as one undo step.
     /// Lays `text` out as a read-only balloon does, with a document face that covers Arabic, and
     /// returns each glyph's character and left edge.
     fn balloon_glyphs(text: &str, width: f32) -> Option<Vec<(char, f32)>> {
@@ -4708,6 +4790,9 @@ mod tests {
         assert_eq!(visual_row(&info, p, text, 0..text.len() + 5), "");
     }
 
+    /// #167: a posted comment reads as posted: typing on its balloon changes nothing, Edit opens
+    /// its text in a field, clicking away writes nothing, and Ctrl+Enter saves the new text as one
+    /// undo step.
     #[test]
     fn bidi_display_preserves_extensions_and_numbers() {
         assert_eq!(bidi_display("report.docx").as_ref(), "report.docx");
@@ -4717,45 +4802,29 @@ mod tests {
 
     #[test]
     fn a_balloon_edits_its_comment() {
-        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
-        a.run("text.insert", json!({"text": "Some text here"})).unwrap();
-        a.run("select.text", json!({"text": "text"})).unwrap();
-        let id = a.run("review.newComment", json!({"text": "Original"})).unwrap()["id"].as_u64().unwrap() as u32;
-        a.run("view.commentsPane", json!({"value": false})).unwrap();
-        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
-            |ui, app: &mut WordApp| {
-                let ctx = ui.ctx().clone();
-                app.logic(&ctx);
-                app.ui(ui);
-            },
-            a,
-        );
-        for _ in 0..6 {
-            h.step();
-        }
-        let card = h.state().canvas.balloon_rects.iter().find(|(i, _)| *i == id).map(|(_, r)| *r).expect("the comment has a balloon");
-        let at = card.left_top() + vec2(30.0, 8.0);
-        h.event(egui::Event::PointerMoved(at));
-        h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() });
-        h.step();
-        h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() });
-        for _ in 0..3 {
-            h.step();
-        }
-        assert_eq!(h.state().canvas.balloon, Some(id), "the click selected the balloon");
+        let (mut h, id) = comment_harness();
+        click_balloon(&mut h, id);
         let depth = h.state().session.undo_depth();
+        type_in(&mut h, "Stray");
+        assert_eq!(comment_text(h.state(), id), "Original", "a posted comment isn't a text field");
+        assert_eq!(crate::panes::comment_draft(h.state(), id), None);
+        click_button(&mut h, "Edit");
         for piece in ["Edited", " twice"] {
-            h.event(egui::Event::Text(piece.into()));
-            h.step();
+            type_in(&mut h, piece);
         }
         assert_eq!(h.state().session.undo_depth(), depth, "nothing is written while typing");
         leave_field(&mut h);
-        let part = h.state().session.doc.comments[&id].part;
-        let text = h.state().session.doc.plain_text(StoryRef::Part(part));
+        assert_eq!(comment_text(h.state(), id), "Original", "clicking away writes nothing");
+        assert!(crate::panes::comment_draft(h.state(), id).is_some_and(|d| d.contains("Edited twice")), "the edit waits in its field");
+        crate::panes::focus_field(h.state_mut(), crate::panes::Field::Edit(id));
+        h.step();
+        press_post(&mut h);
+        let text = comment_text(h.state(), id);
         assert!(text.contains("Edited twice") && text.contains("Original"), "{text:?}");
+        assert_eq!(crate::panes::comment_draft(h.state(), id), None, "the field closed");
         assert_eq!(h.state().session.undo_depth(), depth + 1, "one undo step for the edit");
         assert!(h.state_mut().session.undo());
-        assert_eq!(h.state().session.doc.plain_text(StoryRef::Part(part)), "Original");
+        assert_eq!(comment_text(h.state(), id), "Original");
     }
 
     /// #960: double-clicking the top margin of a document without a header creates one and
@@ -4933,15 +5002,8 @@ mod tests {
         assert_eq!(h.state().session.doc.plain_text(header), "Head");
     }
 
-    /// #513: right-clicking a picture selects it and offers Wrap Text, as in Word; choosing
-    /// Square there wraps text around it.
-    /// #1348: an app with one comment ("Original") on some text, its balloon on screen.
-    fn comment_harness() -> (egui_kittest::Harness<'static, WordApp>, u32) {
-        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
-        a.run("text.insert", json!({"text": "Some text here"})).unwrap();
-        a.run("select.text", json!({"text": "text"})).unwrap();
-        let id = a.run("review.newComment", json!({"text": "Original"})).unwrap()["id"].as_u64().unwrap() as u32;
-        a.run("view.commentsPane", json!({"value": false})).unwrap();
+    /// The app in a 1440×900 window, a few frames in.
+    fn harness(a: WordApp) -> egui_kittest::Harness<'static, WordApp> {
         let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
             |ui, app: &mut WordApp| {
                 let ctx = ui.ctx().clone();
@@ -4953,17 +5015,43 @@ mod tests {
         for _ in 0..6 {
             h.step();
         }
-        (h, id)
+        h
     }
 
-    /// Click comment `id`'s balloon (from no selected balloon), so its text has the keyboard.
+    /// #1348: an app with one comment ("Original") on some text, its balloon on screen.
+    fn comment_harness() -> (egui_kittest::Harness<'static, WordApp>, u32) {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "Some text here"})).unwrap();
+        a.run("select.text", json!({"text": "text"})).unwrap();
+        let id = a.run("review.newComment", json!({"text": "Original"})).unwrap()["id"].as_u64().unwrap() as u32;
+        a.run("view.commentsPane", json!({"value": false})).unwrap();
+        (harness(a), id)
+    }
+
+    /// An app with "Alpha paragraph one." and "paragraph" selected, the user's name set, the
+    /// Comments pane open or closed, and nothing to save.
+    fn compose_harness(pane: bool) -> egui_kittest::Harness<'static, WordApp> {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "Alpha paragraph one."})).unwrap();
+        a.run("file.setAuthor", json!({"name": "Ana Example"})).unwrap();
+        a.run("select.text", json!({"text": "paragraph"})).unwrap();
+        a.run("view.commentsPane", json!({"value": pane})).unwrap();
+        a.session.dirty = false;
+        harness(a)
+    }
+
+    /// Click comment `id`'s balloon (from no selected balloon), which selects it.
     fn click_balloon(h: &mut egui_kittest::Harness<'static, WordApp>, id: u32) {
         h.state_mut().canvas.balloon = None;
         for _ in 0..2 {
             h.step();
         }
         let card = h.state().canvas.balloon_rects.iter().find(|(i, _)| *i == id).map(|(_, r)| *r).expect("the comment has a balloon");
-        let at = card.left_top() + vec2(30.0, 8.0);
+        click_at(h, card.left_top() + vec2(30.0, 8.0));
+        assert_eq!(h.state().canvas.balloon, Some(id), "the click selected the balloon");
+    }
+
+    fn click_at(h: &mut egui_kittest::Harness<'static, WordApp>, at: Pos2) {
         h.event(egui::Event::PointerMoved(at));
         h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() });
         h.step();
@@ -4971,7 +5059,13 @@ mod tests {
         for _ in 0..3 {
             h.step();
         }
-        assert_eq!(h.state().canvas.balloon, Some(id), "the click selected the balloon");
+    }
+
+    /// Click the button labelled `label` (with the Comments pane closed: the balloon's).
+    fn click_button(h: &mut egui_kittest::Harness<'static, WordApp>, label: &str) {
+        use egui_kittest::kittest::Queryable;
+        let at = h.get_by_label(label).rect().center();
+        click_at(h, at);
     }
 
     fn type_in(h: &mut egui_kittest::Harness<'static, WordApp>, text: &str) {
@@ -4979,7 +5073,16 @@ mod tests {
         h.step();
     }
 
-    /// Leave the comment field by clicking on the page (which also leaves the balloon).
+    /// Ctrl+Enter (Cmd+Enter on a Mac) in the comment field that has the keyboard.
+    fn press_post(h: &mut egui_kittest::Harness<'static, WordApp>) {
+        let modifiers = egui::Modifiers { ctrl: true, command: true, ..Default::default() };
+        h.event(egui::Event::Key { key: egui::Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers });
+        for _ in 0..3 {
+            h.step();
+        }
+    }
+
+    /// Leave the comment field by clicking on the page.
     fn leave_field(h: &mut egui_kittest::Harness<'static, WordApp>) {
         let at = h.state().canvas.page_rects[0].center();
         h.event(egui::Event::PointerMoved(at));
@@ -4999,32 +5102,62 @@ mod tests {
         }
     }
 
+    /// Select comment `id`'s balloon and open its Edit.
+    fn open_edit(h: &mut egui_kittest::Harness<'static, WordApp>, id: u32) {
+        click_balloon(h, id);
+        click_button(h, "Edit");
+        assert!(crate::panes::comment_draft(h.state(), id).is_some(), "Edit opened the comment's text");
+    }
+
     fn comment_text(app: &WordApp, id: u32) -> String {
         let part = app.session.doc.comments[&id].part;
         app.session.doc.plain_text(StoryRef::Part(part))
     }
 
     /// #1348: an edit the document refuses (here read-only protection) keeps what was typed and
-    /// says why; once the edit is allowed, leaving the field again writes it.
+    /// says why. Once the edit is allowed, saving it writes it.
     #[test]
     fn a_refused_comment_edit_keeps_the_draft() {
         let (mut h, id) = comment_harness();
-        click_balloon(&mut h, id);
+        open_edit(&mut h, id);
         type_in(&mut h, "Edited");
         h.state_mut().session.doc.settings.protection = Some("readOnly".into());
-        leave_field(&mut h);
-        assert_eq!(comment_text(h.state(), id), "Original", "the protected document refused the edit");
+        h.step();
+        assert!(crate::panes::commit_comment(h.state_mut(), id).is_err(), "the protected document refused the edit");
+        assert_eq!(comment_text(h.state(), id), "Original");
         let status = h.state().status_msg.as_ref().map(|(s, _)| s.clone()).unwrap_or_default();
         assert!(status.contains("protected"), "the refusal is shown: {status:?}");
+        assert!(crate::panes::comment_draft(h.state(), id).is_some_and(|d| d.contains("Edited")), "the draft stays");
         h.state_mut().session.doc.settings.protection = None;
-        click_balloon(&mut h, id);
-        leave_field(&mut h);
+        crate::panes::focus_field(h.state_mut(), crate::panes::Field::Edit(id));
+        h.step();
+        press_post(&mut h);
         let text = comment_text(h.state(), id);
         assert!(text.contains("Edited"), "the typed text survived the refusal: {text:?}");
     }
 
-    /// #3268: clicking a balloon's Reply button, typing a reply and clicking away posts it as a
-    /// reply comment under the original, not a draft that silently disappears.
+    /// A comment is never left empty: an edit cleared to nothing but spaces isn't saved, by
+    /// Ctrl+Enter or before a save of the document, and its field stays open with the comment
+    /// as it was.
+    #[test]
+    fn a_blank_comment_edit_is_not_saved() {
+        let (mut h, id) = comment_harness();
+        open_edit(&mut h, id);
+        let all = egui::Modifiers { ctrl: true, command: true, ..Default::default() };
+        h.event(egui::Event::Key { key: egui::Key::A, physical_key: None, pressed: true, repeat: false, modifiers: all });
+        h.step();
+        type_in(&mut h, "   ");
+        assert!(crate::panes::comment_draft(h.state(), id).is_some_and(|d| d.trim().is_empty()), "the field holds only spaces");
+        press_post(&mut h);
+        assert_eq!(comment_text(h.state(), id), "Original", "Ctrl+Enter saved nothing");
+        assert!(crate::panes::commit_comment(h.state_mut(), id).is_ok());
+        assert!(crate::panes::flush_comment_drafts(h.state_mut()).is_ok());
+        assert_eq!(comment_text(h.state(), id), "Original", "a document save wrote nothing");
+        assert!(crate::panes::comment_draft(h.state(), id).is_some(), "the field stays open");
+    }
+
+    /// #3268: a reply typed after a balloon's Reply button doesn't silently disappear. Clicking
+    /// away keeps it in its field (#2290), and Post adds it as a reply comment under the original.
     #[test]
     fn replying_to_a_comment_from_its_balloon_posts_the_reply() {
         use egui_kittest::kittest::Queryable;
@@ -5036,6 +5169,10 @@ mod tests {
         }
         type_in(&mut h, "A reply");
         leave_field(&mut h);
+        assert_eq!(crate::panes::reply_draft(h.state(), id).as_deref(), Some("A reply"), "clicking away keeps the reply");
+        crate::panes::focus_field(h.state_mut(), crate::panes::Field::Reply(id));
+        h.step();
+        press_post(&mut h);
         let replies: Vec<u32> = h.state().session.doc.comments.iter().filter(|(_, c)| c.parent == Some(id)).map(|(k, _)| *k).collect();
         assert_eq!(replies.len(), 1, "{:?}", h.state().session.doc.comments);
         assert_eq!(comment_text(h.state(), replies[0]), "A reply");
@@ -5046,7 +5183,7 @@ mod tests {
     #[test]
     fn a_comment_draft_stays_with_its_document() {
         let (mut h, id) = comment_harness();
-        click_balloon(&mut h, id);
+        open_edit(&mut h, id);
         type_in(&mut h, " stale");
         // An agent replaces the document while the balloon is still being typed in.
         h.state_mut().session.set_document(wordcraft_doc::Document::new());
@@ -5059,16 +5196,17 @@ mod tests {
         for _ in 0..3 {
             h.step();
         }
-        click_balloon(&mut h, fresh);
-        leave_field(&mut h);
+        assert_eq!(crate::panes::comment_draft(h.state(), fresh), None, "the old document's draft is gone");
+        open_edit(&mut h, fresh);
+        press_post(&mut h);
         assert_eq!(comment_text(h.state(), fresh), "Fresh", "the old document's draft didn't leak in");
     }
 
-    /// #1348: saving while a comment is still being typed in saves what was typed.
+    /// #1348: saving while a comment is still being edited saves what was typed.
     #[test]
     fn saving_writes_a_pending_comment_draft_first() {
         let (mut h, id) = comment_harness();
-        click_balloon(&mut h, id);
+        open_edit(&mut h, id);
         type_in(&mut h, "Typed ");
         let path = std::env::temp_dir().join(format!("wordcraft-1348-save-{}.docx", std::process::id()));
         h.state_mut().run("file.save", json!({"path": path.to_string_lossy()})).unwrap();
@@ -5081,12 +5219,12 @@ mod tests {
         assert!(saved.plain_text(StoryRef::Part(part)).contains("Typed"), "the file has the typed text");
     }
 
-    /// #1348: closing a document whose only change is a comment still being typed asks to save.
+    /// #1348: closing a document whose only change is a comment edit still being typed asks to save.
     #[test]
     fn closing_with_a_pending_comment_draft_asks_to_save() {
         let (mut h, id) = comment_harness();
         h.state_mut().session.dirty = false;
-        click_balloon(&mut h, id);
+        open_edit(&mut h, id);
         type_in(&mut h, "Typed ");
         assert!(!h.state_mut().close_requested(), "the typed comment is an unsaved change");
         assert!(matches!(h.state().dialog, Some(crate::dialogs::Dialog::SaveChanges { .. })));
@@ -5098,7 +5236,7 @@ mod tests {
     fn an_agent_cannot_replace_the_document_over_a_pending_comment_draft() {
         let (mut h, id) = comment_harness();
         h.state_mut().session.dirty = false;
-        click_balloon(&mut h, id);
+        open_edit(&mut h, id);
         type_in(&mut h, "Typed ");
         let open = json!({"path": "/nonexistent/other.docx"});
         assert!(crate::control::close_refused(h.state(), "file.open", &open).is_some());
@@ -5108,11 +5246,30 @@ mod tests {
         assert!(crate::control::close_refused(h.state(), "text.insert", &json!({"text": "x"})).is_none());
     }
 
+    /// #1348: a new comment with text typed in its field is unsaved work too, so an agent can't
+    /// replace the document over it without `force`. An empty field is no change.
+    #[test]
+    fn an_agent_cannot_replace_the_document_over_a_comment_being_written() {
+        let mut h = compose_harness(false);
+        h.state_mut().run("review.newComment", json!({})).unwrap();
+        for _ in 0..3 {
+            h.step();
+        }
+        let open = json!({"path": "/nonexistent/other.docx"});
+        assert!(crate::control::close_refused(h.state(), "file.open", &open).is_none(), "nothing typed yet");
+        type_in(&mut h, "Needs a source.");
+        assert!(crate::control::close_refused(h.state(), "file.open", &open).is_some());
+        assert!(crate::control::close_refused(h.state(), "file.close", &json!({})).is_some());
+        assert!(crate::control::close_refused(h.state(), "file.close", &json!({"force": true})).is_none());
+        assert!(crate::panes::cancel_comment(h.state_mut()));
+        assert!(crate::control::close_refused(h.state(), "file.close", &json!({})).is_none(), "cancelled, nothing to lose");
+    }
+
     /// #1348: a comment edit typed, then refused (the document became read-only).
     fn refused_draft() -> (egui_kittest::Harness<'static, WordApp>, u32) {
         let (mut h, id) = comment_harness();
         h.state_mut().session.dirty = false;
-        click_balloon(&mut h, id);
+        open_edit(&mut h, id);
         type_in(&mut h, "Refused ");
         h.state_mut().session.doc.settings.protection = Some("readOnly".into());
         (h, id)
@@ -5157,29 +5314,190 @@ mod tests {
         assert!(status.contains("protected"), "the refusal is shown: {status:?}");
     }
 
-    /// #1348: in a read-only document the comment fields can't be typed in.
+    /// #1348: in a read-only document a comment offers no Edit, and typing on it changes nothing.
     #[test]
     fn comment_fields_are_read_only_where_comments_cant_change() {
+        use egui_kittest::kittest::Queryable;
         let (mut h, id) = comment_harness();
         h.state_mut().session.doc.settings.protection = Some("readOnly".into());
         h.step();
         click_balloon(&mut h, id);
+        assert!(h.query_by_label("Edit").is_none(), "no Edit where comments can't change");
         type_in(&mut h, "Typed ");
         assert_eq!(crate::panes::comment_draft(h.state(), id), None, "nothing was typed");
         assert_eq!(comment_text(h.state(), id), "Original");
     }
 
-    /// #1348: Escape in a comment field throws the draft away and shows the comment's text again.
+    /// #1348: Escape in a comment's Edit throws the draft away and shows the comment's text again.
     #[test]
     fn escape_reverts_a_comment_draft() {
         let (mut h, id) = comment_harness();
-        click_balloon(&mut h, id);
+        open_edit(&mut h, id);
         type_in(&mut h, "Discarded ");
         press_escape(&mut h);
         assert_eq!(crate::panes::comment_draft(h.state(), id), None, "the draft is gone");
         assert_eq!(comment_text(h.state(), id), "Original", "nothing was written");
         leave_field(&mut h);
         assert_eq!(comment_text(h.state(), id), "Original", "and nothing is written later");
+    }
+
+    /// The selected text, when the selection is in one paragraph.
+    fn selected_text(app: &WordApp) -> String {
+        let sel = &app.session.sel;
+        let (a, b) = if sel.anchor.off <= sel.focus.off { (&sel.anchor, &sel.focus) } else { (&sel.focus, &sel.anchor) };
+        app.session.doc.para_at(a).and_then(|p| p.text.get(a.off..b.off)).unwrap_or_default().to_string()
+    }
+
+    /// New Comment opens a field in the comment's balloon with the keyboard, and adds nothing until
+    /// Ctrl+Enter posts it: one undo step, with the user's name, on the selected text, which stays
+    /// selected. The Comments pane stays closed.
+    #[test]
+    fn new_comment_writes_in_its_balloon_and_posts() {
+        let mut h = compose_harness(false);
+        let depth = h.state().session.undo_depth();
+        let r = h.state_mut().run("review.newComment", json!({})).unwrap();
+        assert_eq!(r, json!({"pending": "comment", "in": "balloon"}));
+        // As from the ribbon, which hands the page the keyboard after its command.
+        h.state_mut().canvas.want_focus = true;
+        for _ in 0..3 {
+            h.step();
+        }
+        let a = h.state();
+        assert!(a.session.doc.comments.is_empty(), "nothing is added before Post");
+        assert!(!a.session.view.comments_pane, "the Comments pane stays closed");
+        assert!(a.canvas.draft_rect.is_some(), "the field is in a balloon");
+        assert!(!a.canvas.focused, "the field has the keyboard, not the page");
+        type_in(&mut h, "Needs a source.");
+        let a = h.state();
+        assert_eq!(crate::panes::new_comment_text(a).as_deref(), Some("Needs a source."));
+        assert_eq!(a.session.doc.plain_text(StoryRef::Body), "Alpha paragraph one.", "typing went into the field");
+        assert_eq!(a.session.undo_depth(), depth);
+        assert!(!a.session.dirty);
+        press_post(&mut h);
+        let a = h.state();
+        assert_eq!(a.session.doc.comments.len(), 1, "posted");
+        let (&id, c) = a.session.doc.comments.iter().next().unwrap();
+        assert_eq!(c.author, "Ana Example");
+        assert_eq!(comment_text(a, id), "Needs a source.");
+        let list = a.session.doc.plain_text(StoryRef::Body);
+        assert_eq!(list.replace(wordcraft_doc::para::OBJ, ""), "Alpha paragraph one.", "only the comment's marks went in");
+        assert_eq!(selected_text(a), "paragraph", "the selection keeps its text");
+        assert_eq!(crate::panes::new_comment_text(a), None, "the field closed");
+        assert!(a.canvas.draft_rect.is_none());
+        assert_eq!(a.session.undo_depth(), depth + 1, "one undo step");
+        assert!(a.canvas.focused, "the page has the keyboard again");
+        assert!(h.state_mut().session.undo());
+        assert!(h.state().session.doc.comments.is_empty());
+    }
+
+    /// Cancel and Escape close a new comment's field and leave the document exactly as it was.
+    #[test]
+    fn cancelling_a_new_comment_changes_nothing() {
+        let mut h = compose_harness(false);
+        let (rev, depth) = (h.state().session.rev(), h.state().session.undo_depth());
+        for cancel in ["button", "Escape"] {
+            h.state_mut().run("review.newComment", json!({})).unwrap();
+            for _ in 0..3 {
+                h.step();
+            }
+            type_in(&mut h, "Never mind");
+            if cancel == "button" {
+                click_button(&mut h, "Cancel");
+            } else {
+                press_escape(&mut h);
+            }
+            let a = h.state();
+            assert_eq!(crate::panes::new_comment_text(a), None, "{cancel}: the field closed");
+            assert!(a.session.doc.comments.is_empty(), "{cancel}: no comment");
+            assert_eq!((a.session.rev(), a.session.undo_depth()), (rev, depth), "{cancel}: the document is as it was");
+            assert!(!a.session.dirty, "{cancel}: nothing to save");
+            assert!(a.canvas.draft_rect.is_none());
+            assert_eq!(selected_text(a), "paragraph");
+        }
+    }
+
+    /// With the Comments pane open, the new comment is written there and Post adds it. Draft view
+    /// has no balloons, so the pane opens for it.
+    #[test]
+    fn a_new_comment_writes_in_the_pane_where_it_shows() {
+        let mut h = compose_harness(true);
+        let r = h.state_mut().run("review.newComment", json!({})).unwrap();
+        assert_eq!(r["in"], "pane");
+        for _ in 0..3 {
+            h.step();
+        }
+        assert!(h.state().canvas.draft_rect.is_none(), "no balloon for it");
+        type_in(&mut h, "From the pane");
+        assert!(h.state().session.doc.comments.is_empty());
+        click_button(&mut h, "Post");
+        let a = h.state();
+        assert_eq!(a.session.doc.comments.len(), 1, "Post added it");
+        assert!(a.session.view.comments_pane, "the pane stays open");
+        let mut h = compose_harness(false);
+        h.state_mut().run("view.draft", json!({})).unwrap();
+        let r = h.state_mut().run("review.newComment", json!({})).unwrap();
+        assert_eq!(r["in"], "pane");
+        assert!(h.state().session.view.comments_pane, "Draft view opens the pane for it");
+    }
+
+    /// Clicking away from a comment field posts nothing: an empty one closes, and what was typed
+    /// (a new comment, a reply) stays in its field until it is posted or cancelled.
+    #[test]
+    fn clicking_away_keeps_what_was_typed() {
+        let mut h = compose_harness(false);
+        h.state_mut().run("review.newComment", json!({})).unwrap();
+        for _ in 0..3 {
+            h.step();
+        }
+        leave_field(&mut h);
+        assert_eq!(crate::panes::new_comment_text(h.state()), None, "an empty field closes");
+        h.state_mut().run("review.newComment", json!({})).unwrap();
+        for _ in 0..3 {
+            h.step();
+        }
+        type_in(&mut h, "Half");
+        leave_field(&mut h);
+        assert_eq!(crate::panes::new_comment_text(h.state()).as_deref(), Some("Half"), "kept, not posted");
+        assert!(h.state().session.doc.comments.is_empty());
+        crate::panes::focus_field(h.state_mut(), crate::panes::Field::New);
+        h.step();
+        press_post(&mut h);
+        let id = *h.state().session.doc.comments.keys().next().expect("posted");
+        click_balloon(&mut h, id);
+        click_button(&mut h, "Reply");
+        type_in(&mut h, "Half a reply");
+        leave_field(&mut h);
+        assert_eq!(crate::panes::reply_draft(h.state(), id).as_deref(), Some("Half a reply"), "the reply waits");
+        assert_eq!(h.state().session.doc.comments.len(), 1, "nothing was posted");
+        crate::panes::focus_field(h.state_mut(), crate::panes::Field::Reply(id));
+        h.step();
+        press_post(&mut h);
+        assert_eq!(h.state().session.doc.comments.len(), 2, "Ctrl+Enter posted the reply");
+        assert_eq!(crate::panes::reply_draft(h.state(), id), None);
+    }
+
+    /// Only the user's own comments offer Edit. Someone else's reads as posted.
+    #[test]
+    fn only_your_own_comments_offer_edit() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        a.run("text.insert", json!({"text": "Alpha paragraph one. Beta paragraph two."})).unwrap();
+        let mut add = |author: &str, word: &str| {
+            a.run("file.setAuthor", json!({"name": author})).unwrap();
+            a.run("select.text", json!({"text": word})).unwrap();
+            a.run("review.newComment", json!({"text": format!("From {author}")})).unwrap()["id"].as_u64().unwrap() as u32
+        };
+        let ben = add("Ben Sample", "Beta");
+        let ana = add("Ana Example", "Alpha");
+        a.run("view.commentsPane", json!({"value": false})).unwrap();
+        assert!(crate::panes::can_edit(&a, ana) && !crate::panes::can_edit(&a, ben));
+        let mut h = harness(a);
+        click_balloon(&mut h, ben);
+        assert!(h.query_by_label("Edit").is_none(), "no Edit on someone else's comment");
+        type_in(&mut h, "Changed");
+        assert_eq!(comment_text(h.state(), ben), "From Ben Sample");
+        click_balloon(&mut h, ana);
+        assert!(h.query_by_label("Edit").is_some(), "Edit on your own");
     }
 
     /// #513: right-clicking a picture selects it and offers Wrap Text, as in Word; choosing
