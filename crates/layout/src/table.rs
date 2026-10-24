@@ -615,7 +615,8 @@ pub fn layout_table(ctx: &mut Ctx, story: StoryRef, t: &Table, path: &[u32], ava
                 c.and_then(|c| c.props.borders.as_ref()).and_then(f).filter(Border::is_visible)
             };
             let (next_up, next_down) = (ri.checked_sub(1).and_then(|i| t.rows.get(i)), t.rows.get(ri + 1));
-            let above = side(next_up.and_then(|r| cell_over(r, g, span)), |b| b.bottom);
+            // A cell merged into the one above has no top edge of its own to share.
+            let above = side(next_up.and_then(|r| cell_over(r, g, span)).filter(|_| cell.props.vmerge != VMerge::Continue), |b| b.bottom);
             let below = side(next_down.and_then(|r| cell_over(r, g, span)), |b| b.top);
             let before = side(ci.checked_sub(1).and_then(|i| row.cells.get(i)), |b| b.right);
             let after = side(row.cells.get(ci + 1), |b| b.left);

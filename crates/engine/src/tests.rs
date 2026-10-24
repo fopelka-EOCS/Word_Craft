@@ -1718,7 +1718,7 @@ fn tracked_table_changes_are_kept_as_formatting_changes() {
     run(&mut s, "insert.table", json!({"rows": 2, "cols": 2}));
     run(&mut s, "review.trackChanges", json!({"value": true}));
     run(&mut s, "review.trackingOptions", json!({"trackFormatting": true}));
-    run(&mut s, "table.borders", json!({"kind": "all"}));
+    run(&mut s, "table.borders", json!({"kind": "all", "applyTo": "table"}));
     let at = |s: &Session| -> (bool, bool) {
         let t = s.doc.body.iter().find_map(|b| b.as_table()).unwrap();
         (t.props.borders.unwrap_or_default().top.is_some(), t.props.fmt_change.is_some())
@@ -1730,7 +1730,7 @@ fn tracked_table_changes_are_kept_as_formatting_changes() {
     let (b, ch) = at(&s);
     assert!(!b, "Reject All restores the table's formatting before the change");
     assert!(!ch, "the change is answered");
-    run(&mut s, "table.borders", json!({"kind": "all"}));
+    run(&mut s, "table.borders", json!({"kind": "all", "applyTo": "table"}));
     assert!(at(&s).1, "the second change records again");
     run(&mut s, "review.acceptAll", json!({}));
     let (b, ch) = at(&s);
