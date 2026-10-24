@@ -1062,6 +1062,7 @@ mod tests {
         assert!(s.table_style("RedGrid").is_some());
     }
 
+    /// Derived style ids strip non-alphanumeric characters and append a counter when taken.
     #[test]
     fn new_ids_unique() {
         let s = StyleSheet::builtin();

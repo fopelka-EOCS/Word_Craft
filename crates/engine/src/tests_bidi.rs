@@ -323,10 +323,10 @@ fn a_latin_link_inserted_into_reopened_hebrew_is_saved_left_to_right() {
     assert_eq!(s.typing_props().lang_bidi.as_deref(), Some("he-IL"), "the bidi language stays");
 }
 
+/// #4198: inserting a styled table, typing Arabic into the header row with `para.rtl` and
+/// saving as DOCX keeps `w:bCs` beside `w:b` in the table style's header row and first column.
 #[test]
 fn arabic_table_header_row_and_modified_styles_carry_complex_script_bold_and_italic() {
-    // #4198: inserting a styled table, typing Arabic into the header row with `para.rtl` and
-    // saving as DOCX keeps `w:bCs` beside `w:b` in the table style's header row and first column.
     let mut s = Session::new(wordcraft_doc::Document::new());
     run(&mut s, "insert.table", json!({"rows": 2, "cols": 2, "style": "Grid Table 4 – Blue"}));
     run(&mut s, "para.rtl", json!({"value": true}));
