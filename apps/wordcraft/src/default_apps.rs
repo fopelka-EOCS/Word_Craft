@@ -36,7 +36,8 @@ const DESKTOP_ID: &str = "ai.storyteller.wordcraft.desktop";
 
 /// The types the button makes WordCraft the default for on Linux and BSD: Word documents and
 /// templates (also macro-enabled and legacy), RTF and ODT. The same set the Windows installer
-/// lists under WordCraft's Capabilities; Markdown and plain text are only offered under Open With.
+/// lists under WordCraft's Capabilities; Markdown is only offered under Open With, and plain
+/// text only on Windows and macOS (the `.desktop` file leaves it out, #4137).
 /// Every one is in the `.desktop` file's `MimeType=` (a test checks).
 #[cfg(any(all(unix, not(target_os = "macos")), test))]
 const WORD_MIME_TYPES: &[&str] = &[
