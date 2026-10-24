@@ -1247,6 +1247,10 @@ fn escape_line_start(s: String) -> String {
     let indent = " ".repeat(cols.min(3));
     let needs = t.starts_with('#')
         || t.starts_with('>')
+        // A fenced code block would run to the next fence (or the end of the file), taking the
+        // rest of the document with it.
+        || t.starts_with("```")
+        || t.starts_with("~~~")
         || t.starts_with("- ")
         || t.starts_with("+ ")
         || t.starts_with("-\t")
@@ -1757,6 +1761,15 @@ mod tests {
         assert_eq!(escape_line_start("\tTabbed # text".to_string()), "   Tabbed # text");
         assert_eq!(escape_line_start("    # not a heading".to_string()), "   \\# not a heading");
         assert_eq!(escape_line_start(" \t1. not a list".to_string()), "   1\\. not a list");
+    }
+
+    #[test]
+    fn escape_line_start_escapes_fenced_code_starts() {
+        // A fence would run to the next fence or the end of the file, taking the rest of the
+        // exported document with it.
+        assert_eq!(escape_line_start("```rust".to_string()), "\\```rust");
+        assert_eq!(escape_line_start("~~~".to_string()), "\\~~~");
+        assert_eq!(escape_line_start("  ``` not a fence".to_string()), "  \\``` not a fence");
     }
 
     #[test]
