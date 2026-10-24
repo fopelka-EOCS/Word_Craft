@@ -166,6 +166,8 @@ pub struct CanvasState {
     pub(crate) v_pressed: bool,
     /// The modifiers last held with Mod, for a Mod+V whose Mod is released before V.
     pub(crate) paste_mods: Option<egui::Modifiers>,
+    /// A Super / Windows / Command key is held down across frames.
+    pub(crate) super_held: bool,
     /// Draw Table or Eraser is on (`table_pen`): presses draw instead of moving the caret.
     pub table_tool: Option<crate::table_pen::TableTool>,
     /// The Draw Table stroke (or eraser press) in progress.
@@ -295,6 +297,7 @@ impl Default for CanvasState {
             pasted: false,
             v_pressed: false,
             paste_mods: None,
+            super_held: false,
             swallow_text: false,
             ime_join_text: None,
             ime_reset: false,

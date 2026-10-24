@@ -275,7 +275,30 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
     if held.command {
         app.canvas.paste_mods = Some(held);
     }
+    // Super (Win / Logo / Cmd) held since an earlier frame, updated in event order below.
+    let mut super_key_held = app.canvas.super_held;
+    let mut mac_cmd_held = ctx.input(|i| i.modifiers.mac_cmd);
     for e in events {
+        // Track Super and Command state in event order so same-frame shortcuts are detected.
+        match &e {
+            egui::Event::Key { key: Key::SuperLeft | Key::SuperRight, pressed, modifiers, .. } => {
+                super_key_held = *pressed;
+                mac_cmd_held = modifiers.mac_cmd;
+            }
+            egui::Event::ModifiersChanged(m) => {
+                mac_cmd_held = m.mac_cmd;
+                if m.is_none() {
+                    super_key_held = false;
+                }
+            }
+            egui::Event::WindowFocused(false) => {
+                super_key_held = false;
+                mac_cmd_held = false;
+            }
+            _ => {}
+        }
+        let super_held = super_key_held || mac_cmd_held;
+
         // Which presses reached the canvas, and the modifiers held with Mod, in event order: Mod
         // can go down and up within one frame, leaving the frame's modifiers without it.
         match &e {
@@ -344,7 +367,7 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
                 egui::Event::Text(t) => {
                     let m = ctx.input(|i| i.modifiers);
                     let is_cmd = if cfg!(target_os = "macos") { m.command } else { (m.command || m.ctrl) && !m.alt };
-                    if !is_cmd && !t.is_empty() && t.chars().all(|c| !c.is_control()) {
+                    if !is_cmd && !super_held && !t.is_empty() && t.chars().all(|c| !c.is_control()) {
                         let _ = app.run("equation.type", json!({"text": t}));
                     }
                     continue;
@@ -369,7 +392,7 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
             egui::Event::Text(t) => {
                 let m = ctx.input(|i| i.modifiers);
                 let is_cmd = if cfg!(target_os = "macos") { m.command } else { (m.command || m.ctrl) && !m.alt };
-                if is_cmd {
+                if is_cmd || super_held {
                     continue;
                 }
                 if t.chars().all(|c| !c.is_control()) && !t.is_empty() {
@@ -473,6 +496,7 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
             _ => {}
         }
     }
+    app.canvas.super_held = super_key_held;
 }
 
 /// Escape leaves Focus or Full Screen View (#1678), then Full Screen (#980), once nothing nearer
@@ -1265,5 +1289,63 @@ mod tests {
         a.run("edit.undo", json!({})).unwrap();
         let g = wordcraft_engine::cmd::smart_art::selected_smart_art(&a.session).expect("still there");
         assert_eq!(g.items[0].text, "Ada", "one undo step for the typing");
+    }
+
+    /// A system shortcut with the Super (Win / Logo) key held, such as Win+Space to switch
+    /// input methods, must not type a space or any other character into the document.
+    #[test]
+    fn super_space_does_not_type_space() {
+        let doc_text = |a: &WordApp| a.session.doc.plain_text(wordcraft_doc::StoryRef::Body);
+        let ctx = egui::Context::default();
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+        let none = Modifiers::NONE;
+        let key = |key, pressed, modifiers| egui::Event::Key { key, physical_key: Some(key), pressed, repeat: false, modifiers };
+        let frame = |a: &mut WordApp, events: Vec<egui::Event>| {
+            ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| {
+                crate::keytips::logic(a, ui.ctx());
+                canvas_events(a, ui.ctx());
+            })
+            .drop_without_applying_deltas();
+        };
+
+        // Same-frame test: Super-down, Space-down, Text(" "), Space-up, Super-up all in one frame.
+        frame(
+            &mut a,
+            vec![
+                key(Key::SuperLeft, true, none),
+                key(Key::Space, true, none),
+                egui::Event::Text(" ".into()),
+                key(Key::Space, false, none),
+                key(Key::SuperLeft, false, none),
+            ],
+        );
+        assert_eq!(doc_text(&a), "", "Win+Space within a single frame must not type a space into the document");
+
+        // Cross-frame release: Super down in frame 1; Space-down, Text(" "), Space-up, and Super-up in frame 2.
+        // In egui, `ctx.input(|i| i.key_down(Key::SuperLeft))` is false in frame 2 because it is released
+        // within frame 2; the prior-frame state in app.canvas.super_held must preserve it until the release event.
+        frame(&mut a, vec![key(Key::SuperLeft, true, none)]);
+        frame(
+            &mut a,
+            vec![key(Key::Space, true, none), egui::Event::Text(" ".into()), key(Key::Space, false, none), key(Key::SuperLeft, false, none)],
+        );
+        assert_eq!(doc_text(&a), "", "Space before Super-up in the next frame must not type a space into the document");
+
+        // Across multiple frames: Super down in frame 1, Space+Text in frame 2, Super up in frame 3.
+        frame(&mut a, vec![key(Key::SuperLeft, true, none)]);
+        frame(&mut a, vec![key(Key::Space, true, none), egui::Event::Text(" ".into()), key(Key::Space, false, none)]);
+        frame(&mut a, vec![key(Key::SuperLeft, false, none)]);
+        assert_eq!(doc_text(&a), "", "Win+Space across frames must not type a space into the document");
+
+        // Normal typing after releasing Super still works.
+        frame(&mut a, vec![key(Key::A, true, none), egui::Event::Text("a".into()), key(Key::A, false, none)]);
+        assert_eq!(doc_text(&a).trim_end(), "a", "regular typing after Super release works");
+
+        // Compositor swallows Super-up: ModifiersChanged(none) clears super_held.
+        frame(&mut a, vec![key(Key::SuperLeft, true, none)]);
+        // Compositor consumes Super release, sends ModifiersChanged with no modifiers.
+        frame(&mut a, vec![egui::Event::ModifiersChanged(none)]);
+        frame(&mut a, vec![key(Key::B, true, none), egui::Event::Text("b".into()), key(Key::B, false, none)]);
+        assert_eq!(doc_text(&a).trim_end(), "ab", "typing works after swallowed Super release cleared by ModifiersChanged");
     }
 }
