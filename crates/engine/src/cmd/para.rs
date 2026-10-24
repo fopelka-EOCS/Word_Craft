@@ -975,7 +975,9 @@ fn modify_style(s: &mut Session, v: &Value) -> CmdResult {
     let next = p::str(v, "next").map(str::to_string);
     let name = p::str(v, "name").map(str::to_string);
     let st = s.doc.styles.get_mut(&id).ok_or_else(|| CmdError::Params("no such style".into()))?;
-    if let Some(c) = chr {
+    if let Some(mut c) = chr {
+        c.bold_cs = c.bold_cs.or(c.bold);
+        c.italic_cs = c.italic_cs.or(c.italic);
         st.chr.overlay(&c);
     }
     if let Some(pp) = para {

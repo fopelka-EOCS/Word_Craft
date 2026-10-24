@@ -322,3 +322,27 @@ fn a_latin_link_inserted_into_reopened_hebrew_is_saved_left_to_right() {
     assert_eq!(s.typing_props().rtl, None);
     assert_eq!(s.typing_props().lang_bidi.as_deref(), Some("he-IL"), "the bidi language stays");
 }
+
+#[test]
+fn arabic_table_header_row_and_modified_styles_carry_complex_script_bold_and_italic() {
+    // #4198: inserting a styled table, typing Arabic into the header row with `para.rtl` and
+    // saving as DOCX keeps `w:bCs` beside `w:b` in the table style's header row and first column.
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    run(&mut s, "insert.table", json!({"rows": 2, "cols": 2, "style": "Grid Table 4 – Blue"}));
+    run(&mut s, "para.rtl", json!({"value": true}));
+    run(&mut s, "text.insert", json!({"text": "العنوان"}));
+    let bytes = crate::io::save_bytes("x.docx", &s.doc).unwrap();
+    let reopened = crate::io::open_bytes("x.docx", &bytes).unwrap();
+    let blue = reopened.styles.table_style("GridTable4AccentBlue").unwrap();
+    assert_eq!((blue.parts.header_chr.bold, blue.parts.header_chr.bold_cs), (Some(true), Some(true)));
+    assert_eq!((blue.parts.first_col_chr.bold, blue.parts.first_col_chr.bold_cs), (Some(true), Some(true)));
+
+    // Modifying a style's bold or italic without an explicit complex-script value formats both
+    // scripts, while an explicit `boldCs` / `italicCs` still wins.
+    run(&mut s, "styles.modify", json!({"style": "Heading 1", "chr": {"bold": true, "italic": true}}));
+    let h1 = s.doc.styles.get("Heading1").unwrap();
+    assert_eq!((h1.chr.bold, h1.chr.bold_cs, h1.chr.italic, h1.chr.italic_cs), (Some(true), Some(true), Some(true), Some(true)));
+    run(&mut s, "styles.modify", json!({"style": "Heading 1", "chr": {"bold": true, "boldCs": false, "italic": false}}));
+    let h1 = s.doc.styles.get("Heading1").unwrap();
+    assert_eq!((h1.chr.bold, h1.chr.bold_cs, h1.chr.italic, h1.chr.italic_cs), (Some(true), Some(false), Some(false), Some(false)));
+}
