@@ -972,9 +972,10 @@ impl Session {
     }
     /// The page as command `id` would leave it, for a live preview (Insert › Table's grid, #3931):
     /// the command runs on a copy of the document, with this caret and view, and the copy is laid
-    /// out. The document, the selection, the undo history and Repeat are untouched. `None` when
-    /// the command fails or isn't allowed here.
-    pub fn preview_layout(&mut self, id: &str, params: &Value) -> Option<Arc<DocLayout>> {
+    /// out. The copy comes back with its layout, which is drawn from it: the layout's paragraph
+    /// paths name the copy's paragraphs, not this document's. The document, the selection, the
+    /// undo history and Repeat are untouched. `None` when the command fails or isn't allowed here.
+    pub fn preview_layout(&mut self, id: &str, params: &Value) -> Option<(Document, Arc<DocLayout>)> {
         let mut copy = Session::with_registry(self.doc.clone(), self.registry.clone());
         copy.sel = self.sel.clone();
         copy.column = self.column.clone();
@@ -990,7 +991,7 @@ impl Session {
         std::mem::swap(&mut copy.cache, &mut self.cache);
         let layout = copy.run(id, params).is_ok().then(|| copy.layout());
         std::mem::swap(&mut copy.cache, &mut self.cache);
-        layout
+        layout.map(|l| (copy.doc, l))
     }
 
     /// A layout for output (PDF, images, print): no proofing marks, print view.

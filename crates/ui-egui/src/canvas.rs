@@ -202,9 +202,10 @@ pub struct CanvasState {
     /// The rows and columns hovered in Insert › Table's grid this frame: the page shows that
     /// table where it would go (#3931). Set by the grid each frame, taken by [`show`].
     pub(crate) table_preview: Option<(usize, usize)>,
-    /// The last previewed table's layout, with what it was laid out for (rows, columns,
-    /// document id, revision), so a still pointer doesn't lay the document out every frame.
-    table_preview_layout: Option<((usize, usize, u64, u64), std::sync::Arc<DocLayout>)>,
+    /// The last previewed table's layout and the copy of the document it was laid out from, with
+    /// what it was laid out for (rows, columns, document id, revision), so a still pointer doesn't
+    /// lay the document out every frame. Set only while the page shows the preview.
+    table_preview_layout: Option<((usize, usize, u64, u64), wordcraft_doc::Document, std::sync::Arc<DocLayout>)>,
 }
 
 impl CanvasState {
@@ -952,18 +953,27 @@ fn shown_layout(app: &mut WordApp) -> std::sync::Arc<DocLayout> {
         return app.session.layout();
     };
     let key = (rows, cols, app.session.document_id(), app.session.rev());
-    if let Some((k, l)) = &app.canvas.table_preview_layout
+    if let Some((k, _, l)) = &app.canvas.table_preview_layout
         && *k == key
     {
         return l.clone();
     }
     match app.session.preview_layout("insert.table", &json!({"rows": rows, "cols": cols})) {
-        Some(l) => {
-            app.canvas.table_preview_layout = Some((key, l.clone()));
+        Some((doc, l)) => {
+            app.canvas.table_preview_layout = Some((key, doc, l.clone()));
             l
         }
-        None => app.session.layout(),
+        None => {
+            app.canvas.table_preview_layout = None;
+            app.session.layout()
+        }
     }
+}
+
+/// The document the pages of [`shown_layout`] are drawn from: the previewed copy while the page
+/// shows Insert › Table's preview, whose paragraph paths are the layout's (#3931).
+fn page_doc(app: &WordApp) -> &wordcraft_doc::Document {
+    app.canvas.table_preview_layout.as_ref().map_or(&app.session.doc, |(_, doc, _)| doc)
 }
 
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
@@ -1300,7 +1310,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 let mut opts = page_render_options(app, dim_body);
                 // Only on the page it is on: the `Pos` can't match an object of another page.
                 opts.display.hide_object = hidden.as_ref().filter(|(page, _)| *page == i).map(|(_, p)| p.clone());
-                let img = wordcraft_render::render_page(&app.session.doc, page, scale_px, &opts);
+                let img = wordcraft_render::render_page(page_doc(app), page, scale_px, &opts);
                 let ci = page_image(&img);
                 match app.canvas.textures.get_mut(&i) {
                     Some((k, tex)) => {
@@ -1359,7 +1369,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         // The tiny subtraction avoids a 1px overshoot from round-tripping f32
                         // pixels through page points and render_area's ceil() conversion.
                         let img = wordcraft_render::render_area(
-                            &app.session.doc,
+                            page_doc(app),
                             page,
                             0.0,
                             start_px as f32 / scale_px,
@@ -3693,6 +3703,27 @@ mod tests {
         app.canvas.table_preview = Some((2, 3));
         assert!(std::sync::Arc::ptr_eq(&again, &shown_layout(&mut app)), "a still pointer reuses the preview");
         assert_eq!(cells(&shown_layout(&mut app)), 0, "no request: the document's own page");
+    }
+
+    /// #3931 review: the preview's pages are drawn from the copy they were laid out from. The
+    /// table moves "Kites" down a block, so the document's own block there is not its paragraph.
+    #[test]
+    fn the_previewed_pages_are_drawn_from_the_previewed_document() {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Lanterns\nKites")), crate::Services::default());
+        app.session.run("caret.end", &json!({})).unwrap();
+        app.canvas.table_preview = Some((2, 2));
+        let layout = shown_layout(&mut app);
+        let text = |doc: &wordcraft_doc::Document, story, path| doc.para(story, path).map(|p| p.text.clone());
+        let mut kites = 0;
+        for it in layout.pages.iter().flat_map(|p| &p.items) {
+            let Placed::Lines { story, path, .. } = it else { continue };
+            let shown = text(page_doc(&app), *story, path);
+            assert!(shown.is_some(), "{path:?} names a paragraph of the drawn document");
+            kites += usize::from(shown.as_deref() == Some("Kites"));
+        }
+        assert_eq!(kites, 1, "Kites is drawn as itself");
+        assert_eq!(shown_layout(&mut app).index, app.session.layout().index);
+        assert!(std::ptr::eq(page_doc(&app), &app.session.doc), "no preview: the document's own pages");
     }
 
     /// A window-following layout size (#1876, Read Mode): applied at once on entry or when forced,
