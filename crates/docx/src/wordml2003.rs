@@ -64,17 +64,7 @@ pub(crate) fn convert(bytes: &[u8]) -> Result<Package, DocxError> {
     if root.name != "w:wordDocument" {
         return Err(DocxError::NotWord(format!("root element is {}", root.name)));
     }
-    let mut c = Conv {
-        media: HashMap::new(),
-        files: BTreeMap::new(),
-        rels: (0..4).map(|_| PartRels::default()).collect(),
-        footnotes: Vec::new(),
-        endnotes: Vec::new(),
-        comments: Vec::new(),
-        stories: Vec::new(),
-        next_note: 1,
-        story_count: 0,
-    };
+    let mut c = Conv::new();
     let mut total = 0u64;
     c.collect_media(&root, 0, &mut total)?;
 
@@ -171,6 +161,20 @@ impl Conv {
         }
     }
 
+    fn new() -> Self {
+        Conv {
+            media: HashMap::new(),
+            files: BTreeMap::new(),
+            rels: (0..4).map(|_| PartRels::default()).collect(),
+            footnotes: Vec::new(),
+            endnotes: Vec::new(),
+            comments: Vec::new(),
+            stories: Vec::new(),
+            next_note: 1,
+            story_count: 0,
+        }
+    }
+
     /// Every `w:binData` in the file, decoded into a media part.
     fn collect_media(&mut self, e: &El, depth: usize, total: &mut u64) -> Result<(), DocxError> {
         if depth > MAX_DEPTH {
@@ -193,7 +197,7 @@ impl Conv {
                 };
                 *total = total.saturating_add(bytes.len() as u64);
                 if *total > MAX_TOTAL {
-                    return Err(DocxError::Limit("pictures larger than the size limit".into()));
+                    return Err(DocxError::Limit(format!("the pictures add up to more than {} MiB in all", MAX_TOTAL >> 20)));
                 }
                 let ext = picture_ext(&bytes, name);
                 let target = format!("media/image{}.{ext}", self.media.len() + 1);
@@ -573,4 +577,21 @@ fn core_xml(props: &El) -> Vec<u8> {
     }
     w.close("cp:coreProperties");
     w.into_bytes()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Pictures that pass the total between them name the total, not the picture that crossed it.
+    #[test]
+    fn the_total_picture_limit_is_reported_as_the_total() {
+        let doc = format!("<w:wordDocument xmlns:w=\"{W2003_NS}\"><w:binData w:name=\"a.png\">AAAAAAAA</w:binData></w:wordDocument>");
+        let root = xml::parse_ns(doc.as_bytes(), &[("w", W2003_NS)]).unwrap();
+        let mut total = MAX_TOTAL - 5;
+        let Err(DocxError::Limit(e)) = Conv::new().collect_media(&root, 0, &mut total) else { panic!("over the total") };
+        assert_eq!(e, format!("the pictures add up to more than {} MiB in all", MAX_TOTAL >> 20));
+        let mut total = MAX_TOTAL - 6;
+        assert!(Conv::new().collect_media(&root, 0, &mut total).is_ok());
+    }
 }

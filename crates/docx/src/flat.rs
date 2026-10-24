@@ -295,7 +295,7 @@ fn store(
     }
     *total = total.saturating_add(len);
     if *total > MAX_TOTAL {
-        return Err(DocxError::Limit("the package is larger than the size limit".into()));
+        return Err(DocxError::Limit(format!("the parts add up to more than {} MiB in all", MAX_TOTAL >> 20)));
     }
     if name.is_empty() || files.contains_key(name) {
         return Ok(());
@@ -505,6 +505,7 @@ mod tests {
         total = MAX_TOTAL - 5;
         assert_eq!(room(total), 5);
         assert_eq!(max_base64(5), 8);
-        assert!(matches!(store("/b.bin", "", vec![0; 6], &mut files, &mut types, &mut total), Err(DocxError::Limit(_))));
+        let Err(DocxError::Limit(e)) = store("/b.bin", "", vec![0; 6], &mut files, &mut types, &mut total) else { panic!("over the total") };
+        assert_eq!(e, format!("the parts add up to more than {} MiB in all", MAX_TOTAL >> 20));
     }
 }

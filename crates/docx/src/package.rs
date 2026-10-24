@@ -9,7 +9,12 @@ use crate::xml::{self, El};
 
 /// Largest single part we decompress.
 pub const MAX_PART: u64 = 256 * 1024 * 1024;
-/// Largest total of all decompressed parts.
+/// Largest total of all decompressed parts. Real manuscripts pass 512 MiB with their pictures (a
+/// 100 MB thesis unpacks to 580 MiB of EMF figures, and Word opens it); the web app's 32-bit memory
+/// keeps the lower limit.
+#[cfg(not(target_arch = "wasm32"))]
+pub const MAX_TOTAL: u64 = 1024 * 1024 * 1024;
+#[cfg(target_arch = "wasm32")]
 pub const MAX_TOTAL: u64 = 512 * 1024 * 1024;
 /// Most zip entries we look at.
 pub const MAX_ENTRIES: usize = 20_000;
@@ -229,7 +234,12 @@ impl Package {
                 continue;
             }
             if buf.len() as u64 > room {
-                return Err(DocxError::Limit(format!("part {name} decompresses past the size limit")));
+                // Name what overflowed: this part alone, or all the parts together.
+                return Err(DocxError::Limit(if buf.len() as u64 > max_part {
+                    format!("part {name} decompresses to more than {} MiB", max_part >> 20)
+                } else {
+                    format!("the parts decompress to more than {} MiB in all", max_total >> 20)
+                }));
             }
             total = total.saturating_add(buf.len() as u64);
             files.insert(name, Arc::new(buf));
@@ -419,6 +429,17 @@ mod tests {
         assert!(matches!(Package::open_limited(&z, 1_000_000, 10_000_000), Err(DocxError::Limit(_))));
         assert!(matches!(Package::open_limited(&z, 10_000_000, 1_000_000), Err(DocxError::Limit(_))));
         assert!(Package::open_limited(&z, 10_000_000, 10_000_000).is_ok());
+    }
+
+    /// Pictures that are each well within the part limit but pass the total name the total, not
+    /// whichever picture happened to cross it.
+    #[test]
+    fn the_total_limit_is_reported_as_the_total() {
+        let pic = vec![b' '; 600 << 10];
+        let z = zip_of(&[("word/media/image1.emf", pic.clone()), ("word/media/image2.emf", pic)]);
+        let Err(DocxError::Limit(e)) = Package::open_limited(&z, 1 << 20, 1 << 20) else { panic!("over the total") };
+        assert_eq!(e, "the parts decompress to more than 1 MiB in all");
+        assert!(Package::open_limited(&z, 1 << 20, 2 << 20).is_ok());
     }
 
     #[test]
