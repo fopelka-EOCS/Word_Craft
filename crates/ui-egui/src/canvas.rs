@@ -182,6 +182,8 @@ pub struct CanvasState {
     /// An automatic change (AutoCorrect, AutoFormat) altered the text around the caret: the
     /// input method is asked to start afresh (#1480).
     pub(crate) ime_reset: bool,
+    /// Where the input method was last told the caret is ([`crate::ime_spot`], #2932).
+    pub(crate) ime_spot: crate::ime_spot::ImeSpot,
     /// Alt+numpad entry in progress: the digits typed while Alt is held (#961).
     pub(crate) alt_code: String,
     /// The character an Alt code just typed: if the platform also sends its own composed
@@ -287,6 +289,7 @@ impl Default for CanvasState {
             swallow_text: false,
             ime_join_text: None,
             ime_reset: false,
+            ime_spot: Default::default(),
             alt_code: String::new(),
             alt_code_echo: None,
             wheel: Default::default(),
@@ -989,6 +992,17 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     // Keys first, so this frame lays out and paints what was typed (handled after painting, a
     // keystroke showed one frame later). Focus is the canvas's from the last frame.
     // While "Save changes?" is up, keys answer it rather than edit the document behind it.
+    // Every frame notes its keys and clicks for the input method's spot, also one that won't
+    // place the caret (#2932).
+    let (keys, pointer) = ui.ctx().input(|i| {
+        let keys = i.events.iter().any(|e| matches!(e, egui::Event::Key { .. } | egui::Event::Text(_) | egui::Event::Ime(_)));
+        let pointer = i
+            .events
+            .iter()
+            .any(|e| matches!(e, egui::Event::PointerButton { pressed: true, .. } | egui::Event::Touch { .. } | egui::Event::WindowFocused(true)));
+        (keys, pointer)
+    });
+    app.canvas.ime_spot.note(keys, pointer);
     if app.canvas.focused && !matches!(app.dialog, Some(crate::dialogs::Dialog::SaveChanges { .. })) {
         crate::keys::canvas_events(app, ui.ctx());
     } else {
@@ -1566,15 +1580,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 }
                 if focused {
                     ui.ctx().request_repaint_after(std::time::Duration::from_millis(530 - (since as u64 % 530)));
-                    let cr = Rect::from_min_max(pos2(x, y0), pos2(x + 1.0, y1));
-                    ui.ctx().output_mut(|o| {
-                        o.ime = Some(egui::output::IMEOutput {
-                            rect: cr,
-                            cursor_rect: cr,
-                            purpose: Default::default(),
-                            should_interrupt_composition: ime_reset,
-                        });
-                    });
+                    ime_output(app, ui.ctx(), Rect::from_min_max(pos2(x, y0), pos2(x + 1.0, y1)), ime_reset);
                 }
             }
         }
@@ -1644,14 +1650,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             // IME candidate window placement.
             let cr = Rect::from_min_max(pos2(x, y0), pos2(x + 1.0, y1));
             if focused {
-                ui.ctx().output_mut(|o| {
-                    o.ime = Some(egui::output::IMEOutput {
-                        rect: cr,
-                        cursor_rect: cr,
-                        purpose: Default::default(),
-                        should_interrupt_composition: ime_reset,
-                    });
-                });
+                ime_output(app, ui.ctx(), cr, ime_reset);
             }
         }
         crate::objects::paint(app, &painter, &t, &layout, &rects, geo.scale);
@@ -3640,6 +3639,14 @@ fn is_followable_link(url: &str) -> bool {
     wordcraft_doc::link::is_web_or_mail_link(url)
 }
 
+/// Tell the input method where the caret `caret` is (its candidate window and spot); over XIM
+/// typing doesn't move it ([`crate::ime_spot`], #2932).
+fn ime_output(app: &mut WordApp, ctx: &egui::Context, caret: Rect, reset: bool) {
+    let rect = app.canvas.ime_spot.place(caret, app.services.xim);
+    ctx.output_mut(|o| {
+        o.ime = Some(egui::output::IMEOutput { rect, cursor_rect: rect, purpose: Default::default(), should_interrupt_composition: reset });
+    });
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -6914,6 +6921,61 @@ mod tests {
             h.step();
         }
         assert_eq!(ime_interrupted(&h), Some(true), "a click still interrupts composition");
+    }
+
+    /// #2932: over XIM typing leaves the input method's spot where it was, and a press or the
+    /// window's focus brings it to the caret; off XIM it follows the caret as it types.
+    #[test]
+    fn over_xim_typing_leaves_the_ime_spot_until_a_click() {
+        for xim in [true, false] {
+            let services = crate::Services { xim, ..Default::default() };
+            let app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), services);
+            let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+                |ui, app: &mut WordApp| {
+                    let ctx = ui.ctx().clone();
+                    app.logic(&ctx);
+                    app.ui(ui);
+                },
+                app,
+            );
+            for _ in 0..8 {
+                h.step();
+            }
+            let spot = |h: &egui_kittest::Harness<'_, WordApp>| h.output().platform_output.ime.as_ref().map(|ime| ime.rect.min.x).unwrap_or(f32::NAN);
+            let type_text = |h: &mut egui_kittest::Harness<'_, WordApp>, t: &str| {
+                h.event(egui::Event::Text(t.into()));
+                h.step();
+                h.step();
+            };
+            type_text(&mut h, "a");
+            let first = spot(&h);
+            assert!(first.is_finite(), "the canvas gives the input method a spot");
+            type_text(&mut h, "bcd");
+            let text = h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body);
+            assert!(text.contains("abcd"), "the keys are typed: {text:?}");
+            if xim {
+                assert_eq!(spot(&h), first, "typing leaves the spot over XIM");
+            } else {
+                assert!(spot(&h) > first, "the spot follows the caret off XIM");
+            }
+            // A press right of the page's text: the caret stays at the end of it.
+            let page = h.state().canvas.page_rects.first().copied().expect("a page");
+            let at = egui::pos2(page.max.x - 10.0, page.min.y + 140.0);
+            h.event(egui::Event::PointerMoved(at));
+            h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
+            h.step();
+            h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE });
+            h.step();
+            let clicked = spot(&h);
+            assert!(clicked > first, "a click brings the spot to the caret ({clicked} > {first})");
+            type_text(&mut h, "ef");
+            if xim {
+                assert_eq!(spot(&h), clicked, "typing after the click leaves it again");
+            }
+            h.event(egui::Event::WindowFocused(true));
+            h.step();
+            assert!(spot(&h) > clicked, "the window's focus brings it to the caret");
+        }
     }
 
     /// While an input method composes, the caret and the candidate window sit at its cursor inside
