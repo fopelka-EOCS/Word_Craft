@@ -1417,13 +1417,7 @@ fn insert(app: &mut WordApp, ui: &mut Ui) {
             mi(ui, app, "Edit Footer", "insert.editFooter", json!({}));
             mi(ui, app, "Remove Footer", "insert.removeFooter", json!({}));
         });
-        menu_button(ui, app, "pageNumber", Some("Page\nNumber"), "Page Number", true, "insert.pageNumber", |ui, app| {
-            mi(ui, app, "Top of Page", "insert.pageNumber", json!({"position": "top", "align": "right"}));
-            mi(ui, app, "Bottom of Page", "insert.pageNumber", json!({"position": "bottom", "align": "center"}));
-            mi(ui, app, "Page X of Y", "insert.pageNumber", json!({"position": "bottom", "format": "x of y"}));
-            mi(ui, app, "Current Position", "insert.pageNumber", json!({"position": "current"}));
-            mi(ui, app, "Format Page Numbers…", "ui.dialog", json!({"name": "pageNumbers"}));
-        });
+        menu_button(ui, app, "pageNumber", Some("Page\nNumber"), "Page Number", true, "insert.pageNumber", page_number_items);
     });
     group(ui, "Text", None, app, |ui, app| {
         big(ui, app, "textBox", "Text\nBox", "insert.textBox", json!({}), false);
@@ -1487,6 +1481,17 @@ fn insert(app: &mut WordApp, ui: &mut Ui) {
             mi(ui, app, "More Symbols…", "ui.dialog", json!({"name": "symbol"}));
         });
     });
+}
+
+/// Insert › Header & Footer › Page Number's menu: where the page number goes, then the Format
+/// Page Numbers dialog (#1113). The last item runs `layout.pageNumberFormat`, which opens that
+/// dialog (the number format and the start are its fields).
+pub(crate) fn page_number_items(ui: &mut Ui, app: &mut WordApp) {
+    mi(ui, app, "Top of Page", "insert.pageNumber", json!({"position": "top", "align": "right"}));
+    mi(ui, app, "Bottom of Page", "insert.pageNumber", json!({"position": "bottom", "align": "center"}));
+    mi(ui, app, "Page X of Y", "insert.pageNumber", json!({"position": "bottom", "format": "x of y"}));
+    mi(ui, app, "Current Position", "insert.pageNumber", json!({"position": "current"}));
+    mi(ui, app, "Format Page Numbers…", "layout.pageNumberFormat", json!({}));
 }
 
 /// Insert › Drop Cap's menu (#2601): None, Dropped and In margin (the current one checked),
@@ -3153,6 +3158,27 @@ mod tests {
         let mut b = Vec::new();
         image::DynamicImage::ImageRgba8(img).write_to(&mut std::io::Cursor::new(&mut b), image::ImageFormat::Png).unwrap();
         wordcraft_engine::cmd::insert::base64_encode(&b)
+    }
+
+    /// #1443, #3608: Insert › Header & Footer › Page Number ▸ Format Page Numbers… opens the
+    /// Format Page Numbers dialog. The item used to run a command that changed nothing, so the
+    /// click looked dead.
+    #[test]
+    fn format_page_numbers_opens_its_dialog() {
+        use egui_kittest::kittest::Queryable;
+        let a = WordApp::new(Session::new(wordcraft_doc::Document::from_text("Text")), crate::Services::default());
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(400.0, 400.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                page_number_items(ui, app);
+            },
+            a,
+        );
+        h.run_steps(2);
+        h.get_by_label_contains("Format Page Numbers").click();
+        h.run_steps(2);
+        let opened = matches!(h.state().dialog, Some(crate::dialogs::Dialog::Layout(_)));
+        assert!(opened, "the Format Page Numbers dialog opened: {:?}", h.state().dialog);
+        assert!(!h.state().session.dirty, "the document is not marked as edited");
     }
 
     /// The style set gallery fills exactly its own box and the next control starts after a gap,

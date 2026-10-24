@@ -124,6 +124,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-22 | trivial | #7: the Format Page Numbers dialog opens from every entry point (the ribbon item, the command search, the keytips), and a call with nothing to apply no longer marks the document as edited (#1443, #3608) |
 | 2026-10-22 | minor | #8 narrowed: Spanish proofing (es-ES, es-MX, es-419, es-UY spelling from the installed Hunspell dictionaries, Uruguayan `vos` forms, generic and opening-mark checks, #3360, #3553) |
 | 2026-10-22 | trivial | Gap 10: group connector rerouting preserves rotated/flipped free and unresolved endpoints under nonuniform scaling, with safe degenerate-dimension and display-size-cap handling; routing around shapes and readiness estimates unchanged |
 | 2026-10-21 | trivial | The ranked gap list held two rows each for #19, #20 and #21; the stale copies are gone, so each gap appears once, and the #20 row carries the measured figure (#3411) |

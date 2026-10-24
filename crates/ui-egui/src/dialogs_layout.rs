@@ -1494,6 +1494,17 @@ mod tests {
         assert_eq!((f.section, f.format.as_str(), f.start), (1, "lowerRoman", 9));
     }
 
+    /// #1443, #3608: the Format Page Numbers command opens its dialog, wherever it is run from
+    /// (the ribbon's item, the command search), and the document is left alone.
+    #[test]
+    fn the_page_numbers_command_opens_the_dialog() {
+        let mut a = app();
+        a.run("layout.pageNumberFormat", json!({})).unwrap();
+        let LayoutDialog::PageNumbers(f) = form(&mut a) else { panic!("page numbers") };
+        assert_eq!((f.format.as_str(), f.start, f.cont), ("decimal", 1, true), "{f:?}");
+        assert!(!a.session.dirty, "the document is not marked as edited");
+    }
+
     /// #755: the Line Numbers "From text" distance and the Hyphenation zone follow the
     /// File › Options unit (centimeters here); `params` sends points whatever the unit.
     #[test]

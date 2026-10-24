@@ -2821,6 +2821,11 @@ fn input_dialog(id: &str, params: &Value) -> Option<&'static str> {
         "review.language" if params.as_object().is_none_or(|m| m.is_empty()) => Some("language"),
         "mailings.envelopes" if params.as_object().is_none_or(|m| m.is_empty()) => Some("envelopes"),
         "mailings.labels" if params.as_object().is_none_or(|m| m.is_empty()) => Some("labels"),
+        // Format Page Numbers without a format or a start shows its dialog (#1113): the ribbon
+        // item, the command search and the keytips all reach it that way (#1443, #3608).
+        // `start: null` is an answer (the pages number on from the section before), so only a
+        // call without the key at all opens the dialog.
+        "layout.pageNumberFormat" if params.get("format").and_then(Value::as_str).is_none() && params.get("start").is_none() => Some("pageNumbers"),
         _ => None,
     }
 }
