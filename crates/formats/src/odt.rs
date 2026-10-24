@@ -66,6 +66,7 @@ fn x(s: &str) -> String {
             '>' => o.push_str("&gt;"),
             '"' => o.push_str("&quot;"),
             '\'' => o.push_str("&apos;"),
+            '\u{FFFE}' | '\u{FFFF}' => {}
             c if c.is_control() && !matches!(c, '\t' | '\n') => {}
             _ => o.push(c),
         }
@@ -3314,6 +3315,11 @@ fn apply_layout(a: &Attrs, sec: &mut SectionProps) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn escaper_drops_noncharacters() {
+        assert_eq!(x("a\u{FFFF}b\u{FFFE}c\u{1}d\te"), "abcd\te");
+    }
 
     #[test]
     fn lengths() {
