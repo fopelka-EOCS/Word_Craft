@@ -483,6 +483,8 @@ impl Writer {
             Some(Align::Right) => out.push_str("\\qr"),
             Some(Align::Justify) => out.push_str("\\qj"),
             Some(Align::Distribute) => out.push_str("\\qd"),
+            // Thai distributed; Khmer Justify has no RTF word of its own.
+            Some(Align::ThaiDistribute | Align::KhmerJustify) => out.push_str("\\qt"),
             _ => out.push_str("\\ql"),
         }
         if p.page_break {
@@ -2236,6 +2238,7 @@ impl Reader {
             "qr" => self.st.align = Some(Align::Right),
             "qj" => self.st.align = Some(Align::Justify),
             "qd" => self.st.align = Some(Align::Distribute),
+            "qt" => self.st.align = Some(Align::ThaiDistribute),
             "s" => self.st.style = pv,
             "outlinelevel" => self.st.outline = Some(pv.clamp(0, 9) as u8),
             "pagebb" => self.st.pagebb = on,
@@ -2446,6 +2449,7 @@ fn is_format_word(w: &str) -> bool {
             | "qr"
             | "qj"
             | "qd"
+            | "qt"
             | "s"
             | "outlinelevel"
             | "pagebb"
@@ -4382,6 +4386,18 @@ mod tests {
         let exported = export(&doc);
         assert!(exported.contains("\\qd"), "expected \\qd in: {exported}");
         assert!(exported.contains("\\qj"), "expected \\qj in: {exported}");
+    }
+
+    /// `\qt` is Thai distributed: it is read as Thai Distributed and written back as `\qt`, for
+    /// Khmer Justify too (RTF has no word for it).
+    #[test]
+    fn thai_distributed_alignment_round_trips() {
+        let rtf = br"{\rtf1\ansi\pard\qt Thai\par}";
+        let flow = parse(rtf).unwrap();
+        let FBlock::Para(p) = &flow.blocks[0] else { panic!("expected para") };
+        assert_eq!(p.align, Some(Align::ThaiDistribute));
+        let exported = export(&import(rtf).unwrap());
+        assert!(exported.contains("\\qt") && !exported.contains("\\qj"), "{exported}");
     }
 
     #[test]
