@@ -31,6 +31,11 @@ fn has_sel(s: &Session) -> Option<&'static str> {
     if s.sel.is_collapsed() { Some("nothing is selected") } else { None }
 }
 
+/// Text, or part of the equation being edited, is selected.
+fn has_sel_or_math(s: &Session) -> Option<&'static str> {
+    if super::equation::selected(s).is_some() { None } else { has_sel(s) }
+}
+
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("edit.undo", "Undo", "Quick Access Toolbar", |s, _| {
@@ -59,7 +64,7 @@ pub fn specs() -> Vec<CommandSpec> {
         })
         .key("Mod+Y / Mod+Shift+Z")
         .pure(),
-        CommandSpec::new("edit.cut", "Cut", "Home › Clipboard", cut).key("Mod+X").when(has_sel),
+        CommandSpec::new("edit.cut", "Cut", "Home › Clipboard", cut).key("Mod+X").when(has_sel_or_math),
         CommandSpec::new("edit.copy", "Copy", "Home › Clipboard", copy).key("Mod+C / Mod+Insert").pure(),
         // Word's Spike (Ctrl+F3, Ctrl+Shift+F3; ⌘ on the Mac): the AutoText entry "Spike", so Quick
         // Parts and AutoText insert it without emptying it, as in Word.
@@ -167,11 +172,17 @@ pub fn specs() -> Vec<CommandSpec> {
 }
 
 fn copy(s: &mut Session, _: &Value) -> CmdResult {
-    let (a, b) = s.sel.ordered();
-    if a == b {
-        return Ok(json!({"text": ""}));
-    }
-    let f = s.doc.copy_range(&a, &b);
+    // Part of the equation being edited copies as an equation of its own.
+    let f = match super::equation::selected_fragment(s) {
+        Some(f) => f,
+        None => {
+            let (a, b) = s.sel.ordered();
+            if a == b {
+                return Ok(json!({"text": ""}));
+            }
+            s.doc.copy_range(&a, &b)
+        }
+    };
     s.clipboard_text = f.clipboard_text();
     s.clip_history.push(&f, &s.clipboard_text);
     s.clipboard = Some(f);
@@ -202,6 +213,9 @@ pub(crate) fn copy_result(s: &mut Session) -> Value {
 
 fn cut(s: &mut Session, v: &Value) -> CmdResult {
     let r = copy(s, v)?;
+    if super::equation::delete_selected(s)? {
+        return Ok(r);
+    }
     // A tracked cut of a paragraph or sentence may become a move when pasted.
     if !super::moves::cut_tracked(s)? {
         delete_selection(s)?;

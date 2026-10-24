@@ -4,7 +4,7 @@
 
 use serde_json::{Value, json};
 use wordcraft_doc::math::{Arg, MNode, Math, MathJc, parse_linear, to_linear};
-use wordcraft_doc::math_edit::{self as me, MathPos, TypeStyle};
+use wordcraft_doc::math_edit::{self as me, MathPos, MathSpan, TypeStyle};
 use wordcraft_doc::math_latex::{parse_latex, to_latex};
 use wordcraft_doc::para::OBJ;
 use wordcraft_doc::{InlineObject, Pos};
@@ -28,8 +28,11 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("equation.edit", "Edit Equation", "Equation", edit)
             .pure()
             .when(near_equation)
-            .params(r#"{"pos"?: {"path": [[node, child]…], "off": n}}"#),
+            .params(r#"{"pos"?: {"path": [[node, child]…], "off": n}, "extend"?: bool (select from where the caret was, as a drag or Shift+click)}"#),
         CommandSpec::new("equation.exit", "Leave Equation", "Equation", exit).pure().when(editing).params(r#"{"before"?: bool}"#),
+        CommandSpec::new("equation.moveTo", "Move Equation", "Equation", move_to)
+            .when(near_equation)
+            .params(r#"{"to": {"story", "path", "off"} (where to drop it), "copy"?: bool (keep the original, as Ctrl+drag)}"#),
         CommandSpec::new("equation.type", "Type in Equation", "Equation", type_text).when(editing).params(r#"{"text": string}"#),
         CommandSpec::new("equation.insertStructure", "Insert Structure", "Equation › Structures", insert_structure)
             .params(r#"{"id"?: string (see equation.gallery), "linear"?: string, "latex"?: string}"#),
@@ -37,7 +40,7 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("equation.move", "Move in Equation", "Equation", move_caret)
             .pure()
             .when(editing)
-            .params(r#"{"dir": "left|right|up|down|home|end|next|prev"}"#),
+            .params(r#"{"dir": "left|right|up|down|home|end|next|prev", "extend"?: bool (grow a selection, as Shift+arrows)}"#),
         CommandSpec::new("equation.backspace", "Delete Back in Equation", "Equation", |s, _| delete(s, true)).when(editing),
         CommandSpec::new("equation.delete", "Delete in Equation", "Equation", |s, _| delete(s, false)).when(editing),
         CommandSpec::new("equation.enter", "Enter in Equation", "Equation", enter).when(editing),
@@ -114,7 +117,52 @@ fn with_eq<R>(s: &mut Session, at: &Pos, f: impl FnOnce(&mut Math, &mut bool) ->
     *linear = if math.linear { plain(&math.nodes) } else { to_linear(&math.nodes) };
     math.omml.clear();
     para.touch();
+    // An edit ends any selection inside the equation.
+    if let Some(m) = s.math.as_mut() {
+        m.anchor = None;
+    }
     Ok(r)
+}
+
+impl Session {
+    /// The part of the equation being edited that is selected (drawn highlighted), if any.
+    pub fn math_selection(&self) -> Option<MathSpan> {
+        selected(self).map(|(_, span)| span)
+    }
+}
+
+/// The selection inside the equation being edited, when it covers anything.
+pub(crate) fn selected(s: &Session) -> Option<(MathEdit, MathSpan)> {
+    let m = s.math.clone()?;
+    let anchor = m.anchor.as_ref()?;
+    let span = me::span(&nodes_of(s, &m.at)?, anchor, &m.pos);
+    (!span.is_empty()).then_some((m, span))
+}
+
+/// Delete the selection inside the equation being edited, if there is one: the caret takes its
+/// place. Typing, inserting and deleting replace a selection this way.
+pub(crate) fn delete_selected(s: &mut Session) -> Result<bool, CmdError> {
+    let Some((m, span)) = selected(s) else {
+        if let Some(m) = s.math.as_mut() {
+            m.anchor = None;
+        }
+        return Ok(false);
+    };
+    let pos = with_eq(s, &m.at, |math, _| me::delete_span(&mut math.nodes, &span))?;
+    if let Some(m) = s.math.as_mut() {
+        m.pos = pos;
+    }
+    Ok(true)
+}
+
+/// The selection inside the equation being edited as a clipboard fragment: an equation of its own.
+pub(crate) fn selected_fragment(s: &Session) -> Option<wordcraft_doc::edit::Fragment> {
+    let (m, span) = selected(s)?;
+    let nodes = me::span_nodes(&nodes_of(s, &m.at)?, &span);
+    let mut d = wordcraft_doc::Document::from_text("");
+    let obj = InlineObject::Equation { linear: to_linear(&nodes), display: false, math: Math { nodes, ..Default::default() } };
+    let end = d.insert_object(&Pos::body(0, 0), obj, &Default::default()).ok()?;
+    Some(d.copy_range(&Pos::body(0, 0), &end))
 }
 
 /// All the text of an equation's runs (its linear form while shown linear).
@@ -135,7 +183,11 @@ fn result(s: &Session) -> CmdResult {
         _ => None,
     });
     let (linear, display) = info.unwrap_or_default();
-    Ok(json!({"editing": true, "linear": linear, "display": display, "pos": serde_json::to_value(&m.pos).unwrap_or(Value::Null)}))
+    let mut r = json!({"editing": true, "linear": linear, "display": display, "pos": serde_json::to_value(&m.pos).unwrap_or(Value::Null)});
+    if let Some((_, span)) = selected(s) {
+        r["selection"] = serde_json::to_value(&span).unwrap_or(Value::Null);
+    }
+    Ok(r)
 }
 
 /// Nodes from `linear`, `latex` or a gallery `id` / `builtin` parameter.
@@ -179,7 +231,7 @@ fn insert_nodes_as_equation(s: &mut Session, nodes: Arg, v: &Value) -> CmdResult
     let end = s.doc.insert_object(&at, obj, &props)?;
     if p::bool(v, "edit").unwrap_or(true) {
         s.sel = Selection::caret(at.clone());
-        s.math = Some(MathEdit { at, pos: caret });
+        s.math = Some(MathEdit { at, pos: caret, anchor: None });
     } else {
         s.sel = Selection::caret(end);
     }
@@ -200,8 +252,67 @@ fn edit(s: &mut Session, v: &Value) -> CmdResult {
     };
     let pos =
         v.get("pos").and_then(|p| serde_json::from_value::<MathPos>(p.clone()).ok()).unwrap_or_else(|| MathPos::new(Vec::new(), me::units(&nodes)));
+    // Extending (a drag, Shift+click) keeps where the selection began in this equation.
+    let anchor = match &s.math {
+        Some(m) if p::bool(v, "extend").unwrap_or(false) && m.at == at => Some(m.anchor.clone().unwrap_or_else(|| m.pos.clone())),
+        _ => None,
+    };
     s.sel = Selection::caret(at.clone());
-    s.math = Some(MathEdit { pos: me::clamp(&nodes, &pos), at });
+    s.math = Some(MathEdit { pos: me::clamp(&nodes, &pos), at, anchor });
+    result(s)
+}
+
+/// Drag the equation by its frame's grip and drop it at `to` (Word): it moves there in one step
+/// and is edited where it landed. Dropped on itself it stays.
+fn move_to(s: &mut Session, v: &Value) -> CmdResult {
+    // A refused move (a locked control, protection) puts the document back; the equation stays
+    // in editing too.
+    let editing = s.math.clone();
+    let r = move_equation(s, v);
+    if r.is_err() {
+        s.math = editing;
+    }
+    r
+}
+
+fn move_equation(s: &mut Session, v: &Value) -> CmdResult {
+    let to: Pos = v.get("to").and_then(|p| serde_json::from_value(p.clone()).ok()).ok_or_else(|| CmdError::Params("`to` required".into()))?;
+    let at = s
+        .math
+        .as_ref()
+        .map(|m| m.at.clone())
+        .or_else(|| equation_at_caret(s))
+        .ok_or_else(|| CmdError::Disabled("no equation at the caret".into()))?;
+    let n = OBJ.len_utf8();
+    let same_para = to.story == at.story && to.path == at.path;
+    if same_para && to.off >= at.off && to.off <= at.off + n {
+        return result(s);
+    }
+    if s.doc.para_at(&to).is_none_or(|p| to.off > p.len() || !p.text.is_char_boundary(to.off)) {
+        return Err(CmdError::Params("`to` is not a position in the document".into()));
+    }
+    let inner = s.math.as_ref().map(|m| m.pos.clone()).unwrap_or_default();
+    let frag = s.doc.copy_range(&at, &Pos { off: at.off + n, ..at.clone() });
+    // The copy goes in first (tracked, as a paste would), then the original comes out.
+    s.math = None;
+    s.sel = Selection::caret(to.clone());
+    super::paste::insert(s, frag)?;
+    let mut new_at = to;
+    if !p::bool(v, "copy").unwrap_or(false) {
+        let from = if same_para && new_at.off <= at.off { Pos { off: at.off + n, ..at.clone() } } else { at.clone() };
+        s.sel = Selection { anchor: from.clone(), focus: Pos { off: from.off + n, ..from.clone() } };
+        let len = |s: &Session| s.doc.para_at(&from).map(|p| p.len());
+        let before = len(s);
+        delete_selection(s)?;
+        // The original leaves the text before the drop point, unless it stays there as a tracked
+        // deletion (tracked, the author's own insertion still goes).
+        if same_para && from.off < new_at.off && len(s) < before {
+            new_at.off -= n;
+        }
+    }
+    let nodes = nodes_of(s, &new_at).ok_or_else(|| CmdError::Failed("the equation didn't land".into()))?;
+    s.sel = Selection::caret(new_at.clone());
+    s.math = Some(MathEdit { pos: me::clamp(&nodes, &inner), at: new_at, anchor: None });
     result(s)
 }
 
@@ -220,6 +331,8 @@ fn current(s: &Session) -> Result<MathEdit, CmdError> {
 
 fn type_text(s: &mut Session, v: &Value) -> CmdResult {
     let text = p::req_str(v, "text")?.to_string();
+    current(s)?;
+    delete_selected(s)?;
     let m = current(s)?;
     let latex = s.math_latex;
     let style = TypeStyle { nor: s.math_normal_text };
@@ -267,10 +380,12 @@ fn set_literal(nodes: &mut Arg) {
 
 fn insert_structure(s: &mut Session, v: &Value) -> CmdResult {
     let nodes = nodes_from(v).ok_or_else(|| CmdError::Params("give an id, linear or latex".into()))?;
-    let Some(m) = s.math.clone() else {
+    if s.math.is_none() {
         // Outside an equation: a new equation holding the structure.
         return insert_nodes_as_equation(s, nodes, &json!({}));
-    };
+    }
+    delete_selected(s)?;
+    let m = current(s)?;
     let mut pos = m.pos.clone();
     with_eq(s, &m.at, |math, _| {
         if math.linear {
@@ -291,9 +406,11 @@ fn insert_symbol(s: &mut Session, v: &Value) -> CmdResult {
     if c.is_empty() {
         return Err(CmdError::Params("empty char".into()));
     }
-    let Some(m) = s.math.clone() else {
+    if s.math.is_none() {
         return insert_nodes_as_equation(s, parse_linear(&c), &json!({}));
-    };
+    }
+    delete_selected(s)?;
+    let m = current(s)?;
     let mut pos = m.pos.clone();
     let style = TypeStyle { nor: s.math_normal_text };
     with_eq(s, &m.at, |math, _| {
@@ -323,6 +440,8 @@ fn move_caret(s: &mut Session, v: &Value) -> CmdResult {
     if !matches!(dir, "left" | "right" | "up" | "down" | "home" | "end" | "next" | "prev") {
         return Err(CmdError::Params(format!("unknown direction {dir}")));
     }
+    // Extending (Shift+arrows) grows a selection from where it began, and changes nothing.
+    let extend = p::bool(v, "extend").unwrap_or(false);
     // Leaving a slot finishes what was typed there (AutoCorrect names, build-up). That is worked
     // out on a copy: plain navigation must leave the equation (and its source OMML) untouched,
     // and a real change is a document edit — undoable and marking the document dirty (#446, #447).
@@ -330,7 +449,8 @@ fn move_caret(s: &mut Session, v: &Value) -> CmdResult {
         s.doc.para_at(&m.at).and_then(|p| p.object_at(m.at.off)),
         Some(InlineObject::Equation { math, .. }) if math.linear
     );
-    if !s.math_normal_text
+    if !extend
+        && !s.math_normal_text
         && !shown_linear
         && let Some(before) = nodes_of(s, &m.at)
     {
@@ -370,17 +490,25 @@ fn move_caret(s: &mut Session, v: &Value) -> CmdResult {
     };
     match next {
         Some(p) => {
-            if let Some(m) = s.math.as_mut() {
-                m.pos = p;
+            if let Some(mm) = s.math.as_mut() {
+                mm.anchor = if extend { Some(mm.anchor.clone().unwrap_or_else(|| m.pos.clone())) } else { None };
+                mm.pos = p;
             }
             result(s)
         }
+        // A selection stops at the equation's ends.
+        None if extend => result(s),
         // Past either end: the caret leaves the equation.
         None => exit(s, &json!({"before": dir == "left"})),
     }
 }
 
 fn delete(s: &mut Session, back: bool) -> CmdResult {
+    current(s)?;
+    // Backspace and Delete take a selection away whole.
+    if delete_selected(s)? {
+        return result(s);
+    }
     let m = current(s)?;
     let nodes = nodes_of(s, &m.at).ok_or_else(|| CmdError::Failed("no equation there".into()))?;
     // An empty equation goes away entirely.
@@ -589,6 +717,7 @@ fn get(s: &mut Session, _: &Value) -> CmdResult {
         "linearForm": math.linear,
         "editing": s.math.is_some(),
         "pos": s.math.as_ref().map(|m| serde_json::to_value(&m.pos).unwrap_or(Value::Null)),
+        "selection": s.math_selection().map(|sp| serde_json::to_value(&sp).unwrap_or(Value::Null)),
         "at": super::pos_json(&at),
     }))
 }
@@ -655,6 +784,177 @@ mod tests {
 
     fn linear(s: &Session) -> String {
         s.math.as_ref().and_then(|m| s.doc.para_at(&m.at).and_then(|p| p.object_at(m.at.off))).map(|o| o.plain_text().to_string()).unwrap_or_default()
+    }
+
+    /// An equation `x=(a+b)/c+1` being edited, the caret at its start.
+    fn editing_a_fraction() -> Session {
+        let mut s = session();
+        s.run("insert.equation", &json!({"linear": "x=(a+b)/c+1"})).unwrap();
+        s.run("equation.move", &json!({"dir": "home"})).unwrap();
+        assert_eq!(s.math.as_ref().unwrap().pos, MathPos::new(vec![], 0));
+        s
+    }
+
+    /// Dragging the frame's grip moves the equation where it's dropped, in one undo step, and
+    /// it is edited there; tracked, the move is a deletion and an insertion.
+    #[test]
+    fn the_grip_moves_the_equation_where_it_is_dropped() {
+        let text_of = |s: &Session| s.doc.para_at(&Pos::body(0, 0)).map(|p| p.text.replace(OBJ, "[eq]")).unwrap_or_default();
+        let mut s = session();
+        s.run("text.insert", &json!({"text": "Before after."})).unwrap();
+        s.sel = Selection::caret(Pos::body(0, 7));
+        s.run("insert.equation", &json!({"linear": "a/b"})).unwrap();
+        assert_eq!(text_of(&s), "Before [eq]after.");
+        // Forward, past the end of "after".
+        s.run("equation.moveTo", &json!({"to": Pos::body(0, 15)})).unwrap();
+        assert_eq!(text_of(&s), "Before after[eq].");
+        let m = s.math.clone().unwrap();
+        assert_eq!(m.at, Pos::body(0, 12));
+        assert_eq!(linear(&s), "a/b");
+        // Back to the start; then one undo puts it back.
+        s.run("equation.moveTo", &json!({"to": Pos::body(0, 0)})).unwrap();
+        assert_eq!(text_of(&s), "[eq]Before after.");
+        s.run("edit.undo", &json!({})).unwrap();
+        assert_eq!(text_of(&s), "Before after[eq].");
+        // Dropped on itself it stays; a position outside the document is refused.
+        s.run("equation.edit", &json!({})).unwrap();
+        s.run("equation.moveTo", &json!({"to": Pos::body(0, 12)})).unwrap();
+        assert_eq!(text_of(&s), "Before after[eq].");
+        assert!(s.run("equation.moveTo", &json!({"to": Pos::body(5, 0)})).is_err());
+        assert!(s.run("equation.moveTo", &json!({"to": Pos::body(0, 99)})).is_err());
+        // Ctrl+drag copies.
+        s.run("equation.moveTo", &json!({"to": Pos::body(0, 0), "copy": true})).unwrap();
+        assert_eq!(text_of(&s), "[eq]Before after[eq].");
+        // Tracked: the original stays as a deletion, the new one is an insertion.
+        let mut s = session();
+        s.run("insert.equation", &json!({"linear": "x"})).unwrap();
+        s.run("equation.exit", &json!({})).unwrap();
+        s.run("text.insert", &json!({"text": " tail"})).unwrap();
+        s.doc.settings.track_changes = true;
+        s.sel = Selection::caret(Pos::body(0, 0));
+        s.run("equation.edit", &json!({})).unwrap();
+        s.run("equation.moveTo", &json!({"to": Pos::body(0, 8)})).unwrap();
+        let p = s.doc.para_at(&Pos::body(0, 0)).unwrap();
+        assert_eq!(p.text.matches(OBJ).count(), 2, "{:?}", p.text);
+        assert!(p.runs.iter().any(|r| r.props.del.is_some()) && p.runs.iter().any(|r| r.props.ins.is_some()));
+        assert_eq!(s.math.as_ref().map(|m| m.at.off), Some(8));
+    }
+
+    /// Tracked, an equation the author inserted is removed outright when it moves, so a drop
+    /// further on in the same paragraph lands where the pointer let go.
+    #[test]
+    fn a_tracked_insertion_moved_forward_lands_at_the_drop() {
+        let mut s = session();
+        s.run("insert.equation", &json!({"linear": "x"})).unwrap();
+        s.run("equation.exit", &json!({})).unwrap();
+        s.run("text.insert", &json!({"text": " tail"})).unwrap();
+        // A tracked paste of the equation at the start: the author's own insertion.
+        s.sel = Selection { anchor: Pos::body(0, 0), focus: Pos::body(0, OBJ.len_utf8()) };
+        s.run("edit.copy", &json!({})).unwrap();
+        s.doc.settings.track_changes = true;
+        s.sel = Selection::caret(Pos::body(0, 0));
+        s.run("edit.paste", &json!({})).unwrap();
+        s.sel = Selection::caret(Pos::body(0, 0));
+        s.run("equation.edit", &json!({})).unwrap();
+        let end = s.doc.para_at(&Pos::body(0, 0)).unwrap().len();
+        s.run("equation.moveTo", &json!({"to": Pos::body(0, end)})).unwrap();
+        let p = s.doc.para_at(&Pos::body(0, 0)).unwrap();
+        assert_eq!(p.text.matches(OBJ).count(), 2, "{:?}", p.text);
+        let at = s.math.as_ref().unwrap().at.clone();
+        assert_eq!(at.off, p.len() - OBJ.len_utf8(), "{:?}", p.text);
+        assert!(matches!(p.object_at(at.off), Some(InlineObject::Equation { .. })));
+    }
+
+    /// A move the document refuses (here a control locked against editing around the equation)
+    /// leaves the document as it was and the equation still being edited.
+    #[test]
+    fn a_refused_move_keeps_the_equation_in_editing() {
+        let mut s = session();
+        s.run("text.insert", &json!({"text": "Before after."})).unwrap();
+        s.sel = Selection::caret(Pos::body(0, 7));
+        s.run("insert.equation", &json!({"linear": "a/b"})).unwrap();
+        s.run("equation.exit", &json!({})).unwrap();
+        s.sel = Selection { anchor: Pos::body(0, 7), focus: Pos::body(0, 7 + OBJ.len_utf8()) };
+        s.run("developer.richText", &json!({"tag": "eq"})).unwrap();
+        s.run("developer.properties", &json!({"control": "eq", "lockEdit": true})).unwrap();
+        let at = s
+            .doc
+            .para_at(&Pos::body(0, 0))
+            .unwrap()
+            .object_offsets()
+            .into_iter()
+            .find(|o| matches!(s.doc.para_at(&Pos::body(0, 0)).unwrap().object_at(*o), Some(InlineObject::Equation { .. })));
+        s.sel = Selection::caret(Pos::body(0, at.unwrap()));
+        s.run("equation.edit", &json!({})).unwrap();
+        let (before, editing) = (s.doc.clone(), s.math.clone());
+        assert!(s.run("equation.moveTo", &json!({"to": Pos::body(0, 0)})).is_err());
+        assert_eq!(s.doc, before);
+        assert_eq!(s.math, editing);
+    }
+
+    /// Shift+arrows select inside an equation; moving without Shift ends the selection.
+    #[test]
+    fn shift_arrows_select_inside_an_equation() {
+        let mut s = editing_a_fraction();
+        s.dirty = false;
+        let undo_steps = s.undo_labels().len();
+        for _ in 0..2 {
+            s.run("equation.move", &json!({"dir": "right", "extend": true})).unwrap();
+        }
+        let r = s.run("equation.move", &json!({"dir": "right", "extend": true})).unwrap();
+        // x, = and then into the numerator: the selection takes the whole fraction.
+        assert_eq!(s.math_selection(), Some(MathSpan { path: vec![], start: 0, end: 3 }), "{r}");
+        assert_eq!(r["selection"]["end"], 3);
+        // Selecting changed nothing and is no edit.
+        assert_eq!(linear(&s), "x=(a+b)/c+1");
+        assert!(!s.dirty && s.undo_labels().len() == undo_steps);
+        // At the end it stops in the equation instead of leaving it.
+        for _ in 0..12 {
+            s.run("equation.move", &json!({"dir": "right", "extend": true})).unwrap();
+        }
+        assert!(s.math.is_some());
+        assert_eq!(s.math_selection().map(|p| (p.start, p.end)), Some((0, 5)));
+        s.run("equation.move", &json!({"dir": "left"})).unwrap();
+        assert_eq!(s.math_selection(), None);
+    }
+
+    /// Typing, a structure or Backspace replaces the selection, in one undo step.
+    #[test]
+    fn typing_or_deleting_replaces_the_selection() {
+        let mut s = editing_a_fraction();
+        let fraction = MathPos::new(vec![(1, 0)], 1);
+        s.run("equation.edit", &json!({"pos": MathPos::new(vec![], 2)})).unwrap();
+        s.run("equation.edit", &json!({"pos": fraction, "extend": true})).unwrap();
+        s.run("equation.type", &json!({"text": "y"})).unwrap();
+        assert_eq!(linear(&s), "x=y+1");
+        assert_eq!(s.math_selection(), None);
+        s.run("edit.undo", &json!({})).unwrap();
+        s.run("equation.edit", &json!({"pos": MathPos::new(vec![], 0)})).unwrap();
+        assert_eq!(linear(&s), "x=(a+b)/c+1");
+        // Backspace takes the selection away, and only it.
+        s.run("equation.move", &json!({"dir": "right", "extend": true})).unwrap();
+        s.run("equation.backspace", &json!({})).unwrap();
+        assert_eq!(linear(&s), "=(a+b)/c+1");
+        // A structure takes the selection's place too.
+        s.run("equation.move", &json!({"dir": "right", "extend": true})).unwrap();
+        s.run("equation.insertStructure", &json!({"linear": "√⬚"})).unwrap();
+        assert!(linear(&s).starts_with('√'), "{}", linear(&s));
+    }
+
+    /// Copy and Cut take the selected part as an equation of its own.
+    #[test]
+    fn copy_and_cut_take_the_selected_part() {
+        let mut s = editing_a_fraction();
+        s.run("equation.edit", &json!({"pos": MathPos::new(vec![(1, 0)], 0)})).unwrap();
+        s.run("equation.edit", &json!({"pos": MathPos::new(vec![(1, 0)], 3), "extend": true})).unwrap();
+        assert!(s.run("edit.copy", &json!({})).unwrap()["mathml"].as_str().is_some_and(|m| m.contains("<mi>a</mi>")));
+        assert_eq!(s.clipboard.as_ref().and_then(|f| f.sole_equation()).map(|(l, _)| l.to_string()), Some("a+b".to_string()));
+        assert!(s.math.is_some(), "copying stays in the equation");
+        s.run("edit.cut", &json!({})).unwrap();
+        // The numerator is left empty (its placeholder shows).
+        assert_eq!(linear(&s), "x=()/c+1");
+        // Nothing selected: Cut is unavailable, as with a text caret.
+        assert!(s.run("edit.cut", &json!({})).is_err());
     }
 
     #[test]
