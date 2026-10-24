@@ -158,3 +158,38 @@ fn plain_justify_and_left_leave_khmer_alone() {
         assert!(pl.gaps.is_empty(), "{align:?}");
     }
 }
+
+/// A cluster for the byte range `a..b` of the paragraph text, of the given kind.
+fn cl(a: usize, b: usize, kind: ClKind) -> crate::para::Cluster {
+    crate::para::Cluster { start: a, end: b, adv: 8.0, kind, style: 0, g0: 0, g1: 0, break_after: false, obj_h: 0.0, obj_d: 0.0, dot: false }
+}
+
+#[test]
+fn an_anchor_between_two_syllables_does_not_hide_their_gap() {
+    // ក | (bookmark anchor, no text) | ខ : the gap sits after the anchor, as it does without one.
+    let text = "កខ";
+    let k = "ក".len();
+    let with = crate::para::cluster_gaps(text, &[cl(0, k, ClKind::Text), cl(k, k, ClKind::Marker), cl(k, text.len(), ClKind::Text)]);
+    assert_eq!(with, vec![Gap::None, Gap::Syllable, Gap::None]);
+    let without = crate::para::cluster_gaps(text, &[cl(0, k, ClKind::Text), cl(k, text.len(), ClKind::Text)]);
+    assert_eq!(without, vec![Gap::Syllable, Gap::None]);
+}
+
+#[test]
+fn a_full_stop_after_khmer_is_not_a_gap() {
+    let text = "ក.";
+    let k = "ក".len();
+    let gaps = crate::para::cluster_gaps(text, &[cl(0, k, ClKind::Text), cl(k, k + 1, ClKind::Text)]);
+    assert_eq!(gaps, vec![Gap::None, Gap::None]);
+}
+
+#[test]
+fn zero_width_space_between_anchors_still_marks_a_word() {
+    let text = "ក\u{200B}ខ";
+    let (k, z) = ("ក".len(), '\u{200B}'.len_utf8());
+    let gaps = crate::para::cluster_gaps(
+        text,
+        &[cl(0, k, ClKind::Text), cl(k, k, ClKind::Marker), cl(k, k + z, ClKind::Marker), cl(k + z, text.len(), ClKind::Text)],
+    );
+    assert_eq!(gaps, vec![Gap::None, Gap::None, Gap::Word, Gap::None]);
+}

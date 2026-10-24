@@ -63,8 +63,10 @@ What this means for the layout:
 
 1. **ZWSP can be missing from the font.** Khmer OS Battambang/New have no glyph for it, so a
    text typed with the Khmer keyboard would draw a `.notdef` box or leave a gap. Layout now treats
-   U+200B as an invisible zero-width marker cluster, whatever the font has, and as a word boundary
-   (`ClKind::Marker`; break allowed after it).
+   U+200B (and the word joiner U+2060 and U+FEFF) as an invisible zero-width marker cluster,
+   whatever the font has, and U+200B also as a word boundary (`ClKind::Marker`; break allowed after
+   it). Other zero-width markers (bookmark and comment anchors, soft hyphens) between two syllables
+   don't hide the gap between them.
 2. **Space width varies 3×** (0.25–0.71 em), so stretch limits are in **ems of the cluster's
    font size**, never multiples of the space width.
 3. **COENG may have an advance** in some fonts. The shaper (`harfrust`) consumes it in the
@@ -81,7 +83,7 @@ What this means for the layout:
 Each cluster carries the kind of gap after it (`ParaLayout::gaps`, from
 `wordcraft_doc::khmer::gap_between` / `thai::gap_between`):
 
-`Space` > `Word` (after ZWSP, after ។ ៕, between Khmer and Latin/digits) > `Syllable` (between
+`Space` > `Word` (after ZWSP, after ។ ៕, between Khmer and a Latin letter or digit; a full stop, bracket or quote stays attached to its word) > `Syllable` (between
 orthographic syllables) > `None` (inside a syllable, before a vowel/sign/coeng/ៗ, inside a Latin
 word).
 
@@ -121,3 +123,4 @@ inside a syllable, rank order, ZWSP, Latin text), `docx/tests/roundtrip.rs`
 ## Revision history
 
 - First version: alignments, docx mapping, tiered distribution, ZWSP handling, font study.
+- Review fixes: punctuation next to Khmer is not a gap; anchors between syllables keep their gap; leading Thai vowels get a gap; RTF `\qt`; word joiner and U+FEFF are invisible.

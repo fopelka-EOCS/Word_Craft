@@ -70,22 +70,6 @@ fn starts_syllable(c: char) -> bool {
     matches!(class(c), Class::Consonant | Class::IndependentVowel | Class::Digit | Class::Symbol)
 }
 
-/// Byte offsets where an orthographic syllable starts inside Khmer text, in order. A consonant
-/// that follows a coeng is a subscript and does not start one; dependent vowels, signs and the
-/// joiners never do. Offsets are only between two Khmer characters (or where Khmer text starts
-/// after something else).
-pub fn syllable_starts(text: &str) -> Vec<usize> {
-    let mut out = Vec::new();
-    let mut prev: Option<char> = None;
-    for (i, c) in text.char_indices() {
-        if is_khmer(c) && starts_syllable(c) && prev != Some('\u{17D2}') {
-            out.push(i);
-        }
-        prev = Some(c);
-    }
-    out
-}
-
 /// How much a gap between two clusters may stretch in justification, from most to least eager.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Gap {
@@ -132,9 +116,10 @@ pub fn gap_between(before: char, after: char, zwsp_between: bool) -> Gap {
                 Gap::None
             }
         }
-        // Khmer next to Latin, a space is not there: a word boundary.
+        // Khmer next to a Latin letter or a digit is a word boundary; next to a full stop, a
+        // bracket or a quote it is not (those stay attached to the word).
         (true, false) | (false, true) => {
-            if after.is_alphanumeric() || before.is_alphanumeric() || class(before) == Class::Punct {
+            if (after.is_alphanumeric() && before.is_alphanumeric()) || class(before) == Class::Punct && after.is_alphanumeric() {
                 Gap::Word
             } else {
                 Gap::None
@@ -147,9 +132,6 @@ pub fn gap_between(before: char, after: char, zwsp_between: bool) -> Gap {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// ខ្មែរ = ខ + coeng + ម + ែ, then រ.
-    const KHMER: &str = "ខ្មែរ";
 
     #[test]
     fn classes_follow_the_unicode_chart() {
@@ -164,18 +146,6 @@ mod tests {
         assert_eq!(class('៛'), Class::Symbol);
         assert_eq!(class('a'), Class::Other);
         assert!(is_khmer('ក') && is_khmer('᧠') && !is_khmer('a'));
-    }
-
-    #[test]
-    fn subscripts_do_not_start_syllables() {
-        assert_eq!(syllable_starts(KHMER), vec![0, "ខ្មែ".len()]);
-        // ស្រុកខ្មែរ: ស្រុ | ក | ខ្មែ | រ
-        let t = "ស្រុកខ្មែរ";
-        let parts: Vec<&str> = syllable_starts(t).windows(2).map(|w| &t[w[0]..w[1]]).collect();
-        assert_eq!(parts, vec!["ស្រុ", "ក", "ខ្មែ"]);
-        // Dependent vowels and signs never start one (ក៉ាំ).
-        assert_eq!(syllable_starts("ក៉ាំ"), vec![0]);
-        assert!(syllable_starts("hello").is_empty());
     }
 
     #[test]
@@ -196,5 +166,16 @@ mod tests {
         assert_eq!(gap_between('ក', '៉', false), Gap::None, "register shifter");
         assert_eq!(gap_between('ក', 'ៗ', false), Gap::None, "lek too stays with its word");
         assert_eq!(gap_between('a', 'b', false), Gap::None, "Latin letters are not spaced");
+    }
+
+    #[test]
+    fn punctuation_and_brackets_stay_attached_to_khmer_words() {
+        assert_eq!(gap_between('ម', '.', false), Gap::None, "full stop");
+        assert_eq!(gap_between('ម', ')', false), Gap::None, "close bracket");
+        assert_eq!(gap_between('(', 'ក', false), Gap::None, "open bracket");
+        assert_eq!(gap_between('ម', '"', false), Gap::None, "quote");
+        assert_eq!(gap_between('ម', 'a', false), Gap::Word, "Latin word after Khmer");
+        assert_eq!(gap_between('1', 'ក', false), Gap::Word, "digit before Khmer");
+        assert_eq!(gap_between('។', 'a', false), Gap::Word, "after khan");
     }
 }

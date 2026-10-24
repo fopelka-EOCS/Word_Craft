@@ -1116,9 +1116,10 @@ impl<'a> Builder<'a> {
                 let ch = s.chars().next().unwrap_or(' ');
                 let kind = kind_override.unwrap_or(if ch == ' ' || ch == '\u{3000}' {
                     ClKind::Space
-                } else if ch == SOFT_HYPHEN || ch == '\u{200B}' {
-                    // The zero-width space is invisible and takes no room, whatever the font draws
-                    // for it (Khmer OS Battambang has no glyph for it at all).
+                } else if ch == SOFT_HYPHEN || matches!(ch, '\u{200B}' | '\u{2060}' | '\u{FEFF}') {
+                    // The zero-width space, word joiner and no-break mark are invisible and take no
+                    // room, whatever the font draws for them (Khmer OS Battambang has no glyph for
+                    // U+200B at all).
                     ClKind::Marker
                 } else {
                     ClKind::Text
@@ -1983,7 +1984,7 @@ pub(crate) fn word_widths(clusters: &[Cluster], hyph_after: &[u32]) -> Vec<f32> 
 /// The gap after each cluster for Thai Distributed and Khmer Justify. A zero-width space is a
 /// cluster of its own with no width: the gap after it is the word boundary it marks, and the
 /// cluster before it has none.
-fn cluster_gaps(text: &str, clusters: &[Cluster]) -> Vec<wordcraft_doc::khmer::Gap> {
+pub(crate) fn cluster_gaps(text: &str, clusters: &[Cluster]) -> Vec<wordcraft_doc::khmer::Gap> {
     use wordcraft_doc::khmer::{self, Gap};
     let slice = |c: &Cluster| text.get(c.start..c.end).unwrap_or("");
     let mut out = vec![Gap::None; clusters.len()];
@@ -2001,11 +2002,13 @@ fn cluster_gaps(text: &str, clusters: &[Cluster]) -> Vec<wordcraft_doc::khmer::G
             continue;
         }
         let Some(before) = t.chars().next_back() else { continue };
-        // Skip zero-width spaces: they only turn the gap into a word boundary.
+        // Skip what takes no room (zero-width spaces, bookmark and comment anchors, soft hyphens):
+        // a zero-width space turns the gap into a word boundary, the rest leave it as it is.
         let mut j = k;
         let mut zwsp = false;
-        while clusters.get(j).is_some_and(|n| slice(n).chars().all(khmer::is_zero_width_space) && !slice(n).is_empty()) {
-            zwsp = true;
+        while let Some(n) = clusters.get(j).filter(|n| n.kind == ClKind::Marker) {
+            let t = slice(n);
+            zwsp |= !t.is_empty() && t.chars().all(khmer::is_zero_width_space);
             j += 1;
         }
         let Some(next) = clusters.get(j).filter(|n| n.kind == ClKind::Text) else { continue };
