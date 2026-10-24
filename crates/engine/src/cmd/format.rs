@@ -13,6 +13,49 @@ use crate::{CmdError, CmdResult, CommandSpec, Session, p};
 /// Word's font size list.
 pub const SIZES: [f32; 17] = [8.0, 9.0, 10.0, 10.5, 11.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0, 36.0, 48.0, 72.0];
 
+/// One of Word's five Change Case modes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CaseMode {
+    Sentence,
+    Lower,
+    Upper,
+    Title,
+    Toggle,
+}
+
+impl CaseMode {
+    /// Word's Home › Font › Change Case order.
+    pub const ALL: [CaseMode; 5] = [CaseMode::Sentence, CaseMode::Lower, CaseMode::Upper, CaseMode::Title, CaseMode::Toggle];
+
+    /// The `format.changeCase` `mode` value.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            CaseMode::Sentence => "sentence",
+            CaseMode::Lower => "lower",
+            CaseMode::Upper => "upper",
+            CaseMode::Title => "title",
+            CaseMode::Toggle => "toggle",
+        }
+    }
+
+    /// The existing English menu label (an i18n key for `tl!`).
+    pub const fn label(self) -> &'static str {
+        match self {
+            CaseMode::Sentence => "Sentence case.",
+            CaseMode::Lower => "lowercase",
+            CaseMode::Upper => "UPPERCASE",
+            CaseMode::Title => "Capitalize Each Word",
+            CaseMode::Toggle => "tOGGLE cASE",
+        }
+    }
+
+    /// `None` for an unknown mode. Trims and ignores ASCII case, so `" UPPER "` is `Upper`.
+    pub fn parse(s: &str) -> Option<CaseMode> {
+        let s = s.trim();
+        CaseMode::ALL.into_iter().find(|m| m.as_str().eq_ignore_ascii_case(s))
+    }
+}
+
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("format.bold", "Bold", "Home › Font", |s, v| {
@@ -177,6 +220,32 @@ fn selected_text_box(s: &Session) -> Option<(Pos, Pos)> {
     let (_, InlineObject::Shape { story: Some(id), .. }) = super::objects::object_selection(s)? else { return None };
     let story = StoryRef::Part(*id);
     s.doc.parts.get(id).filter(|p| p.kind == PartKind::TextBox).map(|_| (s.doc.start_of(story), s.doc.end_of(story)))
+}
+
+/// The range Change Case works on: a selected text box, the selection, or the word at a collapsed
+/// caret.
+fn case_range(s: &Session) -> (Pos, Pos) {
+    if let Some(all) = selected_text_box(s) {
+        return all;
+    }
+    let (a, b) = s.sel.ordered();
+    if a == b { target(s).unwrap_or((a, b)) } else { (a, b) }
+}
+
+/// The selection text as Change Case sees it: tracked deletions are skipped and paragraphs are
+/// joined with a newline.
+fn case_text(s: &Session, a: &Pos, b: &Pos) -> String {
+    s.doc
+        .paths_between(a, b)
+        .iter()
+        .filter_map(|path| {
+            let p = s.doc.para(a.story, path)?;
+            let from = if *path == a.path { a.off } else { 0 };
+            let to = if *path == b.path { b.off } else { p.len() };
+            Some(live_chars(p, from, to).into_iter().map(|(_, c)| c).collect::<String>())
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// The non-empty rows of a column selection, if one is active. Of whole cells, every paragraph:
@@ -408,13 +477,7 @@ fn highlight(s: &mut Session, v: &Value) -> CmdResult {
 /// `format.changeCase`: `mode` (lower, upper, title, sentence, toggle), or Shift+F3's cycle
 /// without one. Works on the selection, the word at the caret, or a selected text box's text.
 fn change_case(s: &mut Session, v: &Value) -> CmdResult {
-    let (a, b) = match selected_text_box(s) {
-        Some(all) => all,
-        None => {
-            let (a, b) = s.sel.ordered();
-            if a == b { target(s).unwrap_or((a, b)) } else { (a, b) }
-        }
-    };
+    let (a, b) = case_range(s);
     if a == b {
         return sel_result(s);
     }
@@ -422,30 +485,9 @@ fn change_case(s: &mut Session, v: &Value) -> CmdResult {
     super::controls::check_edit(s, &a, &b)?;
     // Only text that isn't a tracked deletion counts, for the mode and the conversion: after a
     // tracked change of case the old letters are still there, deleted (#1329).
-    let text: String = s
-        .doc
-        .paths_between(&a, &b)
-        .iter()
-        .filter_map(|path| {
-            let p = s.doc.para(a.story, path)?;
-            let from = if *path == a.path { a.off } else { 0 };
-            let to = if *path == b.path { b.off } else { p.len() };
-            Some(live_chars(p, from, to).into_iter().map(|(_, c)| c).collect::<String>())
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    let mode = p::str(v, "mode").map(str::to_string).unwrap_or_else(|| {
-        // Shift+F3 cycles: lower → UPPER → Title → lower.
-        if text.chars().any(char::is_lowercase) && text.chars().any(char::is_uppercase) && !is_title(&text) {
-            "lower".into()
-        } else if !text.chars().any(char::is_uppercase) {
-            "upper".into()
-        } else if text.chars().any(char::is_lowercase) {
-            "lower".into()
-        } else {
-            "title".into()
-        }
-    });
+    let text = case_text(s, &a, &b);
+    // Unknown modes keep their old fallback to sentence case; an absent mode is Shift+F3's cycle.
+    let mode = p::str(v, "mode").map(|m| CaseMode::parse(m).unwrap_or(CaseMode::Sentence)).unwrap_or_else(|| next_mode(&text));
     for path in s.doc.paths_between(&a, &b) {
         // Changed stretches of one run each: (start, end, replacement), in text order.
         let groups = {
@@ -463,7 +505,7 @@ fn change_case(s: &mut Session, v: &Value) -> CmdResult {
                     is_turkic(lang.as_deref().or(s.editing_lang.as_deref()))
                 })
                 .collect();
-            case_groups(p, &chars, &convert_chars(&src, &mode, from == 0, &turkic))
+            case_groups(p, &chars, &convert_chars(&src, mode, from == 0, &turkic))
         };
         if groups.is_empty() {
             continue;
@@ -595,8 +637,27 @@ fn is_title(t: &str) -> bool {
     t.split_whitespace().all(|w| w.chars().next().is_some_and(char::is_uppercase))
 }
 
+/// Shift+F3's no-mode cycle over `text`: lower → UPPER → Title → lower.
+pub fn next_mode(text: &str) -> CaseMode {
+    if text.chars().any(char::is_lowercase) && text.chars().any(char::is_uppercase) && !is_title(text) {
+        CaseMode::Lower
+    } else if !text.chars().any(char::is_uppercase) {
+        CaseMode::Upper
+    } else if text.chars().any(char::is_lowercase) {
+        CaseMode::Lower
+    } else {
+        CaseMode::Title
+    }
+}
+
+/// The mode Shift+F3 would apply to the current selection, or the word at a collapsed caret.
+pub fn next_mode_at_selection(s: &Session) -> CaseMode {
+    let (a, b) = case_range(s);
+    if a == b { CaseMode::Sentence } else { next_mode(&case_text(s, &a, &b)) }
+}
+
 #[cfg(test)]
-fn convert(src: &str, mode: &str, para_start: bool) -> String {
+fn convert(src: &str, mode: CaseMode, para_start: bool) -> String {
     let turkic = vec![false; src.chars().count()];
     convert_chars(src, mode, para_start, &turkic).concat()
 }
@@ -604,7 +665,7 @@ fn convert(src: &str, mode: &str, para_start: bool) -> String {
 /// The case-converted form of each character of `src`, in order (one entry per char, so a
 /// change of length such as ß → SS or İ → i̇ can be applied run by run). `turkic` is one flag
 /// per char: true when that character's run is Turkish, Azerbaijani or Crimean Tatar.
-fn convert_chars(src: &str, mode: &str, para_start: bool, turkic: &[bool]) -> Vec<String> {
+fn convert_chars(src: &str, mode: CaseMode, para_start: bool, turkic: &[bool]) -> Vec<String> {
     let chars: Vec<char> = src.chars().collect();
     // Greek capital sigma lowers to the final form at the end of a word (as `str::to_lowercase`).
     let lower = |i: usize, c: char| -> String {
@@ -619,22 +680,22 @@ fn convert_chars(src: &str, mode: &str, para_start: bool, turkic: &[bool]) -> Ve
         }
     };
     // Title case capitalises the first word of any selection; sentence case only at a paragraph start.
-    let mut up = mode == "title" || para_start;
+    let mut up = mode == CaseMode::Title || para_start;
     let mut out = Vec::with_capacity(chars.len());
     for (i, &c) in chars.iter().enumerate() {
         let turkic = turkic.get(i).copied().unwrap_or(false);
         let upper = |c: char| upper_char(c, turkic);
         let new = match mode {
-            "upper" => upper(c),
-            "lower" => lower(i, c),
-            "toggle" => {
+            CaseMode::Upper => upper(c),
+            CaseMode::Lower => lower(i, c),
+            CaseMode::Toggle => {
                 if c.is_uppercase() {
                     lower(i, c)
                 } else {
                     upper(c)
                 }
             }
-            "title" => {
+            CaseMode::Title => {
                 let n = if up && c.is_alphabetic() {
                     up = false;
                     upper(c)
@@ -646,8 +707,7 @@ fn convert_chars(src: &str, mode: &str, para_start: bool, turkic: &[bool]) -> Ve
                 }
                 n
             }
-            _ => {
-                // Sentence case.
+            CaseMode::Sentence => {
                 let n = if up && c.is_alphabetic() {
                     up = false;
                     upper(c)
@@ -758,23 +818,56 @@ pub fn state(s: &Session) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::convert;
+    use super::{CaseMode, convert, next_mode, next_mode_at_selection};
 
     #[test]
     fn case_conversions() {
-        assert_eq!(convert("hello world. again", "sentence", true), "Hello world. Again");
-        assert_eq!(convert("hello WORLD", "title", true), "Hello World");
-        assert_eq!(convert("Hello", "toggle", true), "hELLO");
-        assert_eq!(convert("straße", "upper", true), "STRASSE");
-        assert_eq!(convert("hello world", "title", false), "Hello World");
-        assert_eq!(convert("ΣΟΦΟΣ ΟΔΟΣ", "lower", true), "σοφος οδος");
+        assert_eq!(convert("hello world. again", CaseMode::Sentence, true), "Hello world. Again");
+        assert_eq!(convert("hello WORLD", CaseMode::Title, true), "Hello World");
+        assert_eq!(convert("Hello", CaseMode::Toggle, true), "hELLO");
+        assert_eq!(convert("straße", CaseMode::Upper, true), "STRASSE");
+        assert_eq!(convert("hello world", CaseMode::Title, false), "Hello World");
+        assert_eq!(convert("ΣΟΦΟΣ ΟΔΟΣ", CaseMode::Lower, true), "σοφος οδος");
+    }
+
+    #[test]
+    fn case_modes_follow_word_order_and_labels() {
+        assert_eq!(CaseMode::ALL.map(CaseMode::as_str), ["sentence", "lower", "upper", "title", "toggle"]);
+        assert_eq!(CaseMode::ALL.map(CaseMode::label), ["Sentence case.", "lowercase", "UPPERCASE", "Capitalize Each Word", "tOGGLE cASE"]);
+        for mode in CaseMode::ALL {
+            assert_eq!(CaseMode::parse(mode.as_str()), Some(mode));
+        }
+        assert_eq!(CaseMode::parse(" UPPER "), Some(CaseMode::Upper));
+        assert_eq!(CaseMode::parse("bogus"), None);
+    }
+
+    #[test]
+    fn next_mode_cycles_like_shift_f3() {
+        assert_eq!(next_mode("hello"), CaseMode::Upper);
+        assert_eq!(next_mode("HELLO"), CaseMode::Title);
+        assert_eq!(next_mode("Hello"), CaseMode::Lower);
+        assert_eq!(next_mode("hello World"), CaseMode::Lower);
+        assert_eq!(next_mode("123"), CaseMode::Upper);
+    }
+
+    #[test]
+    fn next_mode_at_selection_reads_the_selection_or_word_at_the_caret() {
+        use wordcraft_doc::{Document, Pos};
+
+        let mut s = crate::Session::new(Document::from_text("hello world"));
+        s.sel = crate::Selection { anchor: Pos::body(0, 0), focus: Pos::body(0, 5) };
+        assert_eq!(next_mode_at_selection(&s), CaseMode::Upper);
+        s.sel = crate::Selection::caret(Pos::body(0, 2));
+        assert_eq!(next_mode_at_selection(&s), CaseMode::Upper, "a caret inside a word targets that word");
+        s.sel = crate::Selection::caret(Pos::body(0, 6));
+        assert_eq!(next_mode_at_selection(&s), CaseMode::Sentence, "between words there is no target");
     }
 
     #[test]
     fn sentence_case_ignores_decimal_points() {
         // #3485: A period between two digits is a decimal point, not a sentence boundary.
-        assert_eq!(convert("one 3.14 apples and two 2.5 pears.", "sentence", true), "One 3.14 apples and two 2.5 pears.");
-        assert_eq!(convert("pi is 3.14. next sentence.", "sentence", true), "Pi is 3.14. Next sentence.");
+        assert_eq!(convert("one 3.14 apples and two 2.5 pears.", CaseMode::Sentence, true), "One 3.14 apples and two 2.5 pears.");
+        assert_eq!(convert("pi is 3.14. next sentence.", CaseMode::Sentence, true), "Pi is 3.14. Next sentence.");
     }
 }
 

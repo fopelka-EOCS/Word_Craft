@@ -31,9 +31,9 @@ const SEP_W: f32 = 9.0;
 const COMBO_SIZE_W: f32 = 52.0;
 /// Gap between the size box and the grow/shrink buttons.
 const GAP: f32 = 3.0;
-/// Row 2, like Word's: B I U S | highlight, font colour | the four alignments. Fourteen
-/// allocations, so thirteen gaps; the two inside the split buttons are counted in `SPLIT_W`.
-const ROW2_W: f32 = 8.0 * BTN_W + 2.0 * SPLIT_W + 2.0 * SEP_W + 11.0 * SPACING;
+/// Row 2, like Word's: B I U S | highlight, font colour | the four alignments | Aa. Fifteen
+/// allocations, so fourteen gaps; the two inside the split buttons are counted in `SPLIT_W`.
+const ROW2_W: f32 = 9.0 * BTN_W + 2.0 * SPLIT_W + 2.0 * SEP_W + 12.0 * SPACING;
 /// Row 1: font, size, grow, shrink. The font box takes what row 2 leaves, so both rows end
 /// together and the box starts at the bar's left edge.
 const COMBO_FONT_W: f32 = ROW2_W - (COMBO_SIZE_W + GAP + 2.0 * BTN_W + 3.0 * SPACING);
@@ -112,8 +112,8 @@ pub fn visible(app: &WordApp) -> bool {
     if app.dialog.is_some() || app.colors.is_some() || app.ui.backstage {
         return false;
     }
-    // Never while the right-click context menu is open: it owns the pointer and would double up.
-    if app.canvas.context_menu_open {
+    // Never while the right-click context menu or the Change Case picker owns the selection.
+    if app.canvas.context_menu_open || app.canvas.case_picker.is_some() {
         return false;
     }
     // Never while a drag-select is in progress, in the text or a table's selection areas (Word
@@ -293,6 +293,7 @@ fn content(app: &mut WordApp, ui: &mut egui::Ui, t: &Tokens) {
         widgets::small(ui, app, "alignCenter", None, "Center", "para.alignCenter", json!({}), align == A::Center);
         widgets::small(ui, app, "alignRight", None, "Align Right", "para.alignRight", json!({}), align == A::Right);
         widgets::small(ui, app, "justify", None, "Justify", "para.justify", json!({}), align == A::Justify);
+        widgets::small(ui, app, "case", None, "Change Case", "ui.changeCase", json!({}), false);
     });
 }
 

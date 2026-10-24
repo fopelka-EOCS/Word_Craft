@@ -132,6 +132,12 @@ fn dispatch(app: &mut WordApp, key: Key, m: Modifiers) -> bool {
         return true;
     }
     if let Some(spec) = bound {
+        // The UI route for Change Case opens the picker (#3483); scripts and the no-mode
+        // engine command keep cycling as before.
+        if spec.id == "format.changeCase" && key == Key::F3 && m.shift && !m.command && !m.ctrl && !m.alt && !m.mac_cmd {
+            crate::case_picker::open(app);
+            return true;
+        }
         // Option+Shift+- types an em dash on macOS; Word's Alt+Shift+- (Collapse) only works in
         // Outline view, so elsewhere the key stays typing (#1933).
         if m.alt && !crate::widgets::enabled(app, spec.id) {

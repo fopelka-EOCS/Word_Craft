@@ -27,6 +27,7 @@ pub mod autoscroll;
 pub mod backstage;
 pub mod canvas;
 pub mod caret_glide;
+pub mod case_picker;
 pub mod chrome;
 pub mod colors;
 pub mod content_controls;
@@ -1604,6 +1605,12 @@ impl WordApp {
                 self.canvas.want_focus = true;
                 json!({"pending": "contextMenu"})
             }
+            // The Change Case picker (#3483): the ribbon Aa, the mini-toolbar Aa and the
+            // context menu. Shift+F3 opens it in `keys::dispatch`.
+            "ui.changeCase" => {
+                crate::case_picker::open(self);
+                json!({"open": crate::case_picker::is_open(self)})
+            }
             "ui.collapseRibbon" => {
                 self.ui.ribbon_collapsed = !self.ui.ribbon_collapsed;
                 json!({"collapsed": self.ui.ribbon_collapsed})
@@ -2422,7 +2429,13 @@ impl WordApp {
             return;
         }
         let t = theme::Tokens::get(&ctx);
-        self.escape_free = self.dialog.is_none() && !self.ui.backstage && self.ui.keytips == keytips::Phase::Off && !egui::Popup::is_any_open(&ctx);
+        // The picker owns the keyboard before the canvas or keytips see it.
+        crate::case_picker::keys(self, &ctx);
+        self.escape_free = self.dialog.is_none()
+            && !self.ui.backstage
+            && self.ui.keytips == keytips::Phase::Off
+            && !egui::Popup::is_any_open(&ctx)
+            && self.canvas.case_picker.is_none();
         // Keytips are read before layout so the frame paints the new state; badges paint after
         // the ribbon so they sit on top of it.
         crate::keytips::logic(self, &ctx);
@@ -2459,6 +2472,7 @@ impl WordApp {
                 chrome::focus_ribbon(self, &ctx);
             }
         }
+        crate::case_picker::show(self, &ctx);
         content_controls::popup(self, &ctx);
         dialogs::show(self, &ctx);
         #[cfg(not(target_arch = "wasm32"))]
@@ -2942,6 +2956,9 @@ fn control_click_as_secondary(events: &mut [egui::Event], held: &mut bool) {
 
 #[cfg(test)]
 mod tests_perf;
+
+#[cfg(test)]
+mod tests_change_case;
 
 #[cfg(test)]
 mod tests {
@@ -3546,7 +3563,7 @@ mod tests {
         }
         assert!(!chrome::qat_enabled(a, "file.save"));
         // Only the listed interface commands work: the ones that act on the document don't.
-        for id in ["ui.contextMenu", "ui.render", "ui.linkTextBox", "ui.zotero.refresh", "ui.unlistedCommand"] {
+        for id in ["ui.contextMenu", "ui.changeCase", "ui.render", "ui.linkTextBox", "ui.zotero.refresh", "ui.unlistedCommand"] {
             assert!(!works_without_document(id), "{id} needs a document");
         }
         let refused = a.run("ui.zotero.status", json!({})).unwrap_err();

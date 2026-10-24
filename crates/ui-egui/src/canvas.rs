@@ -123,6 +123,8 @@ pub struct CanvasState {
     /// The selection the mini toolbar was put away for by a click outside the document (the
     /// ribbon, a pane, the status bar); it comes back when the selection changes.
     pub mini_dismissed: Option<wordcraft_engine::Selection>,
+    /// The Change Case picker, open over the page (#3483).
+    pub(crate) case_picker: Option<crate::case_picker::Picker>,
     /// A picture, shape or text box being dragged by its frame.
     pub(crate) obj_drag: Option<crate::objects::ObjectDrag>,
     /// Crop mode (Picture Format › Crop) is on for the picture here (`crop`).
@@ -281,6 +283,7 @@ impl Default for CanvasState {
             eq_options: None,
             mini_anchor: None,
             mini_dismissed: None,
+            case_picker: None,
             pasted: false,
             v_pressed: false,
             paste_mods: None,
@@ -3384,6 +3387,7 @@ fn context_menu(app: &mut WordApp, ui: &mut Ui) {
         });
     }
     item(ui, app, "Font…", "ui.dialog", json!({"name": "font"}));
+    item(ui, app, "Change Case", "ui.changeCase", json!({}));
     item(ui, app, "Paragraph…", "ui.dialog", json!({"name": "paragraph"}));
     item(ui, app, "Link…", "ui.dialog", json!({"name": "link"}));
     item(ui, app, "New Comment", "review.newComment", json!({}));

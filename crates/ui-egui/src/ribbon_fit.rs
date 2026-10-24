@@ -366,7 +366,7 @@ mod ui_tests {
     }
 
     /// #1285: a collapsed group's drop-down stays open while its controls are used, and they run
-    /// their commands: a button, then an item of a menu inside it.
+    /// their commands: a button, then Aa's picker (#3483).
     #[test]
     fn collapsed_group_stays_open_and_runs_its_commands() {
         let mut h = harness(760.0);
@@ -382,7 +382,7 @@ mod ui_tests {
         click_shown(&h, "Increase Font Size");
         h.run_steps(3);
         assert_ne!(size(&mut h), before, "Increase Font Size ran");
-        assert!(shown(&h, "Change Case"), "the drop-down stays open after a click inside");
+        assert!(shown(&h, "Change Case"), "the group stays open after a click inside");
         click_shown(&h, "Change Case");
         h.run_steps(3);
         // The item's accessible name carries its shortcut.
@@ -390,7 +390,7 @@ mod ui_tests {
         h.run_steps(3);
         let text = h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body);
         assert!(!text.chars().any(|c| c.is_lowercase()), "UPPERCASE ran");
-        assert!(shown(&h, "Increase Font Size"), "a menu inside counts as inside");
+        assert!(shown(&h, "Increase Font Size"), "the group stays open after the picker applies");
         h.get_by_role_and_label(Role::Button, "Font").click();
         h.run_steps(3);
         assert!(!shown(&h, "Increase Font Size"), "the button closes it again");

@@ -1113,13 +1113,7 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                 ui.add_space(3.0);
                 small(ui, app, "grow", None, "Increase Font Size", "format.growFont", json!({}), false);
                 small(ui, app, "shrink", None, "Decrease Font Size", "format.shrinkFont", json!({}), false);
-                menu_button(ui, app, "case", None, "Change Case", false, "format.changeCase", |ui, app| {
-                    mi(ui, app, "Sentence case.", "format.changeCase", json!({"mode": "sentence"}));
-                    mi(ui, app, "lowercase", "format.changeCase", json!({"mode": "lower"}));
-                    mi(ui, app, "UPPERCASE", "format.changeCase", json!({"mode": "upper"}));
-                    mi(ui, app, "Capitalize Each Word", "format.changeCase", json!({"mode": "title"}));
-                    mi(ui, app, "tOGGLE cASE", "format.changeCase", json!({"mode": "toggle"}));
-                });
+                small(ui, app, "case", None, "Change Case", "ui.changeCase", json!({}), false);
                 small(ui, app, "clear", None, "Clear All Formatting", "format.clear", json!({}), false);
                 small(ui, app, "phonetic", None, "Phonetic Guide", "format.phonetic", json!({}), false);
             });
