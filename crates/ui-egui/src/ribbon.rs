@@ -774,13 +774,14 @@ fn mi_text(ui: &mut Ui, app: &mut WordApp, text: &str, id: &str, params: Value) 
 }
 
 /// The proofing languages the Language menu offers: tag and English name (translated when drawn).
-pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 16] = [
+pub(crate) const PROOFING_LANGUAGES: [(&str, &str); 17] = [
     ("en-US", "English (United States)"),
     ("en-GB", "English (United Kingdom)"),
     ("en-AU", "English (Australia)"),
     ("en-CA", "English (Canada)"),
     ("pl-PL", "Polish"),
     ("pt-BR", "Portuguese (Brazil)"),
+    ("pt-PT", "Portuguese (Portugal)"),
     ("it-IT", "Italian"),
     ("hr-HR", "Croatian"),
     ("tr-TR", "Turkish"),
@@ -3364,6 +3365,21 @@ mod tests {
         assert_eq!(language_name(Some("pt-BR")), "Portuguese (Brazil)");
         assert_eq!(language_name(Some("pt")), "Portuguese (Brazil)");
         assert_eq!(language_name(Some("PT-BR".to_string().as_str())), "Portuguese (Brazil)");
+    }
+
+    /// European Portuguese is its own entry, checked by its tag; the other regions that spell
+    /// like Portugal (proofed as `pt-PT`) show by name, as other regions do.
+    #[test]
+    fn european_portuguese_is_in_the_language_menu() {
+        assert!(PROOFING_LANGUAGES.contains(&("pt-PT", "Portuguese (Portugal)")));
+        assert!(crate::dialogs_layout::LANGUAGES.contains(&("pt-PT", "Portuguese (Portugal)")));
+        for tag in ["pt-PT", "pt_pt", "PT-pt"] {
+            assert_eq!(language_name(Some(tag)), "Portuguese (Portugal)", "{tag}");
+        }
+        let c = language_checks("pt-pt", |t| t.eq_ignore_ascii_case("pt-PT"));
+        assert_eq!((c.extra, c.listed), (None, PROOFING_LANGUAGES.map(|(t, _)| t == "pt-PT")));
+        assert_eq!(language_name(Some("pt-MZ")), "Portuguese (Mozambique)");
+        assert_eq!(wordcraft_engine::proof::ProofLang::from_tag(Some("pt-MZ")), wordcraft_engine::proof::ProofLang::PtPt);
     }
 
     #[test]

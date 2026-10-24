@@ -178,3 +178,7 @@ real_name = "Andrew Barnes"
 
 [people.pakiat]
 display_name = "OtorO"
+
+[people.quebranozes]
+real_name = "Renato Pinto"
+sync_github_name = true
