@@ -6723,6 +6723,19 @@ fn comment_balloons_survive_hostile_comments() {
     }
 }
 
+#[test]
+fn orphaned_comment_end_does_not_highlight() {
+    // #3504: An orphaned CommentEnd whose CommentStart was deleted or absent should not highlight.
+    let mut d = Document::from_text("Remaining line of text.");
+    let p = CharProps::default();
+    d.insert_object(&Pos::body(0, 10), InlineObject::CommentEnd { id: 999 }, &p).unwrap();
+    let l = lay(&d);
+    let items = display::page_display(&d, &l.pages[0], &display::DisplayOptions { markup: true, ..Default::default() });
+    let fills: Vec<_> =
+        items.iter().filter(|d| matches!(d, display::Draw::Fill { color, .. } if *color == wordcraft_doc::Rgb(0xEF, 0xE3, 0xF7))).collect();
+    assert!(fills.is_empty(), "orphaned CommentEnd should not shade the paragraph");
+}
+
 /// The first paragraph's lines on page one: (top, bottom, left, right), relative to its column.
 fn line_spans(l: &DocLayout) -> Vec<(f32, f32, f32, f32)> {
     let Some(Placed::Lines { para, .. }) = l.pages[0].items.iter().find(|i| matches!(i, Placed::Lines { .. })) else { return Vec::new() };

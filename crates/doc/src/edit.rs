@@ -454,6 +454,85 @@ impl Document {
         out
     }
 
+    /// Markers (controls, comments, bookmarks) in `a..b` whose partner is outside it (a deletion keeps them).
+    pub(crate) fn kept_markers(&self, a: &Pos, b: &Pos) -> Vec<(Path, usize)> {
+        let mut out = self.kept_control_markers(a, b);
+        let paths = self.paths_between(a, b);
+        let inside = |p: &Path, off: usize| (p, off) >= (&a.path, a.off) && (p, off + crate::para::OBJ.len_utf8()) <= (&b.path, b.off);
+
+        let any_comment = paths.iter().any(|p| {
+            self.para(a.story, p)
+                .is_some_and(|q| q.objects.iter().any(|o| matches!(o, InlineObject::CommentStart { .. } | InlineObject::CommentEnd { .. })))
+        });
+        if any_comment {
+            let mut starts: BTreeMap<u32, Pos> = BTreeMap::new();
+            let mut ends: BTreeMap<u32, Pos> = BTreeMap::new();
+            for path in self.para_paths(a.story) {
+                let Some(p) = self.para(a.story, &path) else { continue };
+                for off in p.object_offsets() {
+                    match p.object_at(off) {
+                        Some(InlineObject::CommentStart { id }) => {
+                            starts.insert(*id, Pos { story: a.story, path: path.clone(), off });
+                        }
+                        Some(InlineObject::CommentEnd { id }) => {
+                            ends.insert(*id, Pos { story: a.story, path: path.clone(), off });
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            for (id, start) in &starts {
+                if let Some(end) = ends.get(id) {
+                    let (s, e) = (inside(&start.path, start.off), inside(&end.path, end.off));
+                    if s && !e {
+                        out.push((start.path.clone(), start.off));
+                    }
+                    if e && !s {
+                        out.push((end.path.clone(), end.off));
+                    }
+                }
+            }
+        }
+
+        let any_bookmark = paths.iter().any(|p| {
+            self.para(a.story, p)
+                .is_some_and(|q| q.objects.iter().any(|o| matches!(o, InlineObject::BookmarkStart { .. } | InlineObject::BookmarkEnd { .. })))
+        });
+        if any_bookmark {
+            let mut starts: BTreeMap<String, Pos> = BTreeMap::new();
+            let mut ends: BTreeMap<String, Pos> = BTreeMap::new();
+            for path in self.para_paths(a.story) {
+                let Some(p) = self.para(a.story, &path) else { continue };
+                for off in p.object_offsets() {
+                    match p.object_at(off) {
+                        Some(InlineObject::BookmarkStart { name }) => {
+                            starts.insert(name.clone(), Pos { story: a.story, path: path.clone(), off });
+                        }
+                        Some(InlineObject::BookmarkEnd { name }) => {
+                            ends.insert(name.clone(), Pos { story: a.story, path: path.clone(), off });
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            for (name, start) in &starts {
+                if let Some(end) = ends.get(name) {
+                    let (s, e) = (inside(&start.path, start.off), inside(&end.path, end.off));
+                    if s && !e {
+                        out.push((start.path.clone(), start.off));
+                    }
+                    if e && !s {
+                        out.push((end.path.clone(), end.off));
+                    }
+                }
+            }
+        }
+
+        out.sort();
+        out.dedup();
+        out
+    }
+
     /// Delete `a..b`. Returns the position where the deletion collapsed to. On error the document
     /// is unchanged: both ends are checked before anything is deleted.
     pub fn delete_range(&mut self, a: &Pos, b: &Pos) -> Result<Pos> {
@@ -472,9 +551,9 @@ impl Document {
                 None => return Err(DocError::BadPath(p.path.to_string())),
             }
         }
-        // Content control markers whose partner is outside the range stay (the control is
-        // emptied, not broken).
-        let kept = self.kept_control_markers(&a, &b);
+        // Range markers (controls, comments, bookmarks) whose partner is outside the range stay
+        // (the range is emptied or shrunk, not broken).
+        let kept = self.kept_markers(&a, &b);
         let kept_in = |path: &Path| -> Vec<usize> { kept.iter().filter(|(p, _)| p == path).map(|(_, o)| *o).collect() };
         if a.path == b.path {
             self.para_mut(a.story, &a.path)?.delete_except(a.off, b.off, &kept_in(&a.path))?;
@@ -1416,5 +1495,24 @@ mod tests {
         let first = d.para_paths(StoryRef::Body).into_iter().find(|p| p.0.first() == Some(&1)).unwrap();
         d.delete_range(&Pos { story: StoryRef::Body, path: first, off: 0 }, &Pos::body(2, 0)).unwrap();
         assert!(d.body.get(1).is_some_and(|b| b.as_table().is_some()), "a table with paragraphs the walk never saw was removed");
+    }
+
+    #[test]
+    fn deleting_the_start_of_a_commented_range_keeps_comment_start() {
+        // #3504: Deleting the first line of a commented paragraph should keep the comment on the remaining text.
+        let mut d = Document::new();
+        let p = d.para_mut(crate::StoryRef::Body, &Path::top(0)).unwrap();
+        let props = CharProps::default();
+        p.insert_text(0, "First line of text. Second line of text.", &props).unwrap();
+        d.insert_object(&Pos::body(0, 40), InlineObject::CommentEnd { id: 1 }, &props).unwrap();
+        d.insert_object(&Pos::body(0, 0), InlineObject::CommentStart { id: 1 }, &props).unwrap();
+
+        // Delete "First line of text.\n" (including CommentStart at offset 0).
+        d.delete_range(&Pos::body(0, 0), &Pos::body(0, 20)).unwrap();
+
+        let para = d.para(crate::StoryRef::Body, &Path::top(0)).unwrap();
+        // CommentStart is kept at offset 0, CommentEnd remains at the end.
+        assert!(matches!(para.object_at(0), Some(InlineObject::CommentStart { id: 1 })));
+        assert!(para.objects.iter().any(|o| matches!(o, InlineObject::CommentEnd { id: 1 })));
     }
 }

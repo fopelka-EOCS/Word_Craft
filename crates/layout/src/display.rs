@@ -836,6 +836,22 @@ fn item_in(doc: &Document, it: &Placed, opts: &DisplayOptions, alpha: f32, outer
     }
 }
 
+fn has_comment_start_before(doc: &Document, story: StoryRef, path: &Path, id: u32) -> bool {
+    for p in doc.para_paths(story) {
+        if &p == path {
+            break;
+        }
+        if let Some(para) = doc.para(story, &p) {
+            for off in para.object_offsets() {
+                if matches!(para.object_at(off), Some(InlineObject::CommentStart { id: cid }) if *cid == id) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 fn lines(
     doc: &Document,
     story: StoryRef,
@@ -875,9 +891,15 @@ fn lines(
             let mut ranges = Vec::new();
             for off in p.object_offsets() {
                 match p.object_at(off) {
-                    Some(InlineObject::CommentStart { .. }) => open = open.or(Some(off)),
-                    Some(InlineObject::CommentEnd { .. }) => {
-                        ranges.push((open.take().unwrap_or(0), off));
+                    Some(InlineObject::CommentStart { id }) if doc.comments.contains_key(id) => {
+                        open = open.or(Some(off));
+                    }
+                    Some(InlineObject::CommentEnd { id }) if doc.comments.contains_key(id) => {
+                        if let Some(o) = open.take() {
+                            ranges.push((o, off));
+                        } else if has_comment_start_before(doc, story, path, *id) {
+                            ranges.push((0, off));
+                        }
                     }
                     _ => {}
                 }

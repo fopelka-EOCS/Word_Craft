@@ -2046,4 +2046,26 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn deleting_first_line_of_commented_paragraph_keeps_comment_on_remainder() {
+        // #3504: Deleting the first line of a commented paragraph should keep the comment on the remaining text.
+        let mut s = Session::new(Document::new());
+        s.run("document.setText", &json!({"text": "First line of text. Second line of text."})).unwrap();
+        s.run("select.all", &json!({})).unwrap();
+        let id = s.run("review.newComment", &json!({"text": "A comment on paragraph"})).unwrap()["id"].as_u64().unwrap() as u32;
+
+        // Select the first sentence/line (which covers CommentStart) and delete it.
+        s.run("select.text", &json!({"text": "First line of text. "})).unwrap();
+        s.run("text.delete", &json!({})).unwrap();
+
+        // The comment is not orphaned or deleted; it remains anchored on the remaining text.
+        assert_eq!(s.doc.comments.len(), 1);
+        let list = super::comment_list(&s);
+        assert_eq!(list.len(), 1);
+        assert!(list[0].1.is_some(), "comment is still anchored to the remaining text");
+        assert_eq!(list[0].1.as_ref().unwrap().off, 0);
+        let in_body = anchors(&s);
+        assert_eq!(in_body, vec![(wordcraft_doc::StoryRef::Body, id), (wordcraft_doc::StoryRef::Body, id)]);
+    }
 }
