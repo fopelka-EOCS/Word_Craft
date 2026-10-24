@@ -52,13 +52,32 @@ impl Variant {
         self.names().first().copied().unwrap_or("pt_BR")
     }
 
-    /// The loaded dictionary: `None` until first use, then the installed one (or an empty one).
-    fn slot(self) -> &'static RwLock<Option<Arc<AffixDict>>> {
-        static BR: RwLock<Option<Arc<AffixDict>>> = RwLock::new(None);
-        static PT: RwLock<Option<Arc<AffixDict>>> = RwLock::new(None);
+    /// The loaded dictionary: `None` until first use, then what was found.
+    fn slot(self) -> &'static RwLock<Option<Loaded>> {
+        static BR: RwLock<Option<Loaded>> = RwLock::new(None);
+        static PT: RwLock<Option<Loaded>> = RwLock::new(None);
         match self {
             Variant::Br => &BR,
             Variant::Pt => &PT,
+        }
+    }
+}
+
+/// What a spelling found when it first looked for its dictionary.
+#[derive(Clone)]
+enum Loaded {
+    /// Its own: the installed one, one given with [`install_dictionary_for`], or an empty one.
+    Own(Arc<AffixDict>),
+    /// European Portuguese without a `pt_PT` dictionary: the Brazilian one, looked up each time,
+    /// so a Brazilian dictionary installed later is followed.
+    Brazilian,
+}
+
+impl Loaded {
+    fn dictionary(self) -> Arc<AffixDict> {
+        match self {
+            Loaded::Own(d) => d,
+            Loaded::Brazilian => dictionary_for(Variant::Br),
         }
     }
 }
@@ -73,34 +92,41 @@ pub fn dictionary() -> Arc<AffixDict> {
 /// [`dictionary`] for one spelling. European Portuguese without a `pt_PT` dictionary uses the
 /// Brazilian one.
 pub fn dictionary_for(variant: Variant) -> Arc<AffixDict> {
-    if let Some(d) = variant.slot().read().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref() {
-        return d.clone();
-    }
-    let loaded = load_installed(variant);
-    let mut slot = variant.slot().write().unwrap_or_else(std::sync::PoisonError::into_inner);
-    // Another thread (or an install) may have filled it meanwhile: that one wins.
-    slot.get_or_insert(loaded).clone()
+    let cached = variant.slot().read().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+    let loaded = cached.unwrap_or_else(|| {
+        let found = load_installed(variant);
+        let mut slot = variant.slot().write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Another thread (or an install) may have filled it meanwhile: that one wins.
+        slot.get_or_insert(found).clone()
+    });
+    loaded.dictionary()
 }
 
-fn load_installed(variant: Variant) -> Arc<AffixDict> {
+fn load_installed(variant: Variant) -> Loaded {
     let key = variant.dictionary_name();
     let Some((aff, dic)) = crate::hunspell::find(variant.names()) else {
         crate::hunspell::clear_load_error(key);
-        return match variant {
-            Variant::Br => {
-                log::info!("Portuguese spelling: no Hunspell pt_BR dictionary installed");
-                Arc::new(AffixDict::default())
-            }
-            Variant::Pt => {
-                log::info!("European Portuguese spelling: no Hunspell pt_PT dictionary installed; using pt_BR");
-                dictionary_for(Variant::Br)
-            }
-        };
+        return not_installed(variant);
     };
-    Arc::new(crate::hunspell::note_load(key, &dic, crate::hunspell::load(&aff, &dic)).unwrap_or_else(|e| {
+    Loaded::Own(Arc::new(crate::hunspell::note_load(key, &dic, crate::hunspell::load(&aff, &dic)).unwrap_or_else(|e| {
         log::warn!("Portuguese spelling ({key}): {e}");
         AffixDict::default()
-    }))
+    })))
+}
+
+/// What a spelling uses when none of its dictionary's files is installed: nothing for Brazilian
+/// Portuguese (no spelling marks), the Brazilian dictionary for European Portuguese.
+fn not_installed(variant: Variant) -> Loaded {
+    match variant {
+        Variant::Br => {
+            log::info!("Portuguese spelling: no Hunspell pt_BR dictionary installed");
+            Loaded::Own(Arc::new(AffixDict::default()))
+        }
+        Variant::Pt => {
+            log::info!("European Portuguese spelling: no Hunspell pt_PT dictionary installed; using pt_BR");
+            Loaded::Brazilian
+        }
+    }
 }
 
 /// Use this Portuguese dictionary from now on (Hunspell `.aff` and `.dic` text, decoded to
@@ -109,10 +135,11 @@ pub fn install_dictionary(aff: &str, dic: &str) -> Result<(), String> {
     install_dictionary_for(Variant::Br, aff, dic)
 }
 
-/// [`install_dictionary`] for one spelling.
+/// [`install_dictionary`] for one spelling. A Brazilian one is also what European Portuguese
+/// uses while it has no `pt_PT` of its own.
 pub fn install_dictionary_for(variant: Variant, aff: &str, dic: &str) -> Result<(), String> {
     let d = AffixDict::from_hunspell(aff, dic, &[])?;
-    *variant.slot().write().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::new(d));
+    *variant.slot().write().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Loaded::Own(Arc::new(d)));
     Ok(())
 }
 
@@ -252,6 +279,17 @@ mod tests {
         assert_eq!(suggest_for(Variant::Br, "economico", 3).first().map(String::as_str), Some("econômico"));
         assert_eq!((Variant::Br.dictionary_name(), Variant::Pt.dictionary_name()), ("pt_BR", "pt_PT"));
         assert!(!Variant::Pt.names().contains(&"pt"), "a bare `pt` dictionary is the Brazilian fallback");
+    }
+
+    /// #1028 review: European Portuguese without a `pt_PT` reads the Brazilian dictionary each
+    /// time instead of keeping a copy of it, so a Brazilian one installed later is followed.
+    #[test]
+    fn the_european_fallback_reads_the_current_brazilian_dictionary() {
+        test_dict::install();
+        assert!(matches!(not_installed(Variant::Pt), Loaded::Brazilian));
+        assert!(matches!(not_installed(Variant::Br), Loaded::Own(d) if d.is_empty()));
+        let fallback = Loaded::Brazilian.dictionary();
+        assert!(fallback.check("equipe") && !fallback.check("facto"), "the Brazilian words");
     }
 
     /// Each spelling finds its own file; European Portuguese reports the Brazilian file it falls
