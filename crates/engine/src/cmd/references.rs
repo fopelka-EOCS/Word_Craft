@@ -21,8 +21,13 @@ pub fn specs() -> Vec<CommandSpec> {
         }),
         CommandSpec::new("references.removeToc", "Remove Table of Contents", "References › Table of Contents", |s, _| {
             if let Some((start, end)) = toc_range(s) {
+                let title = toc_title(s, start);
                 for i in (start..=end).rev() {
                     s.doc.remove_block(StoryRef::Body, &Path::top(i))?;
+                }
+                // Word's title goes with the table; the section break under it stays (#4041).
+                if let Some(t) = title {
+                    s.doc.remove_block(StoryRef::Body, &Path::top(t))?;
                 }
                 s.clamp_selection();
             }
@@ -339,6 +344,24 @@ fn toc_range(s: &Session) -> Option<(usize, usize)> {
     Some((start, end))
 }
 
+/// The title of the TOC whose field is in body block `start`, when it is a paragraph of its own
+/// above the field's: a TOC Heading separated from it only by empty paragraphs, one of which ends a
+/// section. Word lays out a TOC with entries in columns that way (title, blank line, continuous
+/// section break, entries), and its title belongs to the table (#4041).
+fn toc_title(s: &Session, start: usize) -> Option<usize> {
+    let mut section = false;
+    // A few blank lines at most: the title is right above the break.
+    for i in (start.saturating_sub(4)..start).rev() {
+        let p = s.doc.body.get(i)?.as_para()?;
+        if p.is_empty() && p.objects.is_empty() {
+            section |= p.section.is_some();
+            continue;
+        }
+        return (section && p.props.style.as_deref() == Some("TOCHeading")).then_some(i);
+    }
+    None
+}
+
 /// The caret is in the table of contents (its heading or an entry), where Word's context menu
 /// offers Update Field for the whole table.
 pub fn caret_in_toc(s: &Session) -> bool {
@@ -473,6 +496,22 @@ fn insert_toc(s: &mut Session, v: &Value) -> CmdResult {
             regenerate_toc(s, None, &tabs)?;
             return sel_result(s);
         }
+        Some((start, end)) if let Some(t) = toc_title(s, start) => {
+            // A title above a section break stays there with the new title, and the field keeps
+            // its own paragraph under the break, so the entries stay in their section (#4041).
+            for i in (start..=end).rev() {
+                s.doc.remove_block(StoryRef::Body, &Path::top(i))?;
+            }
+            let title = p::str(v, "title").unwrap_or("Contents");
+            s.doc.remove_block(StoryRef::Body, &Path::top(t))?;
+            s.doc.insert_block(StoryRef::Body, &Path::top(t), Block::Para(Paragraph::with_text(title, CharProps::default()).styled("TOCHeading")))?;
+            let mut field = Paragraph::new();
+            field.insert_object(0, toc_field_object(v), &CharProps::default())?;
+            s.doc.insert_block(StoryRef::Body, &Path::top(start), Block::Para(field))?;
+            regenerate_toc(s, Some(leader(p::str(v, "tabLeader").unwrap_or("dot"))), &tabs)?;
+            s.clamp_selection();
+            return sel_result(s);
+        }
         Some((start, end)) => {
             for i in (start..=end).rev() {
                 s.doc.remove_block(StoryRef::Body, &Path::top(i))?;
@@ -490,11 +529,7 @@ fn insert_toc(s: &mut Session, v: &Value) -> CmdResult {
     }
     // Title paragraph carrying the TOC field marker.
     let mut head = Paragraph::with_text(&title, CharProps::default()).styled("TOCHeading");
-    head.insert_object(
-        head.len(),
-        InlineObject::Field { instr: toc_instr(v), result: String::new(), locked: false, dirty: false, code: false, form: String::new() },
-        &CharProps::default(),
-    )?;
+    head.insert_object(head.len(), toc_field_object(v), &CharProps::default())?;
     let i = if s.doc.para_at(&at).is_some_and(|p| p.is_empty()) {
         if placeholder {
             s.doc.remove_block(StoryRef::Body, &at.path)?;
@@ -508,6 +543,11 @@ fn insert_toc(s: &mut Session, v: &Value) -> CmdResult {
     regenerate_toc(s, Some(leader), &tabs)?;
     s.clamp_selection();
     sel_result(s)
+}
+
+/// The TOC field for the settings in `v`.
+fn toc_field_object(v: &Value) -> InlineObject {
+    InlineObject::Field { instr: toc_instr(v), result: String::new(), locked: false, dirty: false, code: false, form: String::new() }
 }
 
 /// A hidden `_Toc` bookmark around the heading at body block `i` (after its leading page breaks),
