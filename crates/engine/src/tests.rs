@@ -3330,6 +3330,46 @@ fn toc_page_number_for_heading_above_toc() {
     }
 }
 
+/// A TOC entry's page number is written as its heading's section numbers its pages, as Word
+/// writes it ("Preface ... ii" in front matter numbered in roman numerals), from the section's
+/// own start; a section numbered in decimal keeps decimal numbers. Saving and reopening as DOCX
+/// keeps the formats, so a later update writes the same entries.
+#[test]
+fn toc_page_numbers_follow_the_section_number_format() {
+    let cases = [
+        (json!({"format": "lowerRoman", "start": 1}), json!({"format": "decimal", "start": 1}), ["Preface\tii", "Alpha\t1", "Bravo\t2"]),
+        (json!({"format": "upperRoman", "start": 4}), json!({"format": "lowerLetter", "start": 3}), ["Preface\tV", "Alpha\tc", "Bravo\td"]),
+    ];
+    let entries = |s: &Session| -> Vec<String> {
+        s.doc.body.iter().filter_map(|b| b.as_para()).filter(|p| p.props.style.as_deref() == Some("TOC1")).map(|p| p.plain_text()).collect()
+    };
+    for (front, main, expected) in cases {
+        let mut s = s();
+        run(&mut s, "references.toc", json!({}));
+        run(&mut s, "caret.docEnd", json!({}));
+        run(&mut s, "text.pageBreak", json!({}));
+        run(&mut s, "text.insert", json!({"text": "Preface"}));
+        run(&mut s, "para.heading1", json!({}));
+        run(&mut s, "text.newParagraph", json!({}));
+        run(&mut s, "layout.break", json!({"kind": "nextPage"}));
+        run(&mut s, "layout.pageNumberFormat", main);
+        run(&mut s, "text.insert", json!({"text": "Alpha"}));
+        run(&mut s, "para.heading1", json!({}));
+        run(&mut s, "text.newParagraph", json!({}));
+        run(&mut s, "text.pageBreak", json!({}));
+        run(&mut s, "text.insert", json!({"text": "Bravo"}));
+        run(&mut s, "para.heading1", json!({}));
+        run(&mut s, "caret.docStart", json!({}));
+        run(&mut s, "layout.pageNumberFormat", front);
+        run(&mut s, "references.updateToc", json!({}));
+        assert_eq!(entries(&s), expected);
+        let bytes = crate::io::save_bytes("toc.docx", &s.doc).unwrap();
+        let mut s = Session::new(crate::io::open_bytes("toc.docx", &bytes).unwrap());
+        run(&mut s, "references.updateToc", json!({}));
+        assert_eq!(entries(&s), expected, "after saving and reopening");
+    }
+}
+
 #[test]
 fn failed_command_leaves_document_unchanged() {
     let mut s = s();

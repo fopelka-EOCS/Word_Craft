@@ -189,8 +189,7 @@ fn collect(s: &mut Session, lang: Option<&str>) -> BTreeMap<Vec<SortKey>, Node> 
             }
         }
     }
-    let l = s.layout();
-    let page = |pos: &Pos| l.caret(pos).and_then(|c| l.pages.get(c.page)).map(|p| p.number).unwrap_or(1);
+    let pages = super::PageNumbers::new(s);
     let bookmark_end = |name: &str| {
         s.doc.para_paths(StoryRef::Body).into_iter().find_map(|path| {
             let p = s.doc.para(StoryRef::Body, &path)?;
@@ -220,11 +219,11 @@ fn collect(s: &mut Session, lang: Option<&str>) -> BTreeMap<Vec<SortKey>, Node> 
             continue;
         }
         let range = f.arg('r').and_then(|bm| {
-            let a = starts.iter().find(|(n, _)| n == bm).map(|(_, p)| page(p))?;
-            let b = bookmark_end(bm).map(|p| page(&p)).unwrap_or(a);
-            Some(if b > a { format!("{a}\u{2013}{b}") } else { a.to_string() })
+            let a = starts.iter().find(|(n, _)| n == bm).map(|(_, p)| p.clone())?;
+            let b = bookmark_end(bm).unwrap_or_else(|| a.clone());
+            Some(if pages.index(&b) > pages.index(&a) { format!("{}\u{2013}{}", pages.text(&a), pages.text(&b)) } else { pages.text(&a) })
         });
-        let r = PageRef { page: range.unwrap_or_else(|| page(&pos).to_string()), bold: f.has('b'), italic: f.has('i') };
+        let r = PageRef { page: range.unwrap_or_else(|| pages.text(&pos)), bold: f.has('b'), italic: f.has('i') };
         match node.pages.iter_mut().find(|x| x.page == r.page) {
             Some(x) => {
                 x.bold |= r.bold;

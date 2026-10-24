@@ -997,11 +997,6 @@ fn add_entry_style(s: &mut Session) {
     }
 }
 
-fn page_of(s: &mut Session, pos: &Pos) -> u32 {
-    let l = s.layout();
-    l.caret(pos).and_then(|c| l.pages.get(c.page)).map(|p| p.number).unwrap_or(1)
-}
-
 /// Entry lines (text, hanging indent) for a generated list.
 fn entries_for(s: &mut Session, kind: &str) -> Vec<(String, bool)> {
     if kind.starts_with("BIBLIOGRAPHY") {
@@ -1036,7 +1031,7 @@ fn entries_for(s: &mut Session, kind: &str) -> Vec<(String, bool)> {
             }
         }
     }
-    let mut with_pages: Vec<(String, u32)> = marks.into_iter().map(|(e, _)| (e, 0)).collect();
+    let mut with_pages: Vec<(String, String)> = marks.into_iter().map(|(e, _)| (e, String::new())).collect();
     // Pages (layout once).
     let positions: Vec<Pos> = {
         let mut v = Vec::new();
@@ -1059,10 +1054,10 @@ fn entries_for(s: &mut Session, kind: &str) -> Vec<(String, bool)> {
         }
         v
     };
+    let pages = super::PageNumbers::new(s);
     for (i, pos) in positions.iter().enumerate() {
-        let pg = page_of(s, pos);
         if let Some(x) = with_pages.get_mut(i) {
-            x.1 = pg;
+            x.1 = pages.text(pos);
         }
     }
     if figures.is_some() {
@@ -1073,7 +1068,7 @@ fn entries_for(s: &mut Session, kind: &str) -> Vec<(String, bool)> {
     }
     // Index / TOA: group by entry, sort, list pages.
     let lang = super::default_lang(s);
-    let mut grouped: std::collections::BTreeMap<(SortKey, String), Vec<u32>> = Default::default();
+    let mut grouped: std::collections::BTreeMap<(SortKey, String), Vec<String>> = Default::default();
     for (e, p) in with_pages {
         let pages = grouped.entry((sort_key(&e, lang.as_deref()), e)).or_default();
         if !pages.contains(&p) {
@@ -1090,7 +1085,7 @@ fn entries_for(s: &mut Session, kind: &str) -> Vec<(String, bool)> {
                 out.push((l, false));
             }
         }
-        let list = pages.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", ");
+        let list = pages.join(", ");
         out.push(if kind.starts_with("INDEX") { (format!("{e}, {list}"), true) } else { (format!("{e}\t{list}"), false) });
     }
     out
@@ -1105,9 +1100,8 @@ fn cross_ref(s: &mut Session, v: &Value) -> CmdResult {
     let find = |ts: Vec<(String, Pos)>| ts.into_iter().find(|(t, _)| t == target || t.starts_with(target));
     let (text, pos) = find(targets).ok_or_else(|| CmdError::Params(format!("no {to} `{target}`")))?;
     let show = p::str(v, "show").unwrap_or("text");
-    let page = page_of(s, &pos);
     let result = match show {
-        "page" => page.to_string(),
+        "page" => super::PageNumbers::new(s).text(&pos),
         "number" => text.split(':').next().unwrap_or(&text).trim().to_string(),
         "aboveBelow" => {
             if pos < s.sel.focus {
@@ -1404,6 +1398,51 @@ mod tests {
         let (name, _) = s.doc.bookmarks().into_iter().find(|(n, _)| n.starts_with("_Ref")).unwrap();
         assert_eq!(crate::cmd::references::bookmark_text(&s.doc, &name).as_deref(), Some("Figure 1"));
         assert!(fields(&s).contains(&(format!("REF {name} \\h"), "Figure 1".to_string())), "{:?}", fields(&s));
+    }
+
+    /// A table of figures, a table of authorities, an index and a page cross-reference write a
+    /// page number as its section numbers its pages, as the TOC does: `ii` on the first page of a
+    /// section numbered in lower-case roman numerals from 2, not `2` (nor `1`).
+    #[test]
+    fn page_numbers_in_lists_follow_the_section_number_format() {
+        let mut s = Session::new(wordcraft_doc::Document::from_text("Kilns are hot.\nSmith v. Jones held it.\nFiring takes days.\nThe kiln cools."));
+        s.doc.para_mut(StoryRef::Body, &Path::top(2)).unwrap().props.page_break_before = Some(true);
+        s.run("layout.pageNumberFormat", &json!({"format": "lowerRoman", "start": 2})).unwrap();
+        // The last paragraph starts a section numbered 1, 2, 3 from 1.
+        s.run("caret.set", &json!({"pos": Pos::body(3, 0)})).unwrap();
+        s.run("layout.break", &json!({"kind": "nextPage"})).unwrap();
+        s.run("layout.pageNumberFormat", &json!({"format": "decimal", "start": 1})).unwrap();
+        // An index entry over a page range, from the first page (ii) into that section (1): a
+        // range though its last number is the smaller one.
+        s.run("caret.docEnd", &json!({})).unwrap();
+        let end = s.sel.focus.clone();
+        s.run("select.range", &json!({"anchor": Pos::body(0, 0), "focus": end})).unwrap();
+        s.run("insert.bookmark", &json!({"name": "Firing"})).unwrap();
+        s.run("select.text", &json!({"text": "days"})).unwrap();
+        s.run("references.markEntry", &json!({"entry": "Firing", "bookmark": "Firing"})).unwrap();
+        s.run("select.text", &json!({"text": "Kilns"})).unwrap();
+        s.run("references.markEntry", &json!({})).unwrap();
+        s.run("select.text", &json!({"text": "Smith v. Jones"})).unwrap();
+        s.run("references.markCitation", &json!({})).unwrap();
+        s.run("caret.docStart", &json!({})).unwrap();
+        s.run("references.caption", &json!({"label": "Figure", "text": "The kiln"})).unwrap();
+        s.run("caret.docEnd", &json!({})).unwrap();
+        s.run("references.tableOfFigures", &json!({})).unwrap();
+        s.run("caret.docEnd", &json!({})).unwrap();
+        s.run("text.newParagraph", &json!({})).unwrap();
+        s.run("references.tableOfAuthorities", &json!({})).unwrap();
+        s.run("caret.docEnd", &json!({})).unwrap();
+        s.run("text.newParagraph", &json!({})).unwrap();
+        s.run("references.index", &json!({})).unwrap();
+        s.run("caret.docEnd", &json!({})).unwrap();
+        s.run("text.newParagraph", &json!({})).unwrap();
+        let inserted = s.run("insert.crossReference", &json!({"to": "figure", "target": "Figure 1", "show": "page"})).unwrap();
+        let lines: Vec<String> = s.doc.body.iter().filter_map(|b| b.as_para()).map(|p| p.plain_text()).collect();
+        assert!(lines.iter().any(|l| l == "Figure 1: The kiln\tii"), "table of figures: {lines:?}");
+        assert!(lines.iter().any(|l| l == "Smith v. Jones\tii"), "table of authorities: {lines:?}");
+        assert!(lines.iter().any(|l| l == "Kilns, ii"), "index: {lines:?}");
+        assert!(lines.iter().any(|l| l == "Firing, ii\u{2013}1"), "index page range: {lines:?}");
+        assert_eq!(inserted["inserted"], "ii", "page cross-reference");
     }
 
     /// #2940: a caption with a label of the person's own (Insert Caption › New Label) is a
