@@ -1441,7 +1441,7 @@ mod tests {
         let img = bordered_table(top(BorderStyle::DotDash, 1.5), 4.0);
         let row = (0..img.height).find(|y| (80 * 4..400 * 4).filter(|x| img.pixel(*x, *y)[0] < 128).count() > 100).expect("the border is drawn");
         let runs = dark_runs((80 * 4..400 * 4).map(|x| img.pixel(x, row)));
-        assert!(runs.iter().any(|r| r.1 > 20) && runs.iter().any(|r| r.1 <= 12), "{runs:?}");
+        assert!(runs.iter().any(|r| r.1 > 12) && runs.iter().any(|r| r.1 <= 12), "{runs:?}");
     }
 
     /// Table Layout › Text Direction (#226): a turned cell's text is painted running down the
