@@ -462,11 +462,15 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
             }
             if matches!(d.target, Target::Run { .. }) && app.dialog.is_none() {
                 app.canvas.want_focus = true;
+                // The page has the keyboard at once, as after any dialog (`crate::modal`).
+                crate::modal::give_back(app, ctx, Vec::new(), true);
             }
         }
         None => {
             ctx.data_mut(|m| m.insert_temp(open_flag_id(), true));
             app.colors = Some(d);
+            // Over whatever is open, with a backdrop of our own (`crate::modal::backdrop`).
+            crate::modal::shown_on_top(ctx, resp.response.layer_id);
         }
     }
 }

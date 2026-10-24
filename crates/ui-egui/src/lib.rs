@@ -562,6 +562,22 @@ pub struct WordApp {
     pub(crate) synthetic: Vec<egui::Event>,
     /// macOS: the primary button went down with Control, so it is being read as the secondary.
     control_click: bool,
+    /// Input waiting for a later frame ([`modal::pace_input`]).
+    held_input: Vec<egui::Event>,
+    /// How many events the last `raw_input_hook` gave egui that no pass has taken yet (a frame of
+    /// logic alone keeps its input for the next frame, which comes through the hook again).
+    hooked_len: usize,
+    /// A button was down as a modal dialog opened: the next frame ends the press
+    /// ([`modal::end_press`]).
+    pub(crate) end_press: bool,
+    /// The keys and screen reader actions `logic` took away from the window behind a modal dialog
+    /// ([`modal::keys_away`]), for `ui` to give back to the top window.
+    keys_behind: Vec<egui::Event>,
+    /// A `ui` pass follows this frame's `logic` (the window shows): the input from outside the
+    /// window runs at its end (`WordApp::outside_input`).
+    ui_follows: bool,
+    /// The keys down, as `raw_input_hook` has seen them ([`modal::mark_repeats`]).
+    keys_down: Vec<egui::Key>,
     /// Badge rects recorded during layout for the current keytip phase (cleared by `logic`, painted by `show`).
     pub(crate) keytip_rects: Vec<(egui::Rect, String)>,
     /// The Navigation pane's search box takes the keyboard on its next frame (Ctrl+F, #712).
@@ -711,6 +727,12 @@ impl WordApp {
             pending_shots: Vec::new(),
             synthetic: Vec::new(),
             control_click: false,
+            held_input: Vec::new(),
+            hooked_len: 0,
+            end_press: false,
+            keys_behind: Vec::new(),
+            ui_follows: false,
+            keys_down: Vec::new(),
             keytip_rects: Vec::new(),
             nav_search_focus: false,
             styled: false,
@@ -1282,7 +1304,8 @@ impl WordApp {
         message
     }
 
-    /// Read how the saves that finished later ended (#1315). Called every frame.
+    /// Read how the saves that finished later ended (#1315). Called every frame, with the other
+    /// input from outside the window ([`Self::outside_input`]: it can bring up Save Changes).
     /// A save that didn't write the file leaves the document it was for unsaved again (only that
     /// document: one that has replaced it since is left alone). The command a Save Changes prompt
     /// held back runs once its save is written and closed, if the document is still the same and
@@ -1364,6 +1387,10 @@ impl WordApp {
         // No document open (#1129): nothing to save.
         if !self.has_document() {
             return true;
+        }
+        // A modal dialog is answered first, as a system dialog keeps its window from closing.
+        if modal::open(self) {
+            return false;
         }
         // A comment draft the document refuses is an unsaved change: the prompt can drop it.
         let refused = panes::flush_comment_drafts(self).is_err();
@@ -2138,8 +2165,13 @@ impl WordApp {
         }
     }
 
-    /// Per-frame logic before layout: control requests, screenshots, shortcuts, file drops.
+    /// Per-frame logic before layout: screenshots, shortcuts, file drops, and the input from outside
+    /// the window when no `ui` follows ([`Self::outside_input`]).
     pub fn logic(&mut self, ctx: &egui::Context) {
+        // Behind a modal dialog the window takes no key, here either (`ui` gives them back to the
+        // top window). A frame of logic alone keeps its input for the next frame, which takes them
+        // again.
+        self.keys_behind = modal::keys_away(self, ctx);
         let lang = i18n::Lang::from_pref(&self.ui.language);
         i18n::set_current(lang);
         // New documents are written in the interface's language when WordCraft can proof it
@@ -2156,7 +2188,6 @@ impl WordApp {
             self.applied_editing = Some((lang, editing));
         }
         options::sync(self);
-        self.settle_async_saves();
         // SmartArt Text Pane (#2701): Tab demotes and Shift+Tab promote the focused item, as Word's
         // pane does. Consuming the key stops Tab from moving the caret to the next row, and so does
         // resetting the focus direction: the item keeps focus after its level changes.
@@ -2171,7 +2202,8 @@ impl WordApp {
         // Chinese text wants the Chinese face before the Japanese one (one glyph style per line).
         // An installed CJK font is read only once CJK text is shown (#241): a CJK interface, the
         // language names in Options, or a file name the caption is drawing. A file opened later
-        // in this frame (dialog, drop, control channel) is picked up again at the end.
+        // in this frame (a drop) is picked up again at the end; one opened after the frame's input
+        // (`Self::outside_input`: the control channel, a file dialog) as the next frame starts.
         self.ensure_caption_fonts();
         self.ensure_comment_fonts();
         self.ensure_recover_fonts();
@@ -2225,13 +2257,12 @@ impl WordApp {
             self.ctx = Some(ctx.clone());
         }
         self.poll_printing(ctx);
-        self.drain_control(ctx);
-        zotero::poll(self, ctx);
+        // With a `ui` pass to come, after its input (`Self::outside_input`).
+        if !self.ui_follows {
+            self.outside_input(ctx);
+        }
         read_aloud::poll(self, ctx);
         self.clear_stale_change_picture();
-        let _ = self.poll_file_dialog();
-        self.drain_inbox();
-        self.drain_pasted();
         self.watch_fonts(ctx);
         let document = self.session.document_id();
         self.session.recovery_tick();
@@ -2378,11 +2409,47 @@ impl WordApp {
     }
 
     /// Read a Control-click as the right-click on macOS, then inject synthetic input events from
-    /// the control channel (one pointer event per frame).
+    /// the control channel (one pointer event per frame). Then the input's boundary
+    /// ([`modal::pace_input`]): input reaches the app only in a frame whose modal windows are the
+    /// ones already drawn.
     pub fn raw_input_hook(&mut self, raw: &mut egui::RawInput) {
         if cfg!(target_os = "macos") {
             control_click_as_secondary(&mut raw.events, &mut self.control_click);
         }
+        self.inject_synthetic(raw);
+        // A modal dialog takes no file dropped on the window, as a disabled system window refuses it.
+        if modal::open(self) {
+            raw.dropped_files.clear();
+            raw.hovered_files.clear();
+        }
+        // As eframe decides: a hidden window runs `logic` alone. (`RawInput::viewport` would panic
+        // without the viewport's info.)
+        self.ui_follows = raw.viewports.get(&raw.viewport_id).and_then(egui::ViewportInfo::visible).unwrap_or(true);
+        let earlier = std::mem::take(&mut self.hooked_len);
+        let settled = self.ctx.as_ref().map_or(!modal::open(self), |ctx| modal::settled(self, ctx));
+        // The page has the keyboard as egui's focus last stood, with no KeyTips and no File page.
+        let page_focused = self.ctx.as_ref().zip(self.canvas.widget_id).is_some_and(|(ctx, (page, _))| ctx.memory(|m| m.has_focus(page)));
+        let typing = page_focused && !self.ui.backstage && self.ui.keytips == keytips::Phase::Off;
+        // Only the new events: what waits was marked as it came.
+        let new = earlier.min(raw.events.len());
+        modal::mark_repeats(raw.events.get_mut(new..).unwrap_or_default(), &mut self.keys_down);
+        modal::pace_input(&mut raw.events, earlier, &mut self.held_input, settled, typing);
+        if std::mem::take(&mut self.end_press) {
+            modal::end_press(&mut raw.events, &mut self.held_input);
+        }
+        // A dropped file is read in `logic`, before the frame's other input, and so is the window's
+        // close button (the host's `logic` asks about unsaved changes): that input waits for the
+        // next frame, which finds what they brought up (Save Changes).
+        let closing = raw.viewports.get(&raw.viewport_id).is_some_and(egui::ViewportInfo::close_requested);
+        if !raw.dropped_files.is_empty() || closing {
+            modal::hold_all(&mut raw.events, &mut self.held_input);
+        }
+        self.hooked_len = raw.events.len();
+    }
+
+    /// The control channel's next synthetic input: one pointer event, or the keys up to the next
+    /// key release.
+    fn inject_synthetic(&mut self, raw: &mut egui::RawInput) {
         if self.synthetic.is_empty() {
             return;
         }
@@ -2408,8 +2475,14 @@ impl WordApp {
 
     /// Lay out the window.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        // A pass takes the input `raw_input_hook` gave egui; what waits comes next frame (asked here,
+        // not by a frame of logic alone, so a hidden window doesn't spin).
+        self.hooked_len = 0;
         let t0 = now_ms();
         let ctx = ui.ctx().clone();
+        if !self.held_input.is_empty() {
+            ctx.request_repaint();
+        }
         i18n::set_current(i18n::Lang::from_pref(&self.ui.language));
         // Animation effects off: egui's scroll areas get a wheel notch whole, not eased in.
         if !self.animations_on() {
@@ -2420,9 +2493,14 @@ impl WordApp {
         if self.fonts_frames < 2 {
             self.fonts_frames += 1;
             ctx.request_repaint();
+            self.outside_input(&ctx);
             return;
         }
         let t = theme::Tokens::get(&ctx);
+        // Behind a modal window the window takes no key (`logic` took them); the top one gets them
+        // back as it is drawn.
+        let mut keys_behind = std::mem::take(&mut self.keys_behind);
+        let top = modal::top(self);
         self.escape_free = self.dialog.is_none() && !self.ui.backstage && self.ui.keytips == keytips::Phase::Off && !egui::Popup::is_any_open(&ctx);
         // Keytips are read before layout so the frame paints the new state; badges paint after
         // the ribbon so they sit on top of it.
@@ -2461,12 +2539,18 @@ impl WordApp {
             }
         }
         content_controls::popup(self, &ctx);
+        // The Read Aloud bar is the page's: drawn before the keys come back for a modal window.
+        read_aloud::show(self, &ctx);
+        modal::keys_back(&ctx, &mut keys_behind, top, modal::Top::Dialog);
         dialogs::show(self, &ctx);
+        modal::keys_back(&ctx, &mut keys_behind, top, modal::Top::FileBrowser);
         #[cfg(not(target_arch = "wasm32"))]
         file_browser::show(self, &ctx);
+        modal::keys_back(&ctx, &mut keys_behind, top, modal::Top::Colors);
         colors::show(self, &ctx);
+        modal::keys_back(&ctx, &mut keys_behind, top, modal::Top::ZoteroAlert);
         zotero::show_alert(self, &ctx);
-        read_aloud::show(self, &ctx);
+        modal::backdrop(self, &ctx);
         crate::keytips::show(self, &ctx, ui);
         keys::global_shortcuts(self, &ctx);
         self.refocus_after_chrome_click(&ctx);
@@ -2483,9 +2567,52 @@ impl WordApp {
             self.sent_title = title;
         }
         self.sync_full_screen(&ctx);
+        self.outside_input(&ctx);
         self.frame_ms = now_ms() - t0;
         // Typing and formatting land here, after `logic` has reported.
         self.report_dirty();
+    }
+
+    /// Input from outside the window's own: the browser's save picker answering, the control
+    /// channel, Zotero's calls, a file dialog's answer, files and pictures from the browser. Each
+    /// can open a window, so it runs where the frame's own input is over: at the end of `ui`, or in
+    /// `logic` when no `ui` follows (the window hidden, whose input waits for the next frame).
+    /// Whatever it opens is up before the next frame's input, as a system takes events from one
+    /// queue, and what went on behind it ends at once (`crate::modal`).
+    pub fn outside_input(&mut self, ctx: &egui::Context) {
+        self.from_outside(ctx, |app| {
+            app.settle_async_saves();
+            app.drain_control(ctx);
+            zotero::poll(app, ctx);
+            app.clear_stale_change_picture();
+            let _ = app.poll_file_dialog();
+            app.drain_inbox();
+            app.drain_pasted();
+        });
+        if !self.synthetic.is_empty() {
+            ctx.request_repaint();
+        }
+    }
+
+    /// Runs `take`, input from outside the window (also a host's own: documents from Finder),
+    /// after the frame's input ([`Self::outside_input`]): if it opened a modal window, what goes on
+    /// behind ends at once (`crate::modal`); whatever it changed is drawn in a frame of its own.
+    pub fn from_outside(&mut self, ctx: &egui::Context, take: impl FnOnce(&mut Self)) {
+        let before = (modal::levels(self), self.dialog.as_ref().map(dialogs::Dialog::name), self.session.document_id(), self.session.rev());
+        take(self);
+        let levels = modal::levels(self);
+        if levels > before.0 {
+            modal::end_behind(self, ctx, None);
+        }
+        if (levels, self.dialog.as_ref().map(dialogs::Dialog::name), self.session.document_id(), self.session.rev()) != before {
+            ctx.request_repaint();
+        }
+    }
+
+    /// Whether a `ui` pass follows this frame's `logic` (`raw_input_hook` says): a host's own
+    /// input from outside the window runs after it then ([`Self::outside_input`]).
+    pub fn ui_follows(&self) -> bool {
+        self.ui_follows
     }
 
     /// Carry View › Full Screen (`view.fullScreen`, F11), Focus and Full Screen View (#1678) to
@@ -6989,6 +7116,41 @@ mod tests {
         }));
         a.services.async_saves = Some(saves.clone());
         (a, saves, last)
+    }
+
+    /// The picker's answer is input from outside the window (`crate::modal`): with a `ui` pass to
+    /// come it runs after the frame's own input (`outside_input`), not in `logic` before it, so the
+    /// prompt it brings back is up before the next frame's input.
+    #[test]
+    fn a_save_pickers_answer_runs_after_the_frames_input() {
+        let (mut a, saves, last) = web_picker_app();
+        a.run("file.new", json!({})).unwrap();
+        a.run("ui.saveChanges", json!({"answer": "save"})).unwrap();
+        assert_eq!(prompt(&a), None, "the prompt waits for the picker");
+        saves.finish(last.get(), async_saves::SaveOutcome::Cancelled);
+        let ctx = egui::Context::default();
+        a.raw_input_hook(&mut egui::RawInput::default());
+        a.logic(&ctx);
+        assert_eq!(prompt(&a), None, "logic leaves the answer for after the frame's input");
+        a.outside_input(&ctx);
+        assert_eq!(prompt(&a), Some("saveChanges"), "the prompt comes back after it");
+    }
+
+    /// The window's close button is read in the host's `logic`, before the frame's other input,
+    /// and may bring up Save Changes: that input waits for the next frame.
+    #[test]
+    fn input_in_the_frame_the_window_is_closed_waits_for_the_next() {
+        let mut a = typed();
+        let mut raw = egui::RawInput::default();
+        let mut info = egui::ViewportInfo::default();
+        info.events.push(egui::ViewportEvent::Close);
+        raw.viewports.insert(raw.viewport_id, info);
+        raw.events = vec![egui::Event::Text("x".into())];
+        a.raw_input_hook(&mut raw);
+        assert!(raw.events.is_empty(), "the letter waits");
+        let mut next = egui::RawInput::default();
+        a.raw_input_hook(&mut next);
+        assert!(matches!(next.events.as_slice(), [egui::Event::Text(t)] if t == "x"), "and comes next frame: {:?}", next.events);
     }
 
     /// #1315: Save in the prompt before New waits for the picker: New runs only once the file

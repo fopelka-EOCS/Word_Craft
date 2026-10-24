@@ -118,13 +118,15 @@ impl WordApp {
         self.file_dialog.is_some() || self.file_browser_open()
     }
 
+    /// Whether the built-in file browser is open.
     #[cfg(not(target_arch = "wasm32"))]
-    fn file_browser_open(&self) -> bool {
+    pub(crate) fn file_browser_open(&self) -> bool {
         self.file_browser.open.is_some()
     }
 
+    /// Whether the built-in file browser is open: there is none on the web.
     #[cfg(target_arch = "wasm32")]
-    fn file_browser_open(&self) -> bool {
+    pub(crate) fn file_browser_open(&self) -> bool {
         false
     }
 

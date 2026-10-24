@@ -222,6 +222,8 @@ impl CanvasState {
         self.table_stroke = None;
         self.table_resize = None;
         self.table_drag = None;
+        self.tab_drag = None;
+        self.auto_scroll.cancel();
     }
 
     /// The object a drag has taken off its page: which page, and which object. `None` unless an
@@ -1453,9 +1455,10 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         app.canvas.page_rects = rects.clone();
         let view_rect = ui.clip_rect();
         if floating_comments(app) {
-            // Its own layer, so presses on the card never reach the canvas under it.
+            // Its own layer, so presses on the card never reach the canvas under it; under every
+            // modal dialog and its backdrop (`crate::modal`).
             let ctx = ui.ctx().clone();
-            egui::Area::new(egui::Id::new("floating_comment")).order(egui::Order::Foreground).fixed_pos(Pos2::ZERO).sense(Sense::hover()).show(
+            egui::Area::new(egui::Id::new("floating_comment")).order(egui::Order::Middle).fixed_pos(Pos2::ZERO).sense(Sense::hover()).show(
                 &ctx,
                 |aui| {
                     aui.set_clip_rect(view_rect);
@@ -1736,18 +1739,10 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     app.canvas.focused = resp.has_focus();
     // Screen readers: the document under the canvas, with the caret (#488).
     crate::a11y::expose(app, ui.ctx(), resp.id, &layout, &rects, area);
-    // A click behind a modal dialog doesn't reach the page, also in the frame the dialog opens in:
-    // the page is drawn before the dialog and its backdrop, which takes the clicks (`crate::modal`).
-    // A drag already going on the page is dropped: its release, over the dialog, wouldn't end it.
-    let behind_modal = crate::modal::open(app);
-    if behind_modal {
-        app.canvas.cancel_pointer_gestures();
-    }
-    // Nor do the buttons that start or stop middle-click scrolling also click the page.
-    let middle_gesture = behind_modal || app.canvas.auto_scroll.blocks_input();
+    // The buttons that start or stop middle-click scrolling don't also click the page.
+    let middle_gesture = app.canvas.auto_scroll.blocks_input();
     // Double-click the space between two pages (or the line between them) to hide or show it.
-    if !behind_modal
-        && resp.double_clicked()
+    if resp.double_clicked()
         && app.session.view.mode == wordcraft_layout::ViewMode::Print
         && !app.session.view.read_mode
         && let Some(p) = resp.interact_pointer_pos()
@@ -1815,11 +1810,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     // Shift+F10 opens the same menu below the caret, for the selection or the word there (#821).
     let from_keys = std::mem::take(&mut app.canvas.context_menu_from_keys);
     // A click on the equation frame's options strip opens the equation's menu below the strip.
-    let eq_strip = app
-        .canvas
-        .eq_options
-        .map(|f| f.strip)
-        .filter(|r| !behind_modal && resp.clicked() && resp.interact_pointer_pos().is_some_and(|p| r.contains(p)));
+    let eq_strip = app.canvas.eq_options.map(|f| f.strip).filter(|r| resp.clicked() && resp.interact_pointer_pos().is_some_and(|p| r.contains(p)));
     if from_keys {
         context_suggestions(app);
         app.canvas.context_menu_at = caret_screen(app).map(|(p, h)| p + egui::vec2(0.0, h));

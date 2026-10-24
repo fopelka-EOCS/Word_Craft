@@ -43,8 +43,15 @@ struct App(
 
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        // Documents opened from Finder can bring up a window: after the frame's input, as the app's
+        // other input from outside the window (`WordApp::outside_input`).
         #[cfg(target_os = "macos")]
-        apple_events::poll(&self.4, &mut self.0, ctx);
+        {
+            if !self.0.ui_follows() {
+                let inbox = &self.4;
+                self.0.from_outside(ctx, |app| apple_events::poll(inbox, app, ctx));
+            }
+        }
         self.0.logic(ctx);
         self.3.show(frame);
         // A window that doesn't fit on its screen (the default size on a laptop) shrinks to fit
@@ -90,6 +97,11 @@ impl eframe::App for App {
     }
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         self.0.ui(ui);
+        #[cfg(target_os = "macos")]
+        {
+            let (inbox, ctx) = (&self.4, ui.ctx());
+            self.0.from_outside(ctx, |app| apple_events::poll(inbox, app, ctx));
+        }
         self.3.show(frame);
     }
     fn on_exit(&mut self) {

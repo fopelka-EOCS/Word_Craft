@@ -1489,13 +1489,17 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
         Dialog::Layout(d) => d.title(),
     };
     let id = egui::Id::new(("dialog", title));
-    let window = crate::window_close::window(ctx, egui::Window::new(tl!(title)).id(id).collapsible(false).resizable(false));
+    let mut window = crate::window_close::window(ctx, egui::Window::new(tl!(title)).id(id).collapsible(false).resizable(false));
+    // A modal dialog is over everything else in the window, with its backdrop under it
+    // (`crate::modal::backdrop`).
+    if !crate::modal::modeless(&d) {
+        window = window.order(egui::Order::Foreground);
+    }
     let page_keys = crate::modal::keys_for_page(app, ctx, &d);
     let shown = place_dialog(ctx, id, window).show(ctx, |ui| {
         ui.set_min_width(340.0);
         close = body(app, ui, &mut d);
     });
-    crate::modal::give_back(app, ctx, page_keys, close);
     if let Some(shown) = &shown {
         if let Dialog::SaveChanges { name, message, .. } = &d {
             let question = crate::i18n::fmt(tl!("Do you want to save changes to {name}?"), &[("name", name)]);
@@ -1513,9 +1517,11 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
             });
         }
         count_dialog_frame(ctx, id);
-        crate::modal::block_behind(app, ctx, &d, shown.response.layer_id);
+        crate::modal::shown(ctx, &d, shown.response.layer_id);
         close |= crate::window_close::show(ctx, &shown.response, &Tokens::get(ctx));
     }
+    // After the close box too: a dialog closed by it gives the page the keyboard at once.
+    crate::modal::give_back(app, ctx, page_keys, close);
     if close {
         app.canvas.want_focus = true;
     } else {
@@ -2054,7 +2060,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             });
             ui.separator();
             if *tab == FindTab::GoTo {
-                return goto_body(app, ui, goto_what, goto_target, message);
+                return goto_body(app, ui, goto_what, goto_target, message, focus);
             }
             let replace_mode = *tab == FindTab::Replace;
             ui.horizontal(|ui| {
@@ -3873,7 +3879,7 @@ fn command_matches(c: &wordcraft_engine::CommandSpec, query: &str) -> bool {
 
 /// The Find and Replace dialog's Go To tab (#712): a page (a number, or `+2` / `-1` from the
 /// current page; empty, Next and Previous step a page) or a bookmark. Returns true to close.
-fn goto_body(app: &mut WordApp, ui: &mut Ui, what: &mut GoToWhat, target: &mut String, message: &mut String) -> bool {
+fn goto_body(app: &mut WordApp, ui: &mut Ui, what: &mut GoToWhat, target: &mut String, message: &mut String, focus: &mut bool) -> bool {
     // The document's bookmarks, only while they are listed (finding them walks the document).
     let bookmarks: Vec<String> = if *what == GoToWhat::Bookmark {
         app.session.doc.bookmarks().into_iter().map(|(n, _)| n).filter(|n| !n.starts_with('_')).collect()
@@ -3896,9 +3902,11 @@ fn goto_body(app: &mut WordApp, ui: &mut Ui, what: &mut GoToWhat, target: &mut S
             GoToWhat::Page => {
                 ui.label(tl!("Enter page number:"));
                 let r = ui.add(egui::TextEdit::singleline(target).desired_width(220.0));
-                // Not from the page: Find and Replace is modeless, and a click on the page gives
-                // the page the keyboard with the dialog open (`crate::modal`).
-                if !r.has_focus() && !app.canvas.focused {
+                // As the dialog opens (also again, by its shortcut, with the page holding the
+                // keyboard), and otherwise not from the page: Find and Replace is modeless, and a
+                // click on the page gives the page the keyboard with the dialog open (`crate::modal`).
+                let opening = std::mem::take(focus);
+                if !r.has_focus() && (opening || !app.canvas.focused) {
                     r.request_focus();
                 }
                 ui.label(egui::RichText::new(tl!("Type +2 or -1 to move from the page you are on.")).weak());

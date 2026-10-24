@@ -152,6 +152,11 @@ fn today() -> (i64, u32, u32) {
     (y, m, d)
 }
 
+/// Closes the open list or calendar (a modal dialog has opened over it).
+pub fn close_popup(app: &mut WordApp) {
+    app.controls.popup = None;
+}
+
 /// The open list or calendar (outside the canvas viewport, above everything).
 pub fn popup(app: &mut WordApp, ctx: &egui::Context) {
     let Some(pop) = app.controls.popup.as_ref() else { return };

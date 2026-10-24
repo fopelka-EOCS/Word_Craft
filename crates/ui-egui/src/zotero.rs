@@ -46,6 +46,21 @@ pub struct ZoteroLink {
     methods: Vec<String>,
 }
 
+impl ZoteroLink {
+    /// Zotero's alert is up, waiting for an answer: a modal window (`crate::modal`).
+    pub fn alert_open(&self) -> bool {
+        self.alert.is_some()
+    }
+
+    /// Zotero's alert up, as when Zotero asks `text` (tests); the answer comes on the receiver.
+    #[cfg(test)]
+    pub(crate) fn ask(&mut self, text: &str) -> std::sync::mpsc::Receiver<Result<Value, String>> {
+        let (reply, answer) = std::sync::mpsc::channel();
+        self.alert = Some(Alert { text: text.into(), buttons: 0, reply });
+        answer
+    }
+}
+
 /// Focus requests from the bridge.
 struct AppHost<'a> {
     ctx: &'a egui::Context,
@@ -229,11 +244,13 @@ pub fn show_alert(app: &mut WordApp, ctx: &egui::Context) {
         _ => &[("OK", 1)],
     };
     let mut picked = None;
-    egui::Window::new("Zotero")
+    let shown = egui::Window::new("Zotero")
         .id(egui::Id::new("zotero-alert"))
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, -40.0))
+        // Over every window, as the modal dialogs: Zotero waits for the answer.
+        .order(egui::Order::Foreground)
         .show(ctx, |ui| {
             ui.set_max_width(460.0);
             ui.label(a.text.trim_end());
@@ -249,6 +266,12 @@ pub fn show_alert(app: &mut WordApp, ctx: &egui::Context) {
     if let Some(v) = picked {
         let _ = answer(app, v);
         ctx.request_repaint();
+    }
+    if app.zotero.alert_open()
+        && let Some(shown) = shown
+    {
+        // Over whatever is open, with a backdrop of its own (`crate::modal::backdrop`).
+        crate::modal::shown_on_top(ctx, shown.response.layer_id);
     }
 }
 

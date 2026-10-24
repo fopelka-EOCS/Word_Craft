@@ -232,10 +232,10 @@ fn is_paste_special_release(key: Key, modifiers: egui::Modifiers) -> bool {
 }
 
 /// Events for the focused canvas: text, editing keys, clipboard, IME. While keytips are showing
-/// every key belongs to them (letters pick badges, Escape cancels), so nothing here runs; so
-/// does every key while a modal dialog is open (`crate::modal`).
+/// every key belongs to them (letters pick badges, Escape cancels), so nothing here runs. Behind a
+/// modal window no key reaches this (`crate::modal`).
 pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
-    if app.ui.keytips != crate::keytips::Phase::Off || crate::modal::open(app) {
+    if app.ui.keytips != crate::keytips::Phase::Off {
         return;
     }
     let events = ctx.input(|i| i.events.clone());
@@ -277,10 +277,6 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
         app.canvas.paste_mods = Some(held);
     }
     for e in events {
-        // A shortcut opened a dialog: the keys after it in this frame are the dialog's.
-        if crate::modal::opened_unseen(app, ctx) {
-            break;
-        }
         // Which presses reached the canvas, and the modifiers held with Mod, in event order: Mod
         // can go down and up within one frame, leaving the frame's modifiers without it.
         match &e {
@@ -713,16 +709,18 @@ fn is_global_shortcut(key: Key, m: Modifiers) -> bool {
 /// Command shortcuts when the canvas isn't focused but no text field is either.
 pub fn global_shortcuts(app: &mut WordApp, ctx: &egui::Context) {
     // A modal dialog takes every key, also one that closed it this frame, and no shortcut changes
-    // the document behind it (Customize Keyboard records the keys pressed).
-    if app.canvas.focused || ctx.egui_wants_keyboard_input() || crate::modal::open(app) || crate::modal::held_this_frame(ctx) {
+    // the document behind it (Customize Keyboard records the keys pressed); nor does one behind a
+    // modeless dialog that took the keyboard from the page.
+    if app.canvas.focused
+        || ctx.egui_wants_keyboard_input()
+        || crate::modal::open(app)
+        || crate::modal::held_this_frame(ctx)
+        || crate::modal::dialog_has_keyboard(app, ctx)
+    {
         return;
     }
     let events = ctx.input(|i| i.events.clone());
     for e in events {
-        // A shortcut opened a dialog: the shortcuts after it in this frame are the dialog's.
-        if crate::modal::opened_unseen(app, ctx) {
-            break;
-        }
         if let egui::Event::Key { key, pressed: true, modifiers, .. } = e {
             if leave_full_screen(app, key, modifiers, false) {
                 continue;

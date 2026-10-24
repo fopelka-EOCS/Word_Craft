@@ -521,7 +521,8 @@ fn collapsed_group(
     label_line(ui, r.center().x, r.min.y + BIG_LABEL_Y, title, regular(11.5), t.text, true);
     let resp = resp.on_hover_text(title);
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, title));
-    let mut open = was_open;
+    // Behind a modal dialog the drop-down closes, as menus do (`crate::modal::behind`).
+    let mut open = was_open && !crate::modal::behind(ui.ctx(), ui.layer_id());
     if resp.clicked() {
         open = !open;
     } else if open && ui.input(|i| i.pointer.any_click()) {
@@ -844,6 +845,10 @@ fn combo_impl(
     let search_id = ui.id().with(("combo_search", id));
     let mut text = ui.data_mut(|d| d.get_temp::<String>(edit_id)).unwrap_or_else(|| current.to_string());
     let mut s: ComboSearch = if search { ui.data_mut(|d| d.get_temp(search_id)).unwrap_or_default() } else { ComboSearch::default() };
+    // Behind a modal dialog the list, drawn over everything, closes (`crate::modal::behind`).
+    if crate::modal::behind(ui.ctx(), ui.layer_id()) {
+        s.open = false;
+    }
     let mut focused = false;
     let t = Tokens::get(ui.ctx());
     ui.horizontal(|ui| {

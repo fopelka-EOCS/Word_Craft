@@ -848,6 +848,22 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context, ui: &mut Ui) {
     }
 }
 
+/// KeyTips end as a modal window opens (`crate::modal`), as when they are suppressed: no badge
+/// stays over the window, and the keys are the window's.
+pub fn end(app: &mut WordApp, ctx: &egui::Context) {
+    app.ui.keytips = Phase::Off;
+    app.ui.keytip_prefix.clear();
+    app.ui.alt_pressed = false;
+    app.ui.alt_chord_used = false;
+    app.ui.alt_key_down = false;
+    app.ui.alt_modifier_seen = false;
+    app.keytip_rects.clear();
+    ctx.data_mut(|d| {
+        d.insert_temp(phase_id(), Phase::Off);
+        d.remove::<Vec<(Rect, String)>>(rects_id());
+    });
+}
+
 /// Where the legacy hint hangs from: the tab row, or, with no ribbon showing (Focus, Full Screen
 /// View), the top of the window under the slim bar, so Alt, V still says it's waiting.
 fn legacy_hint_anchor(tabs: Option<Rect>, window: Rect) -> Rect {

@@ -312,13 +312,22 @@ pub(crate) fn show(app: &mut WordApp, ctx: &egui::Context) {
         .id(egui::Id::new("builtin_file_browser"))
         .collapsible(false)
         .resizable(false)
-        .anchor(Align2::CENTER_CENTER, vec2(0.0, -20.0));
+        .anchor(Align2::CENTER_CENTER, vec2(0.0, -20.0))
+        // A modal window over everything else, a dialog it is opened from included (`crate::modal`).
+        .order(egui::Order::Foreground);
     let shown = crate::window_close::window(ctx, window).show(ctx, |ui| {
         ui.set_width(620.0);
         done = body(ui, &mut b, &t);
     });
+    let layer = shown.as_ref().map(|s| s.response.layer_id);
     if shown.is_some_and(|s| crate::window_close::show(ctx, &s.response, &t)) {
         done = Some(None);
+    }
+    // Only while it stays open: a browser closing in this pass leaves what is below it on top.
+    if done.is_none()
+        && let Some(layer) = layer
+    {
+        crate::modal::shown_on_top(ctx, layer);
     }
     app.file_browser.open = Some(b);
     if let Some(picked) = done {
