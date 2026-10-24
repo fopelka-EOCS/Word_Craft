@@ -103,12 +103,12 @@ pub struct FaceRef(&'static FontFace);
 impl FaceRef {
     /// The handle for a loaded face (memoised per face).
     pub fn of(face: &Arc<FontFace>) -> FaceRef {
-        static LEAKED: RwLock<Vec<Option<&'static FontFace>>> = RwLock::new(Vec::new());
+        static LEAKED: RwLock<Vec<Option<&FontFace>>> = RwLock::new(Vec::new());
         let id = face.id as usize;
-        if let Some(Some(f)) = LEAKED.read().unwrap_or_else(|e| e.into_inner()).get(id) {
+        if let Some(Some(f)) = LEAKED.read().unwrap_or_else(std::sync::PoisonError::into_inner).get(id) {
             return FaceRef(f);
         }
-        let mut w = LEAKED.write().unwrap_or_else(|e| e.into_inner());
+        let mut w = LEAKED.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         if w.len() <= id {
             w.resize(id + 1, None);
         }
@@ -984,7 +984,7 @@ pub fn base_style(style: &str) -> &str {
 }
 
 fn norm(s: &str) -> String {
-    s.chars().filter(|c| c.is_alphanumeric()).flat_map(|c| c.to_lowercase()).collect()
+    s.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect()
 }
 
 /// Weight implied by a style name.
@@ -1080,11 +1080,11 @@ impl FontDb {
     pub fn set_system_fallback(&self, on: bool) {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.sys.lock().unwrap_or_else(|e| e.into_inner()).enabled = on;
+            self.sys.lock().unwrap_or_else(std::sync::PoisonError::into_inner).enabled = on;
         }
         // Misses remembered while it was off may be found now.
-        self.fallbacks.write().unwrap_or_else(|e| e.into_inner()).map.clear();
-        *self.run_fallbacks.write().unwrap_or_else(|e| e.into_inner()) = RunFallbackCache::default();
+        self.fallbacks.write().unwrap_or_else(std::sync::PoisonError::into_inner).map.clear();
+        *self.run_fallbacks.write().unwrap_or_else(std::sync::PoisonError::into_inner) = RunFallbackCache::default();
         #[cfg(target_arch = "wasm32")]
         let _ = on;
     }
@@ -1116,14 +1116,14 @@ impl FontDb {
     }
 
     fn read_faces(&self) -> std::sync::RwLockReadGuard<'_, Vec<Arc<FontFace>>> {
-        self.faces.read().unwrap_or_else(|e| e.into_inner())
+        self.faces.read().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// The system font catalog, scanned first if it hasn't been yet.
     #[cfg(not(target_arch = "wasm32"))]
     fn read_catalog(&self) -> std::sync::RwLockReadGuard<'_, Vec<CatalogEntry>> {
         self.ensure_catalog();
-        self.catalog.read().unwrap_or_else(|e| e.into_inner())
+        self.catalog.read().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Family names available (loaded plus cataloged system fonts), sorted and deduplicated. Like
@@ -1259,7 +1259,7 @@ impl FontDb {
                 }
             }
         }
-        let mut faces = self.faces.write().unwrap_or_else(|e| e.into_inner());
+        let mut faces = self.faces.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut added = 0;
         for f in new {
             if !faces.iter().any(|g| g.family.eq_ignore_ascii_case(&f.family) && g.style.eq_ignore_ascii_case(&f.style)) {
@@ -1318,7 +1318,7 @@ impl FontDb {
                     stack.push(p);
                     continue;
                 }
-                let ext = p.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase());
+                let ext = p.extension().and_then(std::ffi::OsStr::to_str).map(|e| e.to_ascii_lowercase());
                 if !matches!(ext.as_deref(), Some("ttf" | "otf" | "ttc" | "otc")) {
                     continue;
                 }
@@ -1338,7 +1338,7 @@ impl FontDb {
         }
         let n = found.len();
         log::debug!("cataloged {n} system font faces");
-        *self.catalog.write().unwrap_or_else(|e| e.into_inner()) = found;
+        *self.catalog.write().unwrap_or_else(std::sync::PoisonError::into_inner) = found;
         self.catalog_gen.fetch_add(1, Ordering::AcqRel);
         n
     }
@@ -1348,7 +1348,7 @@ impl FontDb {
     /// its styles. Returns whether any face was added.
     #[cfg(not(target_arch = "wasm32"))]
     fn load_cataloged(&self, family: &str) -> bool {
-        let _loading = self.loading.lock().unwrap_or_else(|e| e.into_inner());
+        let _loading = self.loading.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // Another lookup may have loaded it while this one waited.
         if self.is_loaded(family) {
             return true;
@@ -1357,7 +1357,7 @@ impl FontDb {
         let files = paths.iter().filter_map(|p| std::fs::read(p).ok()).map(|b| (b, None)).collect();
         let added = self.add_fonts(files) > 0;
         // The fallback searches' index: these files are loaded fonts now.
-        let mut index = self.coverage.lock().unwrap_or_else(|e| e.into_inner());
+        let mut index = self.coverage.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         for file in index.files.iter_mut().filter(|f| paths.contains(&f.path)) {
             file.used = true;
         }
@@ -1546,7 +1546,7 @@ impl FontDb {
         let mut f = make_face(base.bytes.clone(), base.index, base.family.clone(), style.to_string(), base.legacy_family.clone(), coords)?;
         f.local_names = base.local_names.clone();
         let f = Arc::new(f);
-        self.faces.write().unwrap_or_else(|e| e.into_inner()).push(f.clone());
+        self.faces.write().unwrap_or_else(std::sync::PoisonError::into_inner).push(f.clone());
         Some(f)
     }
 
@@ -1615,7 +1615,7 @@ impl FontDb {
     fn cached_fallback(&self, c: char, exclude: u32) -> Option<Arc<FontFace>> {
         let n = self.read_faces().len();
         {
-            let cache = self.fallbacks.read().unwrap_or_else(|e| e.into_inner());
+            let cache = self.fallbacks.read().unwrap_or_else(std::sync::PoisonError::into_inner);
             if cache.faces == n
                 && let Some(hit) = cache.map.get(&(c, exclude))
             {
@@ -1629,7 +1629,7 @@ impl FontDb {
         if n != self.read_faces().len() {
             return found;
         }
-        let mut cache = self.fallbacks.write().unwrap_or_else(|e| e.into_inner());
+        let mut cache = self.fallbacks.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         if cache.faces != n || cache.map.len() >= FALLBACK_CACHE_MAX {
             cache.map.clear();
             cache.faces = n;
@@ -1662,7 +1662,7 @@ impl FontDb {
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let enabled = self.sys.lock().unwrap_or_else(|e| e.into_inner()).enabled;
+            let enabled = self.sys.lock().unwrap_or_else(std::sync::PoisonError::into_inner).enabled;
             if enabled {
                 self.load_cataloged(FAMILY);
             }
@@ -1674,7 +1674,7 @@ impl FontDb {
     /// one search at a time.
     #[cfg(not(target_arch = "wasm32"))]
     fn system_search(&self, c: char, exclude: u32) -> (Option<Arc<FontFace>>, usize) {
-        let _searching = self.searching.lock().unwrap_or_else(|e| e.into_inner());
+        let _searching = self.searching.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // A search that held the lock first may have loaded a font covering `c`: choose among the
         // loaded faces again before loading more.
         let (found, n) = self.loaded_fallback(c, exclude);
@@ -1735,7 +1735,7 @@ impl FontDb {
         let key = (set, exclude, bold, italic);
         let n = self.read_faces().len();
         {
-            let cache = self.run_fallbacks.read().unwrap_or_else(|e| e.into_inner());
+            let cache = self.run_fallbacks.read().unwrap_or_else(std::sync::PoisonError::into_inner);
             if cache.faces == n
                 && let Some(hit) = cache.map.get(&key)
             {
@@ -1746,7 +1746,7 @@ impl FontDb {
         // meanwhile by another thread (one its search, or a family named by a document) must make
         // a miss count as stale, not as the answer for the new count.
         let (found, n) = self.search_run(&key.0, exclude, bold, italic);
-        let mut cache = self.run_fallbacks.write().unwrap_or_else(|e| e.into_inner());
+        let mut cache = self.run_fallbacks.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         if cache.faces != n || cache.map.len() >= RUN_FALLBACK_CACHE_MAX || cache.chars.saturating_add(key.0.len()) > RUN_FALLBACK_CACHE_CHARS {
             cache.map.clear();
             cache.faces = n;
@@ -1825,7 +1825,7 @@ impl FontDb {
             return false;
         }
         {
-            let sys = self.sys.lock().unwrap_or_else(|e| e.into_inner());
+            let sys = self.sys.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if !sys.enabled || sys.misses.contains(&c) {
                 return false;
             }
@@ -1839,7 +1839,7 @@ impl FontDb {
             if self.is_loaded(fam) || !cataloged.iter().any(|f| f.eq_ignore_ascii_case(fam)) {
                 continue;
             }
-            if !self.sys.lock().unwrap_or_else(|e| e.into_inner()).tried.insert(fam) {
+            if !self.sys.lock().unwrap_or_else(std::sync::PoisonError::into_inner).tried.insert(fam) {
                 continue;
             }
             self.load_cataloged(fam);
@@ -1850,7 +1850,7 @@ impl FontDb {
         if self.indexed_fallback(c) {
             return true;
         }
-        let mut sys = self.sys.lock().unwrap_or_else(|e| e.into_inner());
+        let mut sys = self.sys.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if sys.misses.len() >= SYS_MISSES_MAX {
             sys.misses.clear();
         }
@@ -1870,7 +1870,7 @@ impl FontDb {
     /// before the Regular.
     #[cfg(not(target_arch = "wasm32"))]
     fn indexed_run_fallback(&self, chars: &[char]) {
-        if !self.sys.lock().unwrap_or_else(|e| e.into_inner()).enabled || chars.iter().any(|c| c.is_control()) {
+        if !self.sys.lock().unwrap_or_else(std::sync::PoisonError::into_inner).enabled || chars.iter().any(|c| c.is_control()) {
             return;
         }
         self.load_indexed(chars, true);
@@ -1886,13 +1886,14 @@ impl FontDb {
         let covered = |db: &FontDb| db.read_faces().iter().any(|f| chars.iter().all(|c| f.covers(*c)));
         let cps: Vec<u32> = chars.iter().map(|c| u32::from(*c)).collect();
         let maps_all = |ranges: &[(u32, u32)]| cps.iter().all(|cp| ranges_hold(ranges, *cp));
-        let mut index = self.coverage.lock().unwrap_or_else(|e| e.into_inner());
+        let mut index = self.coverage.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let generation = self.catalog_gen.load(Ordering::Acquire);
         if index.generation != Some(generation) {
             // A new scan (or the first search): keep what is known of files still installed.
             let mut known: HashMap<std::path::PathBuf, IndexedFile> =
                 std::mem::take(&mut index.files).into_iter().map(|f| (f.path.clone(), f)).collect();
-            let mut paths: Vec<std::path::PathBuf> = self.catalog.read().unwrap_or_else(|e| e.into_inner()).iter().map(|e| e.path.clone()).collect();
+            let mut paths: Vec<std::path::PathBuf> =
+                self.catalog.read().unwrap_or_else(std::sync::PoisonError::into_inner).iter().map(|e| e.path.clone()).collect();
             paths.sort();
             paths.dedup();
             let files = paths
@@ -1955,11 +1956,11 @@ impl FontDb {
     /// Glyph outline in font units, y-down (flipped), cached per (face, glyph).
     pub fn outline(&self, face: &FontFace, gid: u32) -> Arc<BezPath> {
         let key = (face.id, gid);
-        if let Some(p) = self.outlines.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+        if let Some(p) = self.outlines.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(&key) {
             return p.clone();
         }
         let p = Arc::new(face.glyph_outline(gid));
-        let mut cache = self.outlines.lock().unwrap_or_else(|e| e.into_inner());
+        let mut cache = self.outlines.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if cache.len() >= OUTLINE_CACHE_MAX {
             cache.clear();
         }
