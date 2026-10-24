@@ -49,7 +49,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 // from them as the title bar's own controls, and the rest of the band drags the window.
                 let (band, drag) = ui.allocate_exact_size(vec2(200.0, app.mac_titlebar.height), Sense::click_and_drag());
                 if drag.drag_started() {
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                    crate::window_controls::desktop_grab(ui.ctx(), egui::ViewportCommand::StartDrag);
                 }
                 // The chevron's stroke starts at the content edge.
                 let c = back_chevron_c(band.min.x, band.center().y, app.session.view.full_screen, app.mac_titlebar.content_left);

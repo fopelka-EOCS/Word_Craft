@@ -14,6 +14,7 @@ mod animations;
 mod apple_events;
 mod clipboard;
 mod control_server;
+mod decorations;
 mod default_apps;
 mod file_dialogs;
 #[cfg(any(target_os = "windows", target_os = "macos", test))]
@@ -167,6 +168,13 @@ fn prefs_enabled() -> bool {
     std::env::var_os("WORDCRAFT_NO_PREFS").is_none()
 }
 
+/// File › Options › Use system title bar as last saved, before the window (and the app that loads
+/// the preferences) exists.
+fn saved_system_title_bar() -> bool {
+    prefs_enabled()
+        && prefs_path().and_then(|p| std::fs::read(p).ok()).and_then(|bytes| UiState::from_json(&bytes)).is_some_and(|ui| ui.system_title_bar)
+}
+
 fn load_prefs(app: &mut WordApp) {
     if !prefs_enabled() {
         return;
@@ -265,6 +273,24 @@ fn app_icon() -> Option<egui::IconData> {
     #[cfg(not(target_os = "macos"))]
     let png: &[u8] = include_bytes!("../../../assets/app-icon/hicolor/256x256/apps/ai.storyteller.wordcraft.png");
     eframe::icon_data::from_png_bytes(png).map_err(|e| log::warn!("app icon: {e}")).ok()
+}
+
+/// Whether the libraries winit's X11 backend opens at startup are installed (libX11, libXcursor,
+/// libX11-xcb and libXi; libX11-xcb brings in libxcb; and libxkbcommon-x11, for the keyboard).
+/// The deb and rpm only recommend them, and a forced X11 backend without them fails to start
+/// (winit panics when libxkbcommon-x11 is missing).
+#[cfg(all(unix, not(target_os = "macos")))]
+fn x11_libraries_load() -> bool {
+    use x11_dl::{xcursor::Xcursor, xinput2::XInput2, xlib::Xlib, xlib_xcb::Xlib_xcb};
+    let missing = [Xlib::open().err(), Xcursor::open().err(), Xlib_xcb::open().err(), XInput2::open().err()];
+    let mut missing: Vec<String> = missing.into_iter().flatten().map(|e| e.to_string()).collect();
+    if xkbcommon_dl::x11::xkbcommon_x11_option().is_none() {
+        missing.push("libxkbcommon-x11.so.0 could not be loaded".into());
+    }
+    if !missing.is_empty() {
+        log::warn!("WORDCRAFT_X11: X11 libraries missing, using the native Wayland backend: {}", missing.join("; "));
+    }
+    missing.is_empty()
 }
 
 const USAGE: &str = "\
@@ -401,15 +427,29 @@ fn main() -> eframe::Result {
     if let Some(window) = restored {
         options.viewport = window.apply(options.viewport);
     }
+    // winit runs natively on a Wayland desktop: sharp at fractional scales, with working input
+    // methods. It has no file drag-and-drop there (only on X11), so WORDCRAFT_X11=1 runs through
+    // XWayland instead for dropping files from the file manager (#220); any other value, 0 or
+    // empty included, leaves it off. The X11 libraries are only recommended by the packages, so
+    // without them the setting is ignored rather than failing.
     #[cfg(all(unix, not(target_os = "macos")))]
-    // winit has no file drag-and-drop on Wayland (only on X11), so dropping files from the file
-    // manager showed a "no" cursor. Run through XWayland when it's there; WORDCRAFT_WAYLAND=1
-    // keeps the native Wayland backend.
-    if std::env::var_os("DISPLAY").is_some() && std::env::var_os("WORDCRAFT_WAYLAND").is_none() {
+    let x11 = std::env::var_os("DISPLAY").is_some() && std::env::var_os("WORDCRAFT_X11").is_some_and(|v| v == "1") && x11_libraries_load();
+    #[cfg(not(all(unix, not(target_os = "macos"))))]
+    let x11 = false;
+    #[cfg(all(unix, not(target_os = "macos")))]
+    if x11 {
         options.event_loop_builder = Some(Box::new(|b| {
             use winit::platform::x11::EventLoopBuilderExtX11;
             b.with_x11();
         }));
+    }
+    // GNOME on Wayland leaves the window frame to the app (decorations.rs): the title bar carries
+    // the window buttons instead, unless File › Options › Use system title bar is on. Read before
+    // the window opens, so it opens with the right frame.
+    let window_controls = decorations::app_drawn(x11);
+    let app_frame = window_controls.is_some() && !saved_system_title_bar();
+    if app_frame {
+        options.viewport = options.viewport.with_decorations(false);
     }
     // Registered before the event loop starts, so it catches the Finder event that launched us as
     // well as later ones. Lives until the event loop returns; the app creator only borrows it.
@@ -448,6 +488,8 @@ fn main() -> eframe::Result {
             }
             app.ui.window = restored;
             app.integrated_titlebar = cfg!(target_os = "macos");
+            app.app_frame_shown = window_controls.as_ref().map(|_| app_frame);
+            app.window_controls = window_controls;
             #[cfg(target_os = "macos")]
             if let Some(bar) = traffic_lights::title_bar() {
                 log::info!("title bar: {bar:?}");

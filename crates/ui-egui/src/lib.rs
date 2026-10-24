@@ -84,6 +84,7 @@ pub mod table_ruler;
 pub mod theme;
 pub mod widgets;
 pub mod window_close;
+pub mod window_controls;
 pub mod window_geometry;
 pub mod wordart_menus;
 pub mod zotero;
@@ -324,6 +325,10 @@ pub struct UiState {
     /// fades, as Word's does on Windows (on, the default), or it jumps and blinks on and off
     /// (off).
     pub caret_animation: bool,
+    /// File › Options › General › Use system title bar: where the desktop leaves the window frame
+    /// to the app ([`WordApp::window_controls`], GNOME on Wayland), keep winit's frame instead of
+    /// drawing the window buttons in the title bar.
+    pub system_title_bar: bool,
     /// Custom keyboard shortcuts (Customize Keyboard, #368); the session owns them while running.
     pub keyboard: wordcraft_engine::KeyMap,
     /// Custom ribbon tabs and groups, hidden tabs and the Quick Access Toolbar (Customize Ribbon,
@@ -412,6 +417,7 @@ impl Default for UiState {
             dark_page: false,
             check_spelling: true,
             caret_animation: true,
+            system_title_bar: false,
             keyboard: wordcraft_engine::KeyMap::default(),
             ribbon: wordcraft_engine::RibbonLayout::default(),
             caption_labels: Vec::new(),
@@ -554,6 +560,12 @@ pub struct WordApp {
     pub mac_titlebar: chrome::MacTitleBar,
     /// Focus (#1678): the ribbon is dropped down from the Focus bar, over the page.
     pub(crate) focus_ribbon: bool,
+    /// Set when the desktop leaves the window frame to the app (GNOME on Wayland): the title bar
+    /// carries these window buttons and the window's edges resize it.
+    pub window_controls: Option<window_controls::Layout>,
+    /// Whether the window currently has the app's frame rather than winit's (`None` until the
+    /// desktop app says how the window opened, or the first frame).
+    pub app_frame_shown: Option<bool>,
     control_rx: Option<std::sync::mpsc::Receiver<ControlRequest>>,
     shot_token: u64,
     queued_shots: Vec<(u64, f64, u32)>,
@@ -704,6 +716,8 @@ impl WordApp {
             integrated_titlebar: false,
             mac_titlebar: chrome::MacTitleBar::default(),
             focus_ribbon: false,
+            window_controls: None,
+            app_frame_shown: None,
             control_rx: None,
             shot_token: 0,
             queued_shots: Vec::new(),
@@ -1510,6 +1524,35 @@ impl WordApp {
         }
     }
 
+    /// Whether the app draws the window buttons and resize edges: the desktop leaves the frame to
+    /// the app and Use system title bar is off.
+    pub fn draws_window_frame(&self) -> bool {
+        self.window_controls.is_some() && !self.ui.system_title_bar
+    }
+
+    /// The window buttons to draw this frame: none where the desktop draws the frame, and none in
+    /// full screen.
+    pub(crate) fn shown_window_controls(&self, ctx: &egui::Context) -> Option<window_controls::Layout> {
+        let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
+        self.window_controls.clone().filter(|_| self.draws_window_frame() && !fullscreen)
+    }
+
+    /// Follow Use system title bar at once: the window opens without winit's frame wherever the
+    /// app may draw its own (the desktop app's `main`), and gets it back, or loses it again, when
+    /// the setting changes.
+    fn sync_window_frame(&mut self, ctx: &egui::Context) {
+        if self.window_controls.is_none() {
+            return;
+        }
+        let app_frame = self.draws_window_frame();
+        if self.app_frame_shown != Some(app_frame) {
+            if self.app_frame_shown.is_some() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(!app_frame));
+            }
+            self.app_frame_shown = Some(app_frame);
+        }
+    }
+
     /// Follow the desktop's light/dark choice while the app runs (Linux, where winit reports no
     /// system theme; see [`desktop_theme`]). The desktop app calls this once at start-up; unit
     /// tests and `ui_shot` don't, so what they draw doesn't depend on the host's desktop theme.
@@ -1797,6 +1840,17 @@ impl WordApp {
                     Some(_) => return Some(Err("`value` must be true or false".into())),
                 }
                 json!({"caretAnimation": self.ui.caret_animation})
+            }
+            "ui.systemTitleBar" => {
+                // File › Options › General › Use system title bar: `value` true gives the window
+                // winit's frame, false the app's own window buttons; no value reads it. It changes
+                // the window only where the desktop leaves the frame to the app (`appDrawsFrame`).
+                match p.get("value") {
+                    None => {}
+                    Some(Value::Bool(on)) => self.ui.system_title_bar = *on,
+                    Some(_) => return Some(Err("`value` must be true or false".into())),
+                }
+                json!({"systemTitleBar": self.ui.system_title_bar, "appDrawsFrame": self.draws_window_frame()})
             }
             "ui.alignmentGuides" => {
                 // File › Options › Advanced › Editing: `value` true or false turns snapping to
@@ -2376,9 +2430,13 @@ impl WordApp {
         }
     }
 
-    /// Read a Control-click as the right-click on macOS, then inject synthetic input events from
-    /// the control channel (one pointer event per frame).
+    /// Give back a button release the desktop kept during a window move or resize, read a
+    /// Control-click as the right-click on macOS, then inject synthetic input events from the
+    /// control channel (one pointer event per frame).
     pub fn raw_input_hook(&mut self, raw: &mut egui::RawInput) {
+        if let Some(ctx) = &self.ctx {
+            window_controls::release_after_desktop_grab(ctx, raw);
+        }
         if cfg!(target_os = "macos") {
             control_click_as_secondary(&mut raw.events, &mut self.control_click);
         }
@@ -2431,7 +2489,15 @@ impl WordApp {
             backstage::forget_open_error(&ctx);
             backstage::forget_save_as_error(&ctx);
         }
+        self.sync_window_frame(&ctx);
+        if self.draws_window_frame() {
+            window_controls::resize_edges(&ctx);
+        }
         if self.ui.backstage {
+            // The Backstage covers the title bar, so the window buttons get a bar of their own.
+            if let Some(layout) = self.shown_window_controls(&ctx) {
+                window_controls::backstage_header(ui, &layout);
+            }
             backstage::show(self, ui);
         } else if !self.has_document() {
             // No document open (#1129): the ribbon greyed out but for Help, and no page.
@@ -2855,6 +2921,7 @@ pub(crate) fn works_without_document(id: &str) -> bool {
             | "ui.closeDialog"
             | "ui.collapseRibbon"
             | "ui.quickAccessToolbar"
+            | "ui.systemTitleBar"
             | "ui.keytips"
             | "ui.dark"
             | "ui.theme"
@@ -3499,6 +3566,97 @@ mod tests {
         c.start_screen();
         assert!(!c.has_document());
         assert_eq!(c.run("ui.quickAccessToolbar", json!({"value": false})).unwrap()["quickAccessToolbar"], false, "works without a document");
+    }
+
+    /// The window-frame commands the last frame sent: `Decorations(on)`.
+    fn decorations_asked(h: &egui_kittest::Harness<'static, WordApp>) -> Option<bool> {
+        h.output().viewport_output.values().flat_map(|v| v.commands.iter()).find_map(|c| match c {
+            egui::ViewportCommand::Decorations(on) => Some(*on),
+            _ => None,
+        })
+    }
+
+    /// Steps a few frames and reports the first `Decorations` command among them.
+    fn step_for_decorations(h: &mut egui_kittest::Harness<'static, WordApp>) -> Option<bool> {
+        let mut asked = None;
+        for _ in 0..4 {
+            h.step();
+            asked = asked.or(decorations_asked(h));
+        }
+        asked
+    }
+
+    fn window_button_count(h: &egui_kittest::Harness<'static, WordApp>, label: &str) -> usize {
+        h.query_all_by_role_and_label(egui::accesskit::Role::Button, label).count()
+    }
+
+    /// GNOME on Wayland: the title bar carries the window buttons until File › Options › Use
+    /// system title bar gives the window back its frame, at once and without a restart; the
+    /// choice is saved, and the command turns it back off.
+    #[test]
+    fn use_system_title_bar_swaps_the_window_buttons_for_the_frame() {
+        let mut a = app();
+        a.window_controls = Some(window_controls::Layout::default());
+        let mut h = harness(a);
+        // The window opened without winit's frame, so the first frames ask for nothing.
+        assert_eq!(step_for_decorations(&mut h), None);
+        for label in ["Minimize", "Maximize"] {
+            assert_eq!(window_button_count(&h, label), 1, "the title bar has {label}");
+        }
+        h.state_mut().run("ui.backstage", json!({"value": true, "page": "options", "pane": "general"})).unwrap();
+        h.run_steps(2);
+        assert_eq!(window_button_count(&h, "Minimize"), 1, "File keeps the window buttons, in a bar of its own");
+        h.get_by_role_and_label(egui::accesskit::Role::CheckBox, "Use system title bar").click();
+        assert_eq!(step_for_decorations(&mut h), Some(true), "the window gets its frame back");
+        assert!(h.state().ui.system_title_bar);
+        assert_eq!(window_button_count(&h, "Minimize"), 0, "and loses the app's buttons");
+        let saved = serde_json::to_string(&h.state().prefs()).unwrap();
+        assert!(saved.contains(r#""systemTitleBar":true"#), "{saved}");
+        let mut b = app();
+        b.apply_prefs(serde_json::from_str(&saved).unwrap());
+        assert!(b.ui.system_title_bar, "kept after a restart");
+        let old: UiState = serde_json::from_str(r#"{"tab":"Insert"}"#).unwrap();
+        assert!(!old.system_title_bar, "older settings draw the app's buttons");
+        assert_eq!(
+            h.state_mut().run("ui.systemTitleBar", json!({})).unwrap(),
+            json!({"systemTitleBar": true, "appDrawsFrame": false}),
+            "no value reads it"
+        );
+        assert!(h.state_mut().run("ui.systemTitleBar", json!({"value": "no"})).is_err());
+        assert_eq!(h.state_mut().run("ui.systemTitleBar", json!({"value": false})).unwrap(), json!({"systemTitleBar": false, "appDrawsFrame": true}));
+        assert_eq!(step_for_decorations(&mut h), Some(false), "the frame goes again");
+        assert_eq!(window_button_count(&h, "Minimize"), 1);
+        h.state_mut().run("ui.backstage", json!({"value": false})).unwrap();
+        h.run_steps(2);
+        assert_eq!(window_button_count(&h, "Minimize"), 1, "back in the title bar");
+    }
+
+    /// GNOME's `button-layout` decides which buttons appear: Fedora's default shows only close.
+    #[test]
+    fn the_desktop_button_layout_decides_the_window_buttons() {
+        let mut h = harness(app());
+        h.run_steps(2);
+        let closes = window_button_count(&h, "Close");
+        let mut a = app();
+        a.window_controls = Some(window_controls::Layout { left: vec![], right: vec![window_controls::Button::Close] });
+        let mut h = harness(a);
+        h.run_steps(2);
+        assert_eq!(window_button_count(&h, "Close"), closes + 1);
+        assert_eq!(window_button_count(&h, "Minimize"), 0);
+        assert_eq!(window_button_count(&h, "Maximize"), 0);
+    }
+
+    /// Where the desktop draws the frame there are no window buttons and nothing to choose.
+    #[test]
+    fn desktops_that_draw_the_frame_are_left_alone() {
+        let mut h = harness(app());
+        assert_eq!(step_for_decorations(&mut h), None);
+        assert_eq!(window_button_count(&h, "Minimize"), 0);
+        h.state_mut().run("ui.backstage", json!({"value": true, "page": "options", "pane": "general"})).unwrap();
+        h.run_steps(2);
+        assert!(h.query_by_label("Use system title bar").is_none());
+        assert_eq!(h.state_mut().run("ui.systemTitleBar", json!({"value": true})).unwrap(), json!({"systemTitleBar": true, "appDrawsFrame": false}));
+        assert_eq!(step_for_decorations(&mut h), None);
     }
 
     fn harness(a: WordApp) -> egui_kittest::Harness<'static, WordApp> {

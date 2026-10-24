@@ -282,14 +282,20 @@ adapter. The log file records the choice (lines starting with
 RISC-V (riscv64): `wordcraft-<ver>-linux-riscv64.tar.gz`, a tarball cross-compiled for glibc 2.39+
 (Ubuntu 24.04, Debian 13 and newer).
 
-**Wayland:** on a Wayland desktop the app runs through XWayland when it is available, because
-winit (the windowing library) supports dragging files into the window only on X11. To use the
-native Wayland backend instead (for example for sharper text with fractional scaling, at the cost
-of file drag-and-drop), start it with `WORDCRAFT_WAYLAND=1`:
+**Wayland:** on a Wayland desktop the app uses the native Wayland backend, which is sharp at
+fractional scales and works with input methods. winit (the windowing library) supports dragging
+files into the window only on X11, so to drop files from the file manager, run the app through
+XWayland with `WORDCRAFT_X11=1` (this needs the X11 libraries: libX11, libX11-xcb, libXcursor,
+libXi and libxkbcommon-x11):
 
 ```sh
-WORDCRAFT_WAYLAND=1 wordcraft
+WORDCRAFT_X11=1 wordcraft
 ```
+
+Where the compositor draws no window frames (GNOME), the title bar carries GNOME-style minimize,
+maximize and close buttons in the order GNOME's button layout setting names, and the window's
+edges resize it. File › Options › General › Use system title bar gives the window a basic frame
+instead; `WORDCRAFT_TITLEBAR=app` or `=system` overrides the detection.
 
 **Arch Linux (AUR).** Community members maintain three AUR packages; the project doesn't publish
 to the AUR itself. Install one of them:

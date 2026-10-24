@@ -5143,6 +5143,7 @@ dependencies = [
  "pollster 0.4.0",
  "rfd",
  "serde_json",
+ "wayland-client",
  "windows",
  "winit",
  "winresource",
@@ -5153,6 +5154,8 @@ dependencies = [
  "wordcraft-fonts",
  "wordcraft-proof",
  "wordcraft-ui-egui",
+ "x11-dl",
+ "xkbcommon-dl",
  "zbus",
 ]
 
