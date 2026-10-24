@@ -120,17 +120,16 @@ fn headless_sessions_keep_the_dictionary_in_memory() {
     assert!(h.session.user_dict_path.is_none());
 }
 
-/// A backend whose paragraph break is refused while text insertion would succeed.
+/// A backend that keeps every command it is sent and refuses typed paragraphs.
 struct RefusesParagraph {
-    calls: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    calls: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
 }
 
 impl crate::backend::Backend for RefusesParagraph {
     fn call(&mut self, _method: &str, params: Value) -> Result<Value, String> {
-        let command = params["command"].as_str().unwrap_or("").to_string();
-        self.calls.lock().unwrap().push(command.clone());
-        match command.as_str() {
-            "text.newParagraph" => Err("paragraph break refused".into()),
+        self.calls.lock().unwrap().push(params.clone());
+        match params["params"]["paragraphs"].as_bool() {
+            Some(true) => Err("paragraph break refused".into()),
             _ => Ok(json!({"ok": true})),
         }
     }
@@ -142,7 +141,8 @@ impl crate::backend::Backend for RefusesParagraph {
     }
 }
 
-/// #1356: a refused paragraph break is reported and the next line is not typed after it.
+/// #1356: a refused paragraph break is reported, and nothing of the text goes in without it: the
+/// lines are one command, all or nothing.
 #[test]
 fn type_text_stops_at_a_refused_paragraph_break() {
     let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -150,5 +150,77 @@ fn type_text_stops_at_a_refused_paragraph_break() {
     let r = call(&mut s, 11, "tools/call", json!({"name": "type_text", "arguments": {"text": "one\ntwo", "paragraphs": true}}));
     assert_eq!(r["result"]["isError"], true, "{r}");
     assert!(r["result"]["content"][0]["text"].as_str().unwrap().contains("paragraph break refused"), "{r}");
-    assert_eq!(*calls.lock().unwrap(), vec!["text.insert", "text.newParagraph"]);
+    let calls = calls.lock().unwrap();
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    assert_eq!(calls[0]["command"], "text.insert");
+    assert_eq!(calls[0]["params"]["text"], "one\ntwo");
+    assert_eq!(calls[0]["params"]["paragraphs"], true);
+}
+
+/// #3692: typed paragraphs are one edit and one undo step, not a command (and a whole-document
+/// undo snapshot) per line; too many lines are refused by the engine before anything is typed.
+#[test]
+fn type_text_paragraphs_are_one_undo_step_with_a_line_cap() {
+    let mut s = Server::new(Box::new(Headless::default()));
+    tool(&mut s, "new_document", json!({}));
+    let lines: Vec<String> = (0..2000).map(|i| format!("Line {i}")).collect();
+    tool(&mut s, "type_text", json!({"text": lines.join("\r\n"), "paragraphs": true}));
+    let text = tool(&mut s, "get_text", json!({}))["text"].as_str().unwrap().to_string();
+    assert!(text.contains("Line 0") && text.contains("Line 1999"), "{}", text.len());
+    let paras = |s: &mut Server| tool(s, "inspect_document", json!({}))["blocks"].as_array().unwrap().len();
+    assert_eq!(paras(&mut s), 2000);
+    tool(&mut s, "execute", json!({"command": "edit.undo"}));
+    assert_eq!(paras(&mut s), 1, "one Undo takes all the lines back out");
+    assert!(!tool(&mut s, "get_text", json!({}))["text"].as_str().unwrap().contains("Line"));
+
+    // One line over the engine's cap ("x\n" repeated gives a last, empty line): refused, nothing typed.
+    let many = "x\n".repeat(wordcraft_engine::cmd::text::MAX_TYPED_PARAGRAPHS);
+    let r = call(&mut s, 12, "tools/call", json!({"name": "type_text", "arguments": {"text": many, "paragraphs": true}}));
+    assert_eq!(r["result"]["isError"], true, "{r}");
+    assert!(r["result"]["content"][0]["text"].as_str().unwrap().contains("at most 10000 paragraphs"), "{r}");
+    assert_eq!(paras(&mut s), 1, "nothing typed");
+    assert!(!tool(&mut s, "get_text", json!({}))["text"].as_str().unwrap().contains('x'));
+}
+
+/// Ultrareview of #3692: each typed paragraph break is Enter's own (text.newParagraph's
+/// implementation), so a one-line content control refuses it, and all of the text with it.
+#[test]
+fn type_text_paragraphs_are_refused_in_a_one_line_control() {
+    let mut s = Server::new(Box::new(Headless::default()));
+    tool(&mut s, "new_document", json!({}));
+    tool(&mut s, "type_text", json!({"text": "Name: "}));
+    tool(&mut s, "execute", json!({"command": "developer.plainText", "params": {"tag": "name"}}));
+    tool(&mut s, "execute", json!({"command": "caret.right"}));
+    let before = tool(&mut s, "get_text", json!({}))["text"].clone();
+    let r = call(&mut s, 13, "tools/call", json!({"name": "type_text", "arguments": {"text": "Ada\nLovelace", "paragraphs": true}}));
+    assert_eq!(r["result"]["isError"], true, "{r}");
+    assert_eq!(tool(&mut s, "get_text", json!({}))["text"], before, "nothing typed");
+    assert_eq!(tool(&mut s, "inspect_document", json!({}))["blocks"].as_array().unwrap().len(), 1);
+}
+
+/// Ultrareview of #3692: Enter's AutoFormat runs on each typed paragraph break ("---" becomes a
+/// border, "+---+---+" a table), and the lines are still one undo step however many of them
+/// AutoFormat changes.
+#[test]
+fn type_text_paragraphs_autoformat_like_enter_in_one_undo_step() {
+    let mut s = Server::new(Box::new(Headless::default()));
+    tool(&mut s, "new_document", json!({}));
+    tool(&mut s, "type_text", json!({"text": "Above\n---\nBelow\n+---+---+\nCell", "paragraphs": true}));
+    let blocks = tool(&mut s, "inspect_document", json!({}))["blocks"].clone();
+    let blocks = blocks.as_array().unwrap();
+    assert_eq!(blocks[0]["text"], "Above", "{blocks:?}");
+    assert!(blocks[0]["props"]["borders"]["bottom"].is_object(), "--- is a border: {blocks:?}");
+    assert_eq!(blocks[1]["text"], "Below", "{blocks:?}");
+    assert_eq!(blocks[2]["type"], "table", "+---+---+ is a table: {blocks:?}");
+    assert!(blocks[2].to_string().contains("Cell"), "typing goes on in its first cell: {blocks:?}");
+    tool(&mut s, "execute", json!({"command": "edit.undo"}));
+    assert_eq!(tool(&mut s, "inspect_document", json!({}))["blocks"].as_array().unwrap().len(), 1, "one Undo");
+    assert_eq!(tool(&mut s, "get_text", json!({}))["text"].as_str().unwrap().trim(), "");
+
+    // Many AutoFormatted lines: still one undo step (no snapshot per line).
+    let lines: Vec<&str> = (0..500).flat_map(|_| ["Text", "==="]).collect();
+    tool(&mut s, "type_text", json!({"text": lines.join("\n"), "paragraphs": true}));
+    assert_eq!(tool(&mut s, "inspect_document", json!({}))["blocks"].as_array().unwrap().len(), 501);
+    tool(&mut s, "execute", json!({"command": "edit.undo"}));
+    assert_eq!(tool(&mut s, "inspect_document", json!({}))["blocks"].as_array().unwrap().len(), 1, "one Undo");
 }
