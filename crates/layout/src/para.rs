@@ -188,6 +188,9 @@ pub struct Line {
     pub right: f32,
     /// The line ends at a hyphenation point: (style, glyph, advance) of the hyphen drawn there.
     pub hyphen: Option<(u32, u32, f32)>,
+    /// Clusters at the end of the line that hang past its right margin (`w:overflowPunct`): their
+    /// glyphs are drawn past `right`, and alignment measures the line up to where they start.
+    pub hang: usize,
     /// The text continues the previous line's row on the far side of a floating object (same top
     /// and height): one row, two lines. Row counts (line numbers, keeping rows on one page) skip it.
     pub beside: bool,
@@ -1932,7 +1935,7 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
             c.break_after = true;
         }
     }
-    break_lines(&mut pl, env, mark_style, env.label.as_ref().map(|(_, l)| l));
+    break_lines(&mut pl, &p.text, env, mark_style, env.label.as_ref().map(|(_, l)| l));
     if gone {
         collapse(&mut pl);
     }
@@ -2025,9 +2028,19 @@ fn ptab_stop(align: PTabAlign, base: PTabBase, leader: TabLeader, width: f32, in
     TabStop { pos, align, leader }
 }
 
+/// The first character a text cluster draws: a field or note result is classed by the text it shows
+/// (as [`auto_space`] does), else by the paragraph's own text. `None` for objects, breaks and
+/// markers, whose byte range stands for no character of the text.
+fn cluster_char(text: &str, shown: &[(usize, String, Vec<std::ops::Range<usize>>)], k: usize, c: &Cluster) -> Option<char> {
+    if let Ok(i) = shown.binary_search_by_key(&k, |s| s.0) {
+        return shown.get(i).and_then(|s| s.1.chars().next());
+    }
+    text.get(c.start..c.end).and_then(|s| s.chars().next())
+}
+
 /// Break a paragraph into lines, measure each line, apply the paragraph's alignment and place
 /// the list label. Fills `pl.lines`, `pl.height` and the label's position.
-fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Option<&Level>) {
+fn break_lines(pl: &mut ParaLayout, text: &str, env: &ParaEnv, mark_style: u32, level: Option<&Level>) {
     // Narrow cells and float spans must retain their usable width.
     const MIN_LINE_WIDTH: f32 = 1.0;
     let suffix = level.map(|l| l.suffix);
@@ -2162,6 +2175,10 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
         }
         let line_start_x = x;
         let c0 = i;
+        // `w:overflowPunct`: the first cluster of this line that hangs past its right margin.
+        let mut hang_from: Option<usize> = None;
+        // The first visible cluster of the line has been seen (`w:topLinePunct` acts once).
+        let mut line_visible = false;
         // The first word doesn't fit a span narrowed by a floating object: it moves on whole.
         let mut skip = false;
         let mut xs: Vec<f32> = Vec::new();
@@ -2177,7 +2194,7 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
         let mut space_w = 0.0f32; // width of the spaces so far on this line
         let mut has_tab = false;
         while j < n {
-            let Some(c) = pl.clusters.get(j).cloned() else { break };
+            let Some(mut c) = pl.clusters.get(j).cloned() else { break };
             match c.kind {
                 ClKind::LineBreak | ClKind::PageBreak | ClKind::ColumnBreak => {
                     resolve_tab(pl, &mut pending_tab, &mut xs, c0, x, &mut x);
@@ -2262,15 +2279,43 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                     _ => false,
                 }
             });
-            let shrink = if shrink_spaces && !has_tab { space_room(space_w, x + c.adv - pl.auto_space_after(j) - word_from) } else { 0.0 };
-            let fits =
-                absorbs || x + c.adv - pl.auto_space_after(j) <= right_edge + shrink + 0.01 || c.kind == ClKind::Space || c.kind == ClKind::Marker;
             // A line's first item stays on it even when it doesn't fit; markers before it
             // (a content control's start, a bookmark) and floating objects' anchors take no room
             // and don't count (Word: a picture a little wider than the line, after an anchor,
             // stays on the first line rather than leaving the anchor a line of its own).
             let takes_room = |c: &Cluster| c.kind != ClKind::Marker && !(matches!(c.kind, ClKind::Object(_)) && c.adv == 0.0 && c.obj_h == 0.0);
-            if !fits && (c0..j).any(|k| pl.clusters.get(k).is_some_and(takes_room)) {
+            // `w:topLinePunct`: a line whose first visible character is closing punctuation sets it
+            // at half width (Word's "Compress punctuation at the start of a line"), so what comes
+            // after it arrives half a character earlier and one more character may fit.
+            if !line_visible && takes_room(&c) {
+                line_visible = true;
+                // A span narrowed by a floating object can be abandoned and broken again (`skip`),
+                // which would halve the character twice; its edge is not the text margin anyway.
+                if rp.top_line_punct
+                    && !narrowed
+                    && pl.clusters.get(j).and_then(|p| cluster_char(text, &pl.shown, j, p)).is_some_and(crate::kinsoku::closing_punct)
+                {
+                    if let Some(p) = pl.clusters.get_mut(j) {
+                        p.adv *= 0.5;
+                    }
+                    c.adv *= 0.5;
+                }
+            }
+            let shrink = if shrink_spaces && !has_tab { space_room(space_w, x + c.adv - pl.auto_space_after(j) - word_from) } else { 0.0 };
+            let fits =
+                absorbs || x + c.adv - pl.auto_space_after(j) <= right_edge + shrink + 0.01 || c.kind == ClKind::Space || c.kind == ClKind::Marker;
+            // `w:overflowPunct` (Word's default): closing punctuation that would start the next
+            // line may hang past this line's right margin instead, as long as it starts on the
+            // line. Its advance is no part of the line's content: the text ends before it.
+            let hangs = !fits
+                && rp.overflow_punct
+                && !narrowed
+                && x <= right_edge + 0.01
+                && pl.clusters.get(j).and_then(|p| cluster_char(text, &pl.shown, j, p)).is_some_and(crate::kinsoku::closing_punct)
+                && (c0..j).any(|k| pl.clusters.get(k).is_some_and(takes_room));
+            if hangs {
+                hang_from.get_or_insert(j);
+            } else if !fits && (c0..j).any(|k| pl.clusters.get(k).is_some_and(takes_room)) {
                 // Wrap: back up to the last break opportunity on this line.
                 end = LineEnd::Wrap;
                 // Hyphenate only when the plain break leaves more than the hyphenation zone empty.
@@ -2391,6 +2436,11 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                 {
                     last_break = Some(j);
                 }
+            } else if hangs {
+                // A line may always end after closing punctuation, also where the paragraph's
+                // kinsoku keeps the next character from starting a line (。「」 after a full stop):
+                // the hang is only worth anything if the line can end there.
+                last_break = Some(j);
             }
             j += 1;
         }
@@ -2520,9 +2570,20 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
             top + baseline_offset(rp.line_spacing, asc, height, desc).max(obj_asc.min(height - desc))
         };
 
+        // `w:overflowPunct`: the trailing clusters that hang past the margin. A break before them
+        // (a hyphenation point) keeps them on the next line, and then this line has none.
+        let hang = match hang_from {
+            Some(h) if h >= c0 && h < c1 => c1 - h,
+            _ => 0,
+        };
         // Alignment / justification (trailing spaces hang).
         let mut content_end = xs.last().copied().unwrap_or(line_start_x);
         for k in (c0..c1).rev() {
+            if k >= c1 - hang {
+                // A mark hanging past the margin takes no room in the line's content.
+                content_end = xs.get(k - c0).copied().unwrap_or(content_end);
+                continue;
+            }
             match pl.clusters.get(k).map(|c| c.kind) {
                 Some(ClKind::Space) | Some(ClKind::Marker) | Some(ClKind::LineBreak) | Some(ClKind::PageBreak) | Some(ClKind::ColumnBreak) => {
                     content_end = xs.get(k - c0).copied().unwrap_or(content_end);
@@ -2570,12 +2631,28 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                 })
                 .collect();
             if rp.align == Align::Distribute || spaces.is_empty() {
-                let cnt = (c1 - align_from).saturating_sub(1).max(1) as f32;
                 if rp.align == Align::Distribute {
-                    let per = slack / cnt;
-                    for (q, v) in xs.iter_mut().enumerate().skip(align_from - c0) {
-                        let k = (q + c0 - align_from) as f32;
-                        *v += per * k.min(cnt);
+                    // A hanging punctuation mark takes no slot: the content spreads over the line
+                    // (gaining the whole `slack`, so its end reaches the margin) and the mark, which
+                    // starts where the content ended, moves the same distance and hangs past it. A
+                    // line with a single content cluster has no gap to spread: the mark stays
+                    // attached to the cluster rather than drifting away from it.
+                    let content = c1 - hang;
+                    let count = content.saturating_sub(align_from);
+                    if count > 1 {
+                        let slots = count - 1;
+                        let per = slack / slots as f32;
+                        for (q, v) in xs.iter_mut().enumerate().skip(align_from - c0).take(count) {
+                            let k = (q + c0 - align_from) as f32;
+                            *v += per * k.min(slots as f32);
+                        }
+                        // The hanging marks start where the content ended, and the line's endpoint
+                        // after them: all of them move by the whole `slack`, so the endpoint stays
+                        // one cluster's advance past the last cluster's start. Without a mark only
+                        // the endpoint moves.
+                        for v in xs.iter_mut().skip(content - c0) {
+                            *v += slack;
+                        }
                     }
                 }
             } else {
@@ -2617,6 +2694,7 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
             left,
             right: right_edge,
             hyphen,
+            hang,
             beside,
             vis: Vec::new(),
             rtl: rtl_para,
@@ -2665,6 +2743,7 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                     left,
                     right,
                     hyphen: None,
+                    hang: 0,
                     beside: false,
                     vis: Vec::new(),
                     rtl: rtl_para,
@@ -3280,7 +3359,7 @@ mod label_spacing_tests {
             (st.ascent, st.descent) = if i == label_style as usize { label_metrics } else { text_metrics };
         }
         let mark_style = pl.clusters[0].style;
-        break_lines(&mut pl, &env, mark_style, Some(&level));
+        break_lines(&mut pl, &p.text, &env, mark_style, Some(&level));
         pl.lines
     }
 
