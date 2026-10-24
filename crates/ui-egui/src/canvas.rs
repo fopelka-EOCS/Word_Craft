@@ -203,10 +203,13 @@ pub struct CanvasState {
     /// table where it would go (#3931). Set by the grid each frame, taken by [`show`].
     pub(crate) table_preview: Option<(usize, usize)>,
     /// The last previewed table's layout and the copy of the document it was laid out from, with
-    /// what it was laid out for (rows, columns, document id, revision), so a still pointer doesn't
-    /// lay the document out every frame. Set only while the page shows the preview.
-    table_preview_layout: Option<((usize, usize, u64, u64), wordcraft_doc::Document, std::sync::Arc<DocLayout>)>,
+    /// what it was laid out for (rows, columns, document id, revision, selection, and the
+    /// document's own layout, which a view change replaces), so a still pointer doesn't lay the
+    /// document out every frame. Set only while the page shows the preview.
+    table_preview_layout: Option<(TablePreviewKey, wordcraft_doc::Document, std::sync::Arc<DocLayout>)>,
 }
+
+type TablePreviewKey = ((usize, usize, u64, u64, wordcraft_engine::Selection), std::sync::Arc<DocLayout>);
 
 impl CanvasState {
     /// Stop a text-selection drag when the pointer gesture becomes an object drag.
@@ -952,9 +955,12 @@ fn shown_layout(app: &mut WordApp) -> std::sync::Arc<DocLayout> {
         app.canvas.table_preview_layout = None;
         return app.session.layout();
     };
-    let key = (rows, cols, app.session.document_id(), app.session.rev());
+    // The caret can move, or the view change, with the grid still hovered: the table then goes
+    // somewhere else, or the page is laid out to another width.
+    let key = ((rows, cols, app.session.document_id(), app.session.rev(), app.session.sel.clone()), app.session.layout());
     if let Some((k, _, l)) = &app.canvas.table_preview_layout
-        && *k == key
+        && k.0 == key.0
+        && std::sync::Arc::ptr_eq(&k.1, &key.1)
     {
         return l.clone();
     }
@@ -3724,6 +3730,30 @@ mod tests {
         assert_eq!(kites, 1, "Kites is drawn as itself");
         assert_eq!(shown_layout(&mut app).index, app.session.layout().index);
         assert!(std::ptr::eq(page_doc(&app), &app.session.doc), "no preview: the document's own pages");
+    }
+
+    /// #3931 review: the preview is laid out again when the caret moves or the view changes with
+    /// the grid still hovered, so the page shows the table where a click would put it, at the
+    /// view's width.
+    #[test]
+    fn the_preview_follows_the_caret_and_the_view() {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::from_text("Lanterns\nKites")), crate::Services::default());
+        let tables =
+            |l: &DocLayout| l.index.keys().filter(|(st, p)| *st == StoryRef::Body && p.0.len() == 4).map(|(_, p)| p.0[0]).collect::<HashSet<u32>>();
+        app.session.run("caret.docEnd", &json!({})).unwrap();
+        app.canvas.table_preview = Some((2, 2));
+        let at_end = tables(&shown_layout(&mut app));
+        app.session.run("caret.docStart", &json!({})).unwrap();
+        app.canvas.table_preview = Some((2, 2));
+        let at_start = tables(&shown_layout(&mut app));
+        assert_ne!(at_start, at_end, "the caret moved: so did the table");
+        let (_, fresh) = app.session.preview_layout("insert.table", &json!({"rows": 2, "cols": 2})).unwrap();
+        assert_eq!(at_start, tables(&fresh));
+        app.session.view.mode = wordcraft_layout::ViewMode::Web;
+        app.session.view.web_width = 300.0;
+        app.canvas.table_preview = Some((2, 2));
+        let web = shown_layout(&mut app);
+        assert_eq!(web.pages[0].w, app.session.layout().pages[0].w, "laid out at the Web view's width");
     }
 
     /// A window-following layout size (#1876, Read Mode): applied at once on entry or when forced,
