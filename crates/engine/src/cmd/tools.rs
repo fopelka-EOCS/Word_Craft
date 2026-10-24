@@ -6,14 +6,20 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use wordcraft_doc::para::InlineObject;
 use wordcraft_doc::props::{CharProps, NumRef};
+use wordcraft_doc::table::MAX_COLS;
 
 use wordcraft_doc::{Block, Document, Paragraph, Pos, RevisionKind, StoryRef, para_block};
 
+use super::insert::MAX_TABLE_ROWS;
 use super::{delete_selection, sel_result};
 use crate::{CmdError, CmdResult, CommandSpec, Selection, Session, p};
 
 /// Smileys replaced even when typed straight after a word ("ok:)"), as Word does.
 const SMILEYS: &[&str] = &[":-)", ":-(", ":)", ":(", ":|"];
+
+/// What a spreadsheet table keeps: the columns and rows an inserted table has.
+const TABLE_LIMITS: super::mailings::CsvLimits =
+    super::mailings::CsvLimits { fields: MAX_COLS, cells: super::insert::MAX_TABLE_ROWS * MAX_COLS, text: super::mailings::MAX_TEXT_BYTES };
 
 /// Built-in AutoCorrect replacements (our own list of common typos and symbols).
 pub const AUTOCORRECT: &[(&str, &str)] = &[
@@ -599,7 +605,13 @@ pub fn specs() -> Vec<CommandSpec> {
         .params(r#"{"path": string}"#),
         CommandSpec::new("insert.spreadsheet", "Spreadsheet Table", "Insert › Tables", |s, v| {
             let csv = p::str(v, "csv").unwrap_or("A,B,C\n1,2,3\n4,5,6");
-            let rows = super::mailings::parse_csv(csv);
+            let rows = super::mailings::parse_csv(csv, &TABLE_LIMITS)
+                .map_err(|e| CmdError::Failed(format!("{e}; a table holds at most {MAX_TABLE_ROWS} rows of {MAX_COLS} columns")))?;
+            // A table holds so many rows: a longer list would lose its records quietly, because
+            // the table the command inserts is shorter than the list.
+            if rows.len() > MAX_TABLE_ROWS {
+                return Err(CmdError::Failed(format!("a table holds at most {MAX_TABLE_ROWS} rows")));
+            }
             let cols = rows.iter().map(Vec::len).max().unwrap_or(1).clamp(1, 63);
             s.run("insert.table", &json!({"rows": rows.len().max(1), "cols": cols, "style": "GridTable1Light"}))?;
             let Some((tp, _, _)) = s.sel.focus.path.cell() else { return sel_result(s) };
@@ -2233,5 +2245,24 @@ mod tests {
         let text = s.doc.plain_text(StoryRef::Body);
         assert!(!text.contains("Hidden"), "the hidden text is still there: {text}");
         assert!(text.contains("Visible text."), "{text}");
+    }
+
+    /// A CSV too wide or too long for a table is refused, not cut.
+    #[test]
+    fn insert_spreadsheet_refuses_a_csv_a_table_cannot_hold() {
+        let mut s = Session::new(Document::new());
+        // Wider than a table's columns.
+        let wide = format!("{}\nvalue", "c,".repeat(MAX_COLS));
+        let e = s.run("insert.spreadsheet", &json!({"csv": wide})).unwrap_err();
+        assert!(e.to_string().contains(&format!("{MAX_COLS} columns")), "{e}");
+        // Longer than a table's rows: the records above the limit would be lost quietly.
+        let long = format!("value\n{}", "value\n".repeat(MAX_TABLE_ROWS));
+        let e = s.run("insert.spreadsheet", &json!({"csv": long})).unwrap_err();
+        assert!(e.to_string().contains(&format!("{MAX_TABLE_ROWS} rows")), "{e}");
+        // A table's own width and length are fine.
+        let ok = format!("{}\nvalue", "c,".repeat(MAX_COLS - 1));
+        s.run("insert.spreadsheet", &json!({"csv": ok})).unwrap();
+        let ok = "value\n".repeat(MAX_TABLE_ROWS);
+        s.run("insert.spreadsheet", &json!({"csv": ok})).unwrap();
     }
 }
