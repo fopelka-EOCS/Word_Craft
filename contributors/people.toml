@@ -175,6 +175,3 @@ display_name = "Mulai"
 
 [people.Bortlesboat]
 real_name = "Andrew Barnes"
-
-[people.akamusti]
-sync_github_name = true
