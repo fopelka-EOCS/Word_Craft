@@ -393,6 +393,9 @@ pub struct ParaLayout {
     /// Room after a cluster between Asian text and Latin text or digits ([`auto_space`]), by
     /// cluster index, sorted. It is part of the cluster's advance, but takes no room at a line's end.
     pub auto_space: Vec<(usize, f32)>,
+    /// It goes on from the last line of the paragraph before, whose mark is hidden, and shares
+    /// that line ([`ParaEnv::joined`]).
+    pub joined: bool,
 }
 
 /// A shape drawn over a cluster (an enclosed character's circle, square, triangle or diamond),
@@ -453,6 +456,9 @@ pub struct ParaEnv<'a> {
     /// Heights of the paragraph's inline text boxes that resize to fit their text, by object
     /// index: they take these instead of their saved heights.
     pub fitted: &'a [(usize, f32)],
+    /// The paragraph goes on from the line of the one before, whose mark is hidden (#3986): its
+    /// list number is counted and sets its indents, but isn't drawn.
+    pub joined: bool,
 }
 
 /// The section's document grid as layout applies it (`w:docGrid`, ECMA-376 §17.6.5).
@@ -1835,11 +1841,12 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
         c.break_after = opps.contains(&c.end) || matches!(c.kind, ClKind::Object(_) | ClKind::Tab);
     }
 
-    // Word hides a list label on a paragraph containing only a page break. The list counter
-    // has already advanced, so the following item keeps its number.
+    // Word hides a list label on a paragraph containing only a page break, and on one that goes
+    // on from the line of the paragraph before (#3986). The list counter has already advanced, so
+    // the following item keeps its number.
     let break_only =
         b.clusters.iter().any(|c| c.kind == ClKind::PageBreak) && b.clusters.iter().all(|c| matches!(c.kind, ClKind::PageBreak | ClKind::Marker));
-    let label = env.label.as_ref().filter(|_| !break_only).map(|(text, lvl)| {
+    let label = env.label.as_ref().filter(|_| !break_only && !env.joined).map(|(text, lvl)| {
         let lc = p.mark.clone().overlaid(&lvl.chr);
         let rc = resolve(&lc);
         // A bullet no installed font can draw would come from whatever icon font has its
@@ -1917,6 +1924,7 @@ pub fn layout_para(p: &Paragraph, env: &ParaEnv) -> ParaLayout {
         left_out: Vec::new(),
         enclosures,
         auto_space,
+        joined: env.joined,
     };
     let auto = env.doc.settings.auto_hyphenation && !pl.rp.suppress_hyphens;
     pl.hyph_after = hyphenation_points(&text, to_para, &pl, auto, env.doc.settings.hyphenate_caps, &runs);
@@ -2035,7 +2043,9 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
     let width = env.width.max(MIN_LINE_WIDTH);
     let base_right = (width - rp.indent_right).max(1.0);
     let default_tab = env.doc.settings.default_tab;
-    let first_left = rp.indent_left + rp.indent_first;
+    // The first line of a paragraph going on from the one before (#3986) is that one's last line:
+    // it starts right after that one's text (kept clear by an exclusion), whatever its own indents.
+    let first_left = if env.joined { (rp.indent_left + rp.indent_first).min(0.0) } else { rp.indent_left + rp.indent_first };
     // Word 2013+ (compatibility mode 15) fits more text on a justified line by shrinking its
     // spaces (`space_room`); never on lines with tabs.
     let shrink_spaces = rp.align == Align::Justify && env.doc.settings.compat_mode >= wordcraft_doc::COMPAT_MODE_CURRENT;
@@ -2098,6 +2108,11 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
     let mut row_first = 0usize;
     // Spans skipped in a row because the next word didn't fit (see `skip`).
     let mut skipped = 0;
+    // The first line of a paragraph going on from the one before (#3986) starts right after that
+    // one's text on the shared line; pushed below it (its first word didn't fit there), it starts
+    // at the paragraph's left indent, as its other lines do.
+    let (joined, own_left) = (env.joined, rp.indent_left);
+    let first_lo = move |top: f32| if joined && top > 0.0 { own_left } else { first_left };
     // A left tab past the right indent that wrapped to start the next line.
     let mut wrapped_tab: Option<usize> = None;
     loop {
@@ -2105,14 +2120,14 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
         let beside = !row_rest.is_empty() && lines.len() > row_first;
         // The span is narrowed by a floating object.
         let mut narrowed = !row_rest.is_empty();
-        let row_lo = if first { first_left } else { rp.indent_left };
+        let row_lo = if first { first_lo(top) } else { rp.indent_left };
         let (left, right_edge) = if let Some(span) = row_rest.pop_front() {
             span
         } else {
             // Flow around floating objects: the spans beside them, or below them.
             let mut guard = 0;
             loop {
-                let mut lo = if first { first_left } else { rp.indent_left };
+                let mut lo = if first { first_lo(top) } else { rp.indent_left };
                 if let Some((_, dl, dw)) = pl.drop_cap
                     && dw > 0.0
                     && lines.len() < dl as usize
@@ -2538,7 +2553,10 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
         let last_tab = (c0..c1).rev().find(|k| pl.clusters.get(*k).is_some_and(|c| c.kind == ClKind::Tab));
         let align_from = last_tab.map(|k| k + 1).unwrap_or(c0);
         let display = pl.displays.iter().find(|(ci, _)| *ci >= c0 && *ci < c1).map(|d| d.1);
-        let shift = match (display, rp.align) {
+        // The line a paragraph shares with the one before, whose mark is hidden, starts in that
+        // one, and takes its place right after that one's text (Word, #3986).
+        let align = if env.joined && lines.is_empty() { Align::Left } else { rp.align };
+        let shift = match (display, align) {
             (Some(MathJc::Left), _) => 0.0,
             (Some(MathJc::Right), _) => slack,
             (Some(_), _) => slack / 2.0,
@@ -2557,7 +2575,7 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                 *label_shift = shift;
             }
         }
-        let justify = display.is_none() && ((rp.align == Align::Justify && end == LineEnd::Wrap) || rp.align == Align::Distribute);
+        let justify = display.is_none() && ((align == Align::Justify && end == LineEnd::Wrap) || align == Align::Distribute);
         // A line that only fits with shrunk spaces is shrunk, the last line of the paragraph too.
         let shrink = display.is_none() && shrink_spaces && slack < 0.0 && last_tab.is_none();
         if shrink {
@@ -3269,6 +3287,7 @@ mod label_spacing_tests {
             read_line_spacing: None,
             fit_objects: false,
             fitted: &[],
+            joined: false,
         };
         let mut p = Paragraph::with_text(if wrap { "Alpha probe synthetic business text repeated" } else { "Alpha probe" }, Default::default());
         p.props.line_spacing = Some(spacing);
