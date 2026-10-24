@@ -483,11 +483,15 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         return;
     }
     egui::Panel::top("ribbon")
-        .exact_size(CONTENT_H + LABEL_H + 10.0)
+        .exact_size(if app.ui.single_line_ribbon { 32.0 } else { CONTENT_H + LABEL_H + 10.0 })
         .frame(
             egui::Frame::NONE.fill(t.ribbon).inner_margin(egui::Margin { left: 8, right: 8, top: 4, bottom: 4 }).stroke(Stroke::new(1.0, t.border)),
         )
         .show(ui, |ui| {
+            let mut content = ui.new_child(
+                egui::UiBuilder::new().ui_stack_info(egui::UiStackInfo::default().with_tag_value("single_line_ribbon", app.ui.single_line_ribbon)),
+            );
+            let ui = &mut content;
             // Right-click on the ribbon (outside a button): Customize Ribbon. Registered first, so
             // the buttons drawn over it keep their own clicks.
             // No document open (#1129): every command is greyed out but Help's.
@@ -497,7 +501,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             let bg = ui.interact(ui.max_rect(), ui.id().with("ribbon_background"), Sense::click());
             bg.context_menu(|ui| crate::widgets::customize_menu_items(ui, app));
             let entry = user_tabs.iter().find(|e| e.name == app.ui.tab);
-            crate::ribbon_fit::begin(ui.ctx(), &app.ui.tab, ui.available_width() - 4.0);
+            if !app.ui.single_line_ribbon {
+                crate::ribbon_fit::begin(ui.ctx(), &app.ui.tab, ui.available_width() - 4.0);
+            }
             let scroll = egui::ScrollArea::horizontal().scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).show(ui, |ui| {
                 ui.horizontal_top(|ui| {
                     ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
@@ -535,7 +541,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     }
                 });
             });
-            crate::ribbon_fit::end(ui.ctx());
+            if !app.ui.single_line_ribbon {
+                crate::ribbon_fit::end(ui.ctx());
+            }
             // The bar is hidden, so a row wider than the window would be clipped with no sign. Edge chevrons show
             // where more is and scroll it on click. Every command also stays reachable through Search Commands.
             let r = scroll.inner_rect;
@@ -627,8 +635,11 @@ fn esc_cancelled(ui: &Ui, r: &egui::Response, id: egui::Id) -> bool {
     ui.data(|d| d.get_temp::<u64>(esc_key)).is_some_and(|at| now.saturating_sub(at) <= 2)
 }
 
+/// Keep the same controls in a vertical stack or flatten them into the optional single row.
 fn stack(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
-    ui.vertical(|ui| {
+    let layout =
+        if crate::widgets::single_line(ui) { egui::Layout::left_to_right(egui::Align::Center) } else { egui::Layout::top_down(egui::Align::Min) };
+    ui.with_layout(layout, |ui| {
         ui.spacing_mut().item_spacing = vec2(1.0, 0.0);
         add(ui);
     });
@@ -1604,7 +1615,9 @@ fn gallery_pen(ui: &mut Ui, app: &mut WordApp, i: usize, pen: wordcraft_engine::
         InkTool::Highlighter => "Highlighter",
     });
     let size = crate::i18n::fmt(tl!("{n} pt"), &[("n", &pen.width.to_string())]);
-    let resp = resp.on_hover_text(format!("{kind}: {size}, #{}", pen.color.hex()));
+    let label = format!("{kind}: {size}, #{}", pen.color.hex());
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, active, &label));
+    let resp = resp.on_hover_text(label);
     if resp.clicked() {
         let _ = app.run(pen_command(pen.kind), json!({"color": pen.color.hex(), "width": pen.width}));
     }
@@ -3127,6 +3140,94 @@ fn table_layout(app: &mut WordApp, ui: &mut Ui) {
 mod tests {
     use super::*;
     use wordcraft_engine::Session;
+
+    /// A narrow Drawing Tools popup scrolls to the last custom pen.
+    #[test]
+    fn single_line_drawing_tools_scrolls_to_last_custom_pen() {
+        use egui_kittest::kittest::Queryable;
+        use wordcraft_doc::freeform::InkTool;
+
+        let mut app = WordApp::new(Session::new(wordcraft_doc::Document::from_text("Text")), crate::Services::default());
+        app.run("ui.singleLineRibbon", json!({"value": true})).unwrap();
+        for i in 0..wordcraft_engine::cmd::draw::MAX_PENS {
+            app.run("draw.addPen", json!({"kind": "pen", "color": format!("{:06X}", i + 1), "width": i + 1})).unwrap();
+        }
+        app.run("draw.pen", json!({"color": "000000", "width": 0.5})).unwrap();
+        app.run("ui.tab", json!({"tab": "Draw"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(300.0, 600.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                app.logic(ui.ctx());
+                app.ui(ui);
+            },
+            app,
+        );
+        h.run_steps(4);
+        h.get_by_label("Drawing Tools").click();
+        h.run_steps(3);
+        let label = format!("Pen: {} pt, #000018", wordcraft_engine::cmd::draw::MAX_PENS);
+        h.get_by_label(&label).scroll_to_me();
+        h.run_steps(2);
+        h.get_by_label(&label).click_accesskit();
+        h.run_steps(2);
+        h.get_by_label(&format!("Pen: {} pt, #000018", wordcraft_engine::cmd::draw::MAX_PENS)).click();
+        h.run_steps(2);
+
+        let settings = h.state().session.view.draw.settings(InkTool::Pen);
+        assert_eq!(settings.width, wordcraft_engine::cmd::draw::MAX_PENS as f32);
+        assert_eq!(settings.color.hex(), "000018");
+    }
+
+    /// One row reuses normal commands and keeps galleries in popups at wide and narrow sizes.
+    #[test]
+    fn single_line_ribbon_keeps_commands_in_one_row_and_galleries_usable() {
+        use egui_kittest::kittest::Queryable;
+        let mut failures = Vec::new();
+        for width in [300.0, 1280.0, 2560.0] {
+            let mut app = WordApp::new(Session::new(wordcraft_doc::Document::from_text("Text")), crate::Services::default());
+            app.run("ui.singleLineRibbon", json!({"value": true})).unwrap();
+            let mut h = egui_kittest::Harness::builder().with_size(vec2(width, 600.0)).build_ui_state(
+                |ui, app: &mut WordApp| {
+                    app.logic(ui.ctx());
+                    app.ui(ui);
+                },
+                app,
+            );
+            h.run_steps(4);
+            for tab in TABS.iter().filter(|t| **t != "File") {
+                h.state_mut().run("ui.tab", json!({"tab": tab})).unwrap();
+                h.run_steps(3);
+                crate::widgets::TALL_GROUPS.with(|g| g.borrow_mut().clear());
+                h.run_steps(1);
+                let tall = crate::widgets::TALL_GROUPS.with(|g| g.take());
+                failures.extend(tall.into_iter().map(|g| format!("{width} {tab}: {g}")));
+            }
+            if width == 2560.0 {
+                h.state_mut().run("ui.tab", json!({"tab": "Home"})).unwrap();
+                h.run_steps(3);
+                let y = h.get_by_label("Bold").rect().center().y;
+                assert!((h.get_by_label("Italic").rect().center().y - y).abs() < 1.0);
+                h.get_by_label("Bold").click();
+                h.run_steps(3);
+                assert_eq!(h.state_mut().session.run("format.state", &json!({})).unwrap()["bold"], true);
+                h.get_by_label("Styles").click();
+                h.run_steps(3);
+                assert!(egui::Popup::is_any_open(&h.ctx), "the normal gallery stays available");
+                assert!(h.get_by_label("Heading 1").rect().height() > 22.5, "popup tiles retain their normal size");
+                h.get_by_label("Heading 1").click();
+                h.run_steps(3);
+                assert_eq!(h.state_mut().session.run("format.state", &json!({})).unwrap()["style"], "Heading1");
+                h.state_mut().run("insert.table", json!({"rows": 2, "cols": 2})).unwrap();
+                for tab in ["Table Design", "Table Layout"] {
+                    h.state_mut().run("ui.tab", json!({"tab": tab})).unwrap();
+                    h.run_steps(3);
+                    crate::widgets::TALL_GROUPS.with(|g| g.borrow_mut().clear());
+                    h.run_steps(1);
+                    failures.extend(crate::widgets::TALL_GROUPS.with(|g| g.take()).into_iter().map(|g| format!("{tab}: {g}")));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{failures:?}");
+    }
 
     /// Two clicks arm and disarm the painter; the double-click handling then leaves it sticky (#2785).
     #[test]
