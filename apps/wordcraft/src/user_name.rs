@@ -2,10 +2,11 @@
 //! comments and tracked changes carry the user's name from the start rather than the default
 //! "WordCraft User". A name set in File › Options is saved and wins from then on (`main`).
 //!
-//! - Windows: the account's display name (a domain's or Microsoft account's full name), read
-//!   through the Windows Runtime's `Windows.System.User`: a safe API, where the Win32
-//!   `GetUserNameExW` needs unsafe, which our workspace forbids. Without one (a local account
-//!   with no full name, or account info access turned off in Settings › Privacy), the logon name.
+//! - Windows: the account's first and last name, else its display name (only a domain or work
+//!   account has one), read through the Windows Runtime's `Windows.System.User`: a safe API,
+//!   where the Win32 `GetUserNameExW` needs unsafe, which our workspace forbids. Without either
+//!   (an account with no name, or account info access turned off in Settings › Privacy), the
+//!   logon name.
 //! - Linux and the BSDs: the full name in the account's `/etc/passwd` entry (its GECOS field up
 //!   to the first comma, as `chfn` sets it), else the logon name. Accounts from a directory
 //!   service (LDAP, SSSD) have no entry there and take the logon name.
@@ -42,7 +43,7 @@ pub fn system() -> Option<String> {
     let login = logon_name(|var| std::env::var_os(var));
     #[cfg(target_os = "windows")]
     {
-        if let Some(name) = windows_display_name() {
+        if let Some(name) = windows_account_name() {
             return Some(name);
         }
     }
@@ -60,14 +61,14 @@ fn logon_name(var: impl Fn(&str) -> Option<OsString>) -> Option<String> {
     LOGON_VARS.iter().find_map(|name| Some(var(name)?.into_string().ok()?.trim().to_owned()).filter(|v| !v.is_empty()))
 }
 
-/// The account's display name, asked on a thread of its own so a lookup that never answers
-/// can't hold up the start. `None` when there is none, or on any failure (logged).
+/// The account's name ([`account_name`]), asked on a thread of its own so a lookup that never
+/// answers can't hold up the start. `None` when there is none, or on any failure (logged).
 #[cfg(target_os = "windows")]
-fn windows_display_name() -> Option<String> {
+fn windows_account_name() -> Option<String> {
     let (tx, rx) = std::sync::mpsc::channel();
     // A lookup still running after the timeout ends on its own; nobody waits for its answer.
     if let Err(e) = std::thread::Builder::new().name("user-name".into()).spawn(move || {
-        let _ = tx.send(display_name().map_err(|e| e.to_string()));
+        let _ = tx.send(account_name().map_err(|e| e.to_string()));
     }) {
         log::debug!("user name: no lookup thread: {e}");
         return None;
@@ -85,18 +86,52 @@ fn windows_display_name() -> Option<String> {
     }
 }
 
+/// The account's name ([`chosen`] from its first, last and display names). Empty when the account
+/// has none of them.
 #[cfg(target_os = "windows")]
-fn display_name() -> windows::core::Result<String> {
-    use windows::Foundation::IReference;
+fn account_name() -> windows::core::Result<String> {
     use windows::System::{KnownUserProperties, User};
-    use windows::core::{HSTRING, Interface};
     let users = User::FindAllAsync()?.join()?;
     // A desktop app sees the one account it runs under; any other answer can't say which is ours.
     if users.Size()? != 1 {
         return Ok(String::new());
     }
-    let value = users.GetAt(0)?.GetPropertyAsync(&KnownUserProperties::DisplayName()?)?.join()?;
-    Ok(value.cast::<IReference<HSTRING>>()?.Value()?.to_string())
+    let user = users.GetAt(0)?;
+    let first = user_property(&user, "first name", KnownUserProperties::FirstName);
+    let last = user_property(&user, "last name", KnownUserProperties::LastName);
+    Ok(chosen(&first, &last, || user_property(&user, "display name", KnownUserProperties::DisplayName)).unwrap_or_default())
+}
+
+/// One of `user`'s text properties (`what` names it in the log); empty when the account doesn't
+/// have it, or when the lookup fails (logged), so the next source is still tried.
+#[cfg(target_os = "windows")]
+fn user_property(user: &windows::System::User, what: &str, name: fn() -> windows::core::Result<windows::core::HSTRING>) -> String {
+    use windows::Foundation::IReference;
+    use windows::core::{HSTRING, Interface};
+    let read = || -> windows::core::Result<String> {
+        let value = user.GetPropertyAsync(&name()?)?.join()?;
+        Ok(value.cast::<IReference<HSTRING>>()?.Value()?.to_string())
+    };
+    read().unwrap_or_else(|e| {
+        log::debug!("user name: account {what}: {e}");
+        String::new()
+    })
+}
+
+/// Which of the account's names is the user name: its first and last name ([`joined`]), else its
+/// display name (asked only then) — Windows has a display name only for a domain or work account,
+/// a first and last name for any account. `None` when all are blank.
+#[cfg(any(test, target_os = "windows"))]
+fn chosen(first: &str, last: &str, display: impl FnOnce() -> String) -> Option<String> {
+    joined(first, last).or_else(|| Some(display().trim().to_owned()).filter(|n| !n.is_empty()))
+}
+
+/// A first and a last name as one name (`Ada` + `Lovelace` → `Ada Lovelace`), either alone when
+/// the other is blank; `None` when both are.
+#[cfg(any(test, target_os = "windows"))]
+fn joined(first: &str, last: &str) -> Option<String> {
+    let name = [first.trim(), last.trim()].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" ");
+    Some(name).filter(|n| !n.is_empty())
 }
 
 /// `login`'s full name in `/etc/passwd` ([`full_name`]); `None` when the file can't be read.
@@ -199,6 +234,36 @@ mod tests {
             };
             assert_eq!(logon_name(bad).as_deref(), Some("ada"), "a name that isn't UTF-8 is skipped");
         }
+    }
+
+    #[test]
+    fn a_first_and_last_name_join_into_one() {
+        assert_eq!(joined("Ada", "Lovelace").as_deref(), Some("Ada Lovelace"));
+        assert_eq!(joined(" Zoë ", "\tKowalska ").as_deref(), Some("Zoë Kowalska"));
+        // Either alone is the name; with neither the display name is tried.
+        assert_eq!(joined("Ada", "").as_deref(), Some("Ada"));
+        assert_eq!(joined(" ", "Lovelace").as_deref(), Some("Lovelace"));
+        assert_eq!(joined("", ""), None);
+        assert_eq!(joined(" \t", " "), None);
+    }
+
+    #[test]
+    fn the_first_and_last_name_win_over_the_display_name() {
+        let asked = std::cell::Cell::new(false);
+        let display = |name: &'static str| {
+            let asked = &asked;
+            move || {
+                asked.set(true);
+                name.to_owned()
+            }
+        };
+        assert_eq!(chosen("Ada", "Lovelace", display("Contoso Admin")).as_deref(), Some("Ada Lovelace"));
+        assert!(!asked.get(), "the display name is asked only without a first or last name");
+        assert_eq!(chosen("", "Lovelace", display("Contoso Admin")).as_deref(), Some("Lovelace"));
+        // Without either (a domain account may have only a display name), the display name.
+        assert_eq!(chosen(" ", "", display(" Ada Lovelace ")).as_deref(), Some("Ada Lovelace"));
+        assert!(asked.get());
+        assert_eq!(chosen("", "", display(" \t")), None, "no name at all: the logon name follows");
     }
 
     #[test]

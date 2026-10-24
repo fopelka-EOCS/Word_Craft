@@ -8,7 +8,7 @@ How WordCraft looks and feels next to Word: ribbon, dialogs, panes, keyboard, mo
 Typing behaviour has its own checklist ([`typing-parity.md`](typing-parity.md)). All assets are our
 own (`AGENTS.md`: no Microsoft iconography, ever).
 
-Document title opens Rename Document; the account badge opens Options › General for user name and initials. A first start takes the system account's name as the user name (#2209): the account's display name on Windows, the full name from `/etc/passwd` on Linux and the BSDs, else the logon name (macOS too); a name set in Options wins. Saved documents retain their format and refuse conflicting names; desktop renaming requires a filesystem that supports hard links. Web renaming changes the next download name. An unsaved document's name is only the name Save suggests: its Title property is left alone.
+Document title opens Rename Document; the account badge opens Options › General for user name and initials. A first start takes the system account's name as the user name (#2209): the account's first and last name, else its display name, on Windows; the full name from `/etc/passwd` on Linux and the BSDs, else the logon name (macOS too); a name set in Options wins. Saved documents retain their format and refuse conflicting names; desktop renaming requires a filesystem that supports hard links. Web renaming changes the next download name. An unsaved document's name is only the name Save suggests: its Title property is left alone.
 
 **Dimension: ~65% (estimated), 59–92 h to full** (the sum of the rows below; dialog depth is counted here, not under features).
 
