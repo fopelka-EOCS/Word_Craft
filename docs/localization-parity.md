@@ -210,7 +210,7 @@ WordCraft keeps 2,54 cm).
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-23 | trivial | German interface catalog: the equation gallery, built-in style names, citation styles, paper sizes, watermarks and newer messages the other catalogs already had (417 entries, 2,743 in all); the German test checks for a superset of zh-hans like cs, ru and tr; estimates unchanged |
+| 2026-10-23 | trivial | German interface catalog: the equation gallery, built-in style names, citation styles, paper sizes, watermarks and newer messages the other catalogs already had (417 new entries, 2,743 in all; the catalog had 2,326 before — the 2,021 in the table above dated from #574); the German test checks for a superset of zh-hans like cs, ru and tr; estimates unchanged |
 | 2026-10-21 | trivial | Japanese row: ruby (Phonetic Guide) is supported over its base text and HTML export/import keeps it (#1681); the row had listed ruby as missing |
 | 2026-10-20 | trivial | Russian sorting keeps ё with е and recognises decomposed ё/й; synthetic ordering, case and index-heading regressions; broader parity estimates unchanged |
 | 2026-10-20 | trivial | File › Home's greeting (Good morning / afternoon / evening) added to the nine catalogs that lacked it (de, et, ja, pt-br, sr, sr-latn, uk, zh-hans, zh-hant); a test keeps it in every language |
