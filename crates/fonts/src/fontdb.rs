@@ -1999,11 +1999,18 @@ mod tests {
         }
         // A Thai font with OpenType tables, as the per-character fallback prefers.
         assert!(f.has_layout_tables(), "{} shapes Thai", f.family);
-        // Without system fonts no bundled face covers Thai: the caller keeps the per-character path.
+        // Without system fonts only a Thai face embedded from craft-fonts can cover the run (its
+        // Noto Sans Thai has Latin too); without one the caller keeps the per-character path.
         let bundled = FontDb::with_font_dirs(Vec::new());
         bundled.set_system_fallback(false);
         let latin = bundled.face(FALLBACK_FAMILY, "Regular");
-        assert!(bundled.fallback_for_run(&chars, latin.id(), false, false).is_none());
+        let run = bundled.fallback_for_run(&chars, latin.id(), false, false);
+        if crate::CRAFT_FONTS.iter().any(|font| font.scripts.contains(&"Thai")) {
+            let f = run.expect("the embedded Thai face covers the run");
+            assert!(chars.iter().all(|c| f.covers(*c)), "{} covers the run", f.family);
+        } else {
+            assert!(run.is_none());
+        }
     }
 
     #[test]
