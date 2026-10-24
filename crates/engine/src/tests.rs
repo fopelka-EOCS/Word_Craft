@@ -6965,6 +6965,9 @@ fn dictionaries_folder_option_is_saved_searched_and_reported() {
         ("pl_PL", POLISH_TEST_AFF, POLISH_TEST_DIC),
         ("pt_BR", PORTUGUESE_TEST_AFF, PORTUGUESE_TEST_DIC),
         ("id_ID", INDONESIAN_TEST_AFF, INDONESIAN_TEST_DIC),
+        // The Romanian end-to-end test installs the same fixture, so a reload racing it finds
+        // the same words.
+        ("ro_RO", ROMANIAN_TEST_AFF, ROMANIAN_TEST_DIC),
         // #3252: set_dictionaries_folder() now reloads Czech too (it used to leave its cache
         // alone), so a run of this test overlapping czech_proofing_through_the_review_commands
         // would otherwise force a reload that finds no cs_CZ here and empties it mid-test. Same
@@ -6988,6 +6991,7 @@ fn dictionaries_folder_option_is_saved_searched_and_reported() {
     assert_eq!(file("pl"), Some(json!(dir.join("pl_PL.dic").to_string_lossy())));
     assert_eq!(file("pt"), Some(json!(dir.join("pt_BR.dic").to_string_lossy())));
     assert_eq!(file("id"), Some(json!(dir.join("id_ID.dic").to_string_lossy())));
+    assert_eq!(file("ro"), Some(json!(dir.join("ro_RO.dic").to_string_lossy())));
     // Polish text is checked against the folder's dictionary.
     run(&mut s, "document.setText", json!({"text": "rzeka płynie żeka"}));
     run(&mut s, "select.all", json!({}));
@@ -7077,6 +7081,46 @@ fn indonesian_proofing_through_the_review_commands() {
     assert_eq!(left.len(), 1);
     assert_eq!(left[0]["kind"], "grammar");
     assert_eq!(left[0]["lang"], "id");
+}
+
+fn romanian_test_dictionary() {
+    wordcraft_proof::ro::install_dictionary(ROMANIAN_TEST_AFF, ROMANIAN_TEST_DIC).unwrap();
+}
+
+// Hand-written synthetic fixture (no system dictionary data).
+const ROMANIAN_TEST_AFF: &str = "SET UTF-8\nFLAG UTF-8\nTRY aăâîeiourtnscșțlmpdbgfvzhj\nMAP 3\nMAP aăâî\nMAP sşș\nMAP tţț\nSFX A Y 1\nSFX A 0 ul .\n";
+const ROMANIAN_TEST_DIC: &str = "12\nelevii\nși\nprofesorii\nsunt\nîn\nșcoală\nmâine\nvin\ntoți\nla\ncopil/A\nde\n";
+
+/// Romanian proofing through the same commands as Review, F7, Change and Add to Dictionary: a
+/// cedilla word is named as such and fixed to the comma-below letter, the old `sînt` gets
+/// `sunt`, and a repeated word is a Romanian grammar issue.
+#[test]
+fn romanian_proofing_through_the_review_commands() {
+    romanian_test_dictionary();
+    let mut s = s();
+    run(&mut s, "document.setText", json!({"text": "Elevii şi profesorii sînt în şcoala, la la copilul."}));
+    run(&mut s, "select.all", json!({}));
+    run(&mut s, "review.language", json!({"lang": "ro_ro", "default": true}));
+    assert_eq!(s.doc.styles.default_chr.lang.as_deref(), Some("ro-RO"));
+    assert_eq!(run(&mut s, "format.state", json!({}))["lang"], "ro-RO");
+    let issues = run(&mut s, "review.issues", json!({}));
+    let arr = issues.as_array().unwrap();
+    assert!(arr.iter().all(|i| i["lang"] == "ro"), "{issues}");
+    let found: Vec<(&str, &str)> = arr.iter().map(|i| (i["text"].as_str().unwrap(), i["kind"].as_str().unwrap())).collect();
+    assert_eq!(found, [("şi", "spelling"), ("sînt", "spelling"), ("şcoala", "spelling"), ("la la", "grammar")], "{issues}");
+    assert_eq!(arr[0]["message"], "Se scrie cu ș și ț cu virgulă, nu cu sedilă");
+    assert_eq!(arr[1]["message"], "Posibilă greșeală de ortografie");
+    assert_eq!(arr[3]["message"], "Cuvânt repetat: „la”");
+    assert_eq!(spelling_with_first_suggestion(&mut s), pairs(&[("şi", "și"), ("sînt", "sunt"), ("şcoala", "școală")]));
+    run(&mut s, "caret.docStart", json!({}));
+    assert_eq!(run(&mut s, "review.spelling", json!({}))["text"], "şi");
+    run(&mut s, "review.applySuggestion", json!({"text": "și"}));
+    assert!(text(&s).starts_with("Elevii și profesorii"), "{}", text(&s));
+    run(&mut s, "select.text", json!({"text": "copilul"}));
+    run(&mut s, "text.insert", json!({"text": "zqcuvântengine"}));
+    assert_eq!(spelling_with_first_suggestion(&mut s).len(), 3);
+    run(&mut s, "review.addToDictionary", json!({"word": "zqcuvântengine"}));
+    assert_eq!(spelling_with_first_suggestion(&mut s).len(), 2);
 }
 
 /// The spelling issues of the document: each word with its first suggestion.

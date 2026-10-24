@@ -774,9 +774,36 @@ fn an_italian_interface_writes_new_documents_in_italian() {
 }
 
 #[test]
+fn a_romanian_interface_writes_new_documents_in_romanian() {
+    needs_catalogs!();
+    let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+    let ctx = egui::Context::default();
+    let frame = |app: &mut crate::WordApp| ctx.run_ui(egui::RawInput::default(), |ui| app.logic(ui.ctx())).drop_without_applying_deltas();
+    frame(&mut app);
+    app.run("ui.language", serde_json::json!({"value": "ro"})).unwrap();
+    frame(&mut app);
+    assert_eq!(app.session.editing_lang.as_deref(), Some("ro-RO"));
+    assert_eq!(app.session.doc.styles.default_chr.lang.as_deref(), Some("ro-RO"), "the untouched first document follows");
+    app.run("file.new", serde_json::json!({})).unwrap();
+    assert_eq!(app.session.doc.styles.default_chr.lang.as_deref(), Some("ro-RO"));
+    // Romanian text is no longer checked as English: every issue, if any, is a Romanian one.
+    app.session.run("text.insert", &serde_json::json!({"text": "Mâine începe școala"})).unwrap();
+    let issues = app.session.run("review.issues", &serde_json::json!({})).unwrap();
+    assert!(issues.as_array().unwrap().iter().all(|i| i["lang"] == "ro"), "{issues}");
+    set_current(Lang::EN);
+    assert_eq!(crate::ribbon::caret_language(&app), "Romanian");
+    super::pseudo::set(true);
+    assert_eq!(crate::ribbon::caret_language(&app), "⟦Romanian⟧", "the language name goes through the catalog");
+    super::pseudo::set(false);
+    app.run("ui.language", serde_json::json!({"value": "en"})).unwrap();
+    frame(&mut app);
+    assert_eq!(app.session.editing_lang, None);
+}
+
+#[test]
 fn the_editing_languages_are_the_ones_wordcraft_can_proof() {
     let with: Vec<(&str, &str)> = LANGUAGES.iter().filter_map(|l| l.editing_lang.map(|e| (l.code, e))).collect();
-    assert_eq!(with, [("pt-br", "pt-BR"), ("pl", "pl-PL"), ("cs", "cs-CZ"), ("tr", "tr-TR"), ("it", "it-IT")]);
+    assert_eq!(with, [("pt-br", "pt-BR"), ("pl", "pl-PL"), ("cs", "cs-CZ"), ("tr", "tr-TR"), ("it", "it-IT"), ("ro", "ro-RO")]);
 }
 
 #[test]
