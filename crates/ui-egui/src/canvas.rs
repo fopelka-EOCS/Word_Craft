@@ -4574,6 +4574,8 @@ mod tests {
     fn an_empty_comment_balloon_deletes() {
         for body in ["", "Some text here"] {
             let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+            // The first New Comment's name prompt (#2323) was answered.
+            a.ui.comment_name_asked = true;
             if !body.is_empty() {
                 a.run("text.insert", json!({"text": body})).unwrap();
                 a.run("select.text", json!({"text": "text"})).unwrap();

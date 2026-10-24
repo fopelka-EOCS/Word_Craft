@@ -359,6 +359,9 @@ pub struct UiState {
     pub update_fields_before_print: bool,
     /// The custom dictionary (File › Options › Proofing, Add to Dictionary), kept between runs.
     pub dictionary: Vec<String>,
+    /// New Comment has asked for the user name once (while it was still the default), so it
+    /// doesn't ask again: File › Options › General changes it after that.
+    pub comment_name_asked: bool,
 }
 
 /// The ribbon tab the app opens on, and the one it falls back to when the tab that was showing
@@ -426,6 +429,7 @@ impl Default for UiState {
             print_backgrounds: false,
             update_fields_before_print: false,
             dictionary: Vec::new(),
+            comment_name_asked: false,
         }
     }
 }
@@ -906,6 +910,21 @@ impl WordApp {
         {
             self.dialog = dialogs::Dialog::open(name, self);
             return Ok(json!({"pending": name}));
+        }
+        // The first New Comment the user starts, while the user name is still the default, asks
+        // for the name first (#2323), and the comment is added once it is answered. The ribbon,
+        // the shortcut, the menus and the pane send no text: one that brings its text comes from
+        // a script and isn't asked. Nor is a protected document, where the name can't change.
+        if id == "review.newComment"
+            && params.get("text").is_none()
+            && self.session.author == wordcraft_engine::DEFAULT_AUTHOR
+            && !self.ui.comment_name_asked
+            && widgets::enabled(self, id)
+            && !wordcraft_engine::cmd::protect::enforced(&self.session.doc)
+        {
+            self.ui.comment_name_asked = true;
+            self.dialog = dialogs::Dialog::open("commentAuthor", self);
+            return Ok(json!({"pending": "commentAuthor"}));
         }
         if (self.session.dirty || self.save_unconfirmed() || refused.is_some()) && discards_document(id, &params) {
             let name = self.prompt_name();

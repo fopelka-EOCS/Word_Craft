@@ -152,6 +152,8 @@ impl Exempt {
         if let Some(sugg) = app.canvas.context_issue.as_ref().and_then(|i| i.get("suggestions")).and_then(Value::as_array) {
             names.extend(sugg.iter().filter_map(Value::as_str).map(str::to_string));
         }
+        // The user's name, which New Comment's first prompt fills in from the system.
+        names.extend(crate::dialogs_review::system_user_name());
         Exempt { body: app.session.doc.plain_text(wordcraft_doc::StoryRef::Body), names }
     }
 

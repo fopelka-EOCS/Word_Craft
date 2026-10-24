@@ -359,6 +359,10 @@ impl EditSnapshot {
     }
 }
 
+/// The author name a session starts with, until File › Options (or the name asked for on the
+/// first comment) sets the user's own.
+pub const DEFAULT_AUTHOR: &str = "WordCraft User";
+
 /// An editing session.
 pub struct Session {
     pub doc: Document,
@@ -693,7 +697,7 @@ impl Session {
             goal_x: None,
             page_hint: 0,
             registry: Arc::new(crate::cmd::registry()),
-            author: "WordCraft User".into(),
+            author: DEFAULT_AUTHOR.into(),
             initials: String::new(),
             painter: None,
             status: String::new(),

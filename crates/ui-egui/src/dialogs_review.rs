@@ -1,9 +1,9 @@
 //! Review dialogs and the Restrict Editing pane (#412): Compare / Combine Documents (with the
 //! More >> comparison settings), AutoCorrect Options (AutoCorrect, AutoFormat As You Type and
-//! Math AutoCorrect) and the Restrict Editing side pane. Each ends by running a command
-//! (`review.compare`, `review.combine`, `tools.autocorrect`, `review.restrict`), so scripts and
-//! agents get the same result without them. Shown through [`crate::dialogs::Dialog::Review`] and
-//! [`crate::panes`].
+//! Math AutoCorrect), the user name asked for on the first comment, and the Restrict Editing side
+//! pane. Each ends by running a command (`review.compare`, `review.combine`, `tools.autocorrect`,
+//! `file.setAuthor`, `review.restrict`), so scripts and agents get the same result without them.
+//! Shown through [`crate::dialogs::Dialog::Review`] and [`crate::panes`].
 
 use egui::{Ui, vec2};
 use serde::Serialize;
@@ -19,6 +19,7 @@ use crate::theme::{Tokens, semibold};
 pub enum ReviewDialog {
     Compare(CompareForm),
     AutoCorrect(Box<AutoCorrectForm>),
+    CommentAuthor(AuthorForm),
 }
 
 impl ReviewDialog {
@@ -27,6 +28,7 @@ impl ReviewDialog {
             ReviewDialog::Compare(f) if f.combine => "combine",
             ReviewDialog::Compare(_) => "compare",
             ReviewDialog::AutoCorrect(_) => "autoCorrect",
+            ReviewDialog::CommentAuthor(_) => "commentAuthor",
         }
     }
 
@@ -36,16 +38,18 @@ impl ReviewDialog {
             ReviewDialog::Compare(f) if f.combine => "Combine Documents",
             ReviewDialog::Compare(_) => "Compare Documents",
             ReviewDialog::AutoCorrect(_) => "AutoCorrect",
+            ReviewDialog::CommentAuthor(_) => "User Name",
         }
     }
 }
 
-/// The dialog `ui.dialog` opens by `name`: `compare`, `combine` or `autoCorrect`.
-/// `restrictEditing` opens the Restrict Editing pane instead (no dialog).
+/// The dialog `ui.dialog` opens by `name`: `compare`, `combine`, `autoCorrect` or
+/// `commentAuthor`. `restrictEditing` opens the Restrict Editing pane instead (no dialog).
 pub fn open(name: &str, app: &mut WordApp) -> Option<ReviewDialog> {
     Some(match name {
         "compare" | "combine" => ReviewDialog::Compare(CompareForm::new(app, name == "combine")),
         "autoCorrect" => ReviewDialog::AutoCorrect(Box::new(AutoCorrectForm::new(app))),
+        "commentAuthor" => ReviewDialog::CommentAuthor(AuthorForm::new()),
         "restrictEditing" => {
             app.restrict.open = true;
             return None;
@@ -59,6 +63,7 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, d: &mut ReviewDialog) -> bool {
     match d {
         ReviewDialog::Compare(f) => compare_ui(app, ui, f),
         ReviewDialog::AutoCorrect(f) => autocorrect_ui(app, ui, f),
+        ReviewDialog::CommentAuthor(f) => author_ui(app, ui, f),
     }
 }
 
@@ -93,6 +98,123 @@ fn error(ui: &mut Ui, message: &str) {
     if !message.is_empty() {
         ui.label(egui::RichText::new(message).small().color(ui.visuals().error_fg_color));
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The user name, asked for on the first comment
+
+/// New Comment asks once for the name comments go under, while it is still the default
+/// ([`wordcraft_engine::DEFAULT_AUTHOR`]): filled in with the name the system has for the user.
+/// OK sets it (`file.setAuthor`, as File › Options does) and Skip keeps the default. Either way
+/// New Comment then adds the comment.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthorForm {
+    pub name: String,
+    pub message: String,
+    #[serde(skip)]
+    focus: bool,
+}
+
+impl AuthorForm {
+    pub fn new() -> AuthorForm {
+        AuthorForm { name: system_user_name().unwrap_or_default(), message: String::new(), focus: true }
+    }
+}
+
+impl Default for AuthorForm {
+    fn default() -> Self {
+        AuthorForm::new()
+    }
+}
+
+fn author_ui(app: &mut WordApp, ui: &mut Ui, f: &mut AuthorForm) -> bool {
+    ui.label(tl!("Your comments and tracked changes show this name. You can change it later in Options."));
+    ui.add_space(6.0);
+    ui.label(tl!("User name:"));
+    let r = ui.add(egui::TextEdit::singleline(&mut f.name).desired_width(320.0).char_limit(wordcraft_engine::cmd::file::MAX_AUTHOR_CHARS));
+    if std::mem::take(&mut f.focus) {
+        r.request_focus();
+    }
+    error(ui, &f.message);
+    let can = !f.name.trim().is_empty();
+    let (mut ok, mut skip) = (false, false);
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            skip = ui.button(tl!("Skip")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape));
+            ok = ui.add_enabled(can, crate::widgets::primary_button(ui, tl!("OK"))).clicked()
+                || (can && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+        });
+    });
+    if ok {
+        if let Err(e) = app.run("file.setAuthor", json!({"name": f.name.trim()})) {
+            f.message = e;
+            return false;
+        }
+    } else if !skip {
+        return false;
+    }
+    // The comment it asked for: New Comment again, which doesn't ask a second time.
+    let _ = app.run("review.newComment", json!({}));
+    true
+}
+
+/// The name the system has for the user: the account's full name where there is one (Linux and
+/// the BSDs: `/etc/passwd`, macOS: `id -F`), else the login name. None on the web.
+pub fn system_user_name() -> Option<String> {
+    let clean = |s: &str| {
+        let s: String = s.chars().filter(|c| !c.is_control()).take(wordcraft_engine::cmd::file::MAX_AUTHOR_CHARS).collect();
+        Some(s.trim().to_string()).filter(|s| !s.is_empty())
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let login = ["USER", "USERNAME", "LOGNAME"].into_iter().find_map(|k| std::env::var(k).ok().and_then(|v| clean(&v)));
+        #[cfg(all(unix, not(target_os = "macos")))]
+        if let Some(name) = passwd_full_name(login.as_deref()).and_then(|n| clean(&n)) {
+            return Some(name);
+        }
+        #[cfg(target_os = "macos")]
+        if let Some(name) =
+            std::process::Command::new("id").arg("-F").output().ok().and_then(|o| String::from_utf8(o.stdout).ok()).and_then(|n| clean(&n))
+        {
+            return Some(name);
+        }
+        login
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = clean;
+        None
+    }
+}
+
+/// The full name (the GECOS field up to its first comma, `&` standing for the login name) of the
+/// account running WordCraft, from `/etc/passwd`: the account owning `/proc/self`, else the one
+/// named `login`.
+#[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
+fn passwd_full_name(login: Option<&str>) -> Option<String> {
+    use std::io::Read;
+    use std::os::unix::fs::MetadataExt;
+    let uid = std::fs::metadata("/proc/self").ok().map(|m| m.uid().to_string());
+    let mut passwd = String::new();
+    std::fs::File::open("/etc/passwd").ok()?.take(4 << 20).read_to_string(&mut passwd).ok()?;
+    gecos_name(&passwd, uid.as_deref(), login)
+}
+
+/// [`passwd_full_name`] on the text of a passwd file.
+#[cfg(any(test, all(unix, not(target_os = "macos"), not(target_arch = "wasm32"))))]
+fn gecos_name(passwd: &str, uid: Option<&str>, login: Option<&str>) -> Option<String> {
+    let entry = passwd.lines().map(|l| l.split(':').collect::<Vec<_>>()).find(|f| match uid {
+        Some(uid) => f.get(2) == Some(&uid),
+        None => login.is_some_and(|l| f.first() == Some(&l)),
+    })?;
+    let user = entry.first()?;
+    let full = entry.get(4)?.split(',').next()?.trim();
+    // `&` in the field is the login name, capitalized.
+    let mut chars = user.chars();
+    let cap: String = chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default();
+    Some(full.replace('&', &cap)).filter(|n| !n.is_empty())
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -889,5 +1011,84 @@ mod tests {
             h.step();
         }
         assert!(texts(&h).iter().any(|t| t.contains("(none)")), "no matches: the hint shows");
+    }
+
+    /// The first comment's name prompt starts from the account's full name: the GECOS field up to
+    /// its first comma, `&` read as the login name, and nothing for a blank or missing entry.
+    #[test]
+    fn the_name_prompt_reads_the_full_name() {
+        let passwd = "root:x:0:0:root:/root:/bin/sh\n\
+                      alpha:x:1000:1000:Alpha Writer,Room 1,,:/home/alpha:/bin/sh\n\
+                      beta:x:1001:1001:& Example:/home/beta:/bin/sh\n\
+                      gamma:x:1002:1002::/home/gamma:/bin/sh\n\
+                      broken";
+        assert_eq!(gecos_name(passwd, Some("1000"), None).as_deref(), Some("Alpha Writer"));
+        assert_eq!(gecos_name(passwd, None, Some("beta")).as_deref(), Some("Beta Example"));
+        assert_eq!(gecos_name(passwd, Some("1002"), Some("gamma")), None);
+        assert_eq!(gecos_name(passwd, Some("4242"), Some("alpha")), None);
+        assert_eq!(gecos_name("", None, None), None);
+        // Whatever it finds, the prompt's name is clean text within the author limit.
+        let name = system_user_name().unwrap_or_default();
+        assert!(name.chars().count() <= wordcraft_engine::cmd::file::MAX_AUTHOR_CHARS && !name.chars().any(char::is_control));
+        assert_eq!(name.trim(), name);
+    }
+
+    /// #2323: the first New Comment, while the user name is still the default, asks for it once,
+    /// filled in with the system's name for the user. OK sets it and Skip keeps the default, and
+    /// either way the comment is added. It doesn't ask again, and scripts and agents aren't asked.
+    #[test]
+    fn the_first_comment_asks_for_the_name_once() {
+        use egui_kittest::kittest::Queryable;
+        let mut agent = app("Alpha paragraph one.");
+        agent.execute("review.newComment", json!({})).unwrap();
+        assert!(agent.dialog.is_none() && !agent.ui.comment_name_asked, "agents aren't asked");
+        assert_eq!(agent.session.doc.comments.len(), 1);
+        let mut script = app("Alpha paragraph one.");
+        script.run("review.newComment", json!({"text": "From a script"})).unwrap();
+        assert!(script.dialog.is_none() && !script.ui.comment_name_asked, "a New Comment that brings its text isn't asked");
+        assert_eq!(script.session.doc.comments.len(), 1);
+        for answer in ["OK", "Skip"] {
+            let mut a = app("Alpha paragraph one.");
+            let r = a.run("review.newComment", json!({})).unwrap();
+            assert_eq!(r, json!({"pending": "commentAuthor"}));
+            assert!(a.session.doc.comments.is_empty(), "nothing is added before the answer");
+            let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).build_ui_state(
+                |ui, app: &mut WordApp| {
+                    let ctx = ui.ctx().clone();
+                    app.logic(&ctx);
+                    app.ui(ui);
+                },
+                a,
+            );
+            for _ in 0..3 {
+                h.step();
+            }
+            match &mut h.state_mut().dialog {
+                Some(crate::dialogs::Dialog::Review(d)) => match &mut **d {
+                    ReviewDialog::CommentAuthor(f) => {
+                        assert_eq!(f.name, system_user_name().unwrap_or_default(), "filled in from the system");
+                        f.name = "Ana Example".into();
+                    }
+                    _ => panic!("the name prompt is open"),
+                },
+                _ => panic!("the name prompt is open"),
+            }
+            h.step();
+            let at = h.get_by_label(answer).rect().center();
+            h.event(egui::Event::PointerMoved(at));
+            for pressed in [true, false] {
+                h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() });
+                h.step();
+            }
+            let a = h.state_mut();
+            assert!(a.dialog.is_none(), "{answer} closed the prompt");
+            let name = if answer == "OK" { "Ana Example" } else { wordcraft_engine::DEFAULT_AUTHOR };
+            assert_eq!(a.session.author, name, "{answer}");
+            assert_eq!(a.session.doc.comments.len(), 1, "{answer}: the comment was added");
+            assert!(a.ui.comment_name_asked);
+            let r = a.run("review.newComment", json!({})).unwrap();
+            assert!(r.get("pending").is_none(), "{answer}: it asks once");
+            assert_eq!(a.session.doc.comments.len(), 2);
+        }
     }
 }
