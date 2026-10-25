@@ -623,10 +623,11 @@ fn regenerate_toc(s: &mut Session, leader: Option<TabLeader>, tabs: &[(String, V
     // The column width of the TOC's own section, not the caret's: after Select All the caret sits
     // at the end of the document, possibly in a wider (landscape) section. In columns, the first
     // column's, as Word does (#3889); after a field paragraph ending a section, the next section's.
+    // The page is half the sheet under 2 pages per sheet and Book fold (#1836).
     let after_break = s.doc.body.get(start).and_then(|b| b.as_para()).is_some_and(|p| p.section.is_some());
     let section = s.doc.section_index_of(start + usize::from(after_break));
     let column = |x: &wordcraft_doc::SectionProps| x.column_boxes().first().map_or(x.text_width(), |(_, w)| *w);
-    let width = s.doc.sections().get(section).map_or_else(|| column(&super::page::sect(s)), |(_, x)| column(x));
+    let width = s.doc.laid_out_sections().get(section).map_or_else(|| column(&super::page::laid_out_sect(s)), |(_, x)| column(x));
     let entries = toc_entries(s, &f);
     let links: Vec<Option<String>> = if f.has('h') {
         let mut v = Vec::new();
