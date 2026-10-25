@@ -2011,6 +2011,20 @@ mod tests {
     }
 
     #[test]
+    fn a_run_without_a_covering_face_keeps_the_per_character_path() {
+        // Use only this repository's Latin faces. Optional craft-fonts inputs can contain a
+        // complete Thai face even when system font loading is disabled.
+        let bundled = FontDb::with_font_dirs(Vec::new());
+        bundled.faces.write().unwrap().retain(|face| BUNDLED.iter().any(|bytes| std::ptr::eq(face.data(), *bytes)));
+        bundled.set_system_fallback(false);
+        let latin = bundled.face(FALLBACK_FAMILY, "Regular");
+        let chars: Vec<char> = THAI_RUN.chars().filter(|c| !c.is_whitespace()).collect();
+        assert!(!bundled.faces.read().unwrap().is_empty(), "the negative fixture retains real Latin faces");
+        assert!(bundled.faces.read().unwrap().iter().all(|face| !face.covers('น')));
+        assert!(bundled.fallback_for_run(&chars, latin.id(), false, false).is_none());
+    }
+
+    #[test]
     fn a_family_named_for_a_heavy_weight_is_that_heavy() {
         let face = |bytes: &'static [u8], family: &str| {
             make_face(FontBytes::Static(bytes), 0, family.into(), "Regular".into(), family.into(), Vec::new()).unwrap()
