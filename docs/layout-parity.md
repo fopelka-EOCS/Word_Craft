@@ -234,6 +234,7 @@ Footer flow-table strokes reserve their drawn top edge, including the half-width
 ## Footer page tables
 
 Page-relative footer tables keep their physical wrap bounds without adding to footer text height. Body text resumes below the table. Original native controls cover empty, text-bearing and minimum-height tables. Body textbox boundaries and nested footer painting remain separate gaps.
+Spanning cell minima retain each column's text minimum and share extra width in preferred-column proportions; automatic tables share equally.
 
 ## Validation fonts
 
@@ -312,6 +313,7 @@ Installed static fonts also resolve by their OpenType PostScript name (name ID 6
 | 2026-10-17 | trivial | Footer page tables preserve text height and wrap intersecting body lines |
 | 2026-10-17 | trivial | Non-overlapping body floating tables clear header tables; overlapping tables keep their requested position |
 | 2026-10-16 | trivial | Synthetic regression confirms a fitting exact-height row containing overflowing pictures moves to the next page whole. Existing runtime behavior is unchanged. |
+| 2026-10-16 | trivial | Spanning cell minima retain each column's text minimum and share extra width in preferred-column proportions; automatic tables share equally. |
 | 2026-10-17 | trivial | An equation-array row without `&` is centred among aligned rows (#2617) |
 | 2026-10-15 | trivial | Keep-with-next lookahead uses copied list counters so list indents and label metrics match placement. An original regression keeps a heading with an indented list that needs two lines. |
 | 2026-10-15 | trivial | The caret, clicks and selection edges fall between the letters of a ligature (#1974) |
