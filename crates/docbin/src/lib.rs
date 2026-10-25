@@ -577,8 +577,9 @@ struct FieldBuild {
     props: CharProps,
 }
 
-/// Emit a finished field: HYPERLINK keeps its result text as a linked run; every other
-/// field becomes one inline object with its cached result.
+/// Emit a finished field: HYPERLINK keeps its result text as a linked run; one whose result
+/// holds its own revisions becomes a range field; every other field becomes one inline object
+/// with its cached result.
 fn finish_field(pb: &mut ParaBuild, f: FieldBuild) {
     let instr = f.instr.trim().to_string();
     let result = f.sep.unwrap_or_default();
@@ -588,6 +589,19 @@ fn finish_field(pb: &mut ParaBuild, f: FieldBuild) {
             props.link = Some(target.clone());
             pb.push(c, props);
         }
+        return;
+    }
+    // A tracked insertion or deletion inside the result (one the field itself isn't in) keeps
+    // the field a range, as the DOCX reader does (#1037): each piece stays an ordinary run with
+    // its own revision, so Accept and Reject reach it.
+    if result.iter().any(|(_, p)| (p.ins, p.del) != (f.props.ins, f.props.del)) {
+        pb.push('\u{FFFC}', f.props.clone());
+        pb.objects.push(InlineObject::FieldStart { instr, locked: false, dirty: false });
+        for (c, props) in result {
+            pb.push(c, props);
+        }
+        pb.push('\u{FFFC}', f.props);
+        pb.objects.push(InlineObject::FieldEnd);
         return;
     }
     pb.push('\u{FFFC}', f.props);

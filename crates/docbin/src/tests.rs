@@ -2492,3 +2492,34 @@ fn tracked_changes_from_a_piece_prm0() {
     assert_eq!(run(0x41 << 1 | 1 << 8, grpprl(&[(0x0801, &[0x01])])), (true, true, 2), "Prm0 deletion of an insertion");
     assert_eq!(run(0x42 << 1, grpprl(&[(0x0801, &[0x01])])), (false, false, 0), "Prm0 insertion off overrides the CHPX");
 }
+
+/// #4187: a field updated with tracking on keeps its old result deleted and the new one
+/// inserted: the field becomes a range around them, as the DOCX reader keeps it (#1037), so
+/// Accept and Reject reach both. A field with an unmarked result stays one object.
+#[test]
+fn tracked_changes_inside_a_field_result_keep_the_field_a_range() {
+    use wordcraft_doc::para::InlineObject;
+    let del = grpprl(&[(0x0800, &[0x01])]);
+    let ins = grpprl(&[(0x0801, &[0x01])]);
+    let spec = RichSpec {
+        text: "Date \u{13} DATE \u{14}OLDNEW\u{15} \u{13}PAGE\u{14}3\u{15}\r",
+        styles: vec![(1, 0x0FFF, "Normal", Vec::new(), Vec::new())],
+        fonts: vec!["Times New Roman"],
+        // "OLD" deleted, "NEW" inserted; the field characters and the PAGE field plain.
+        chpx_runs: vec![(0, Vec::new()), (13, del), (16, ins), (19, Vec::new())],
+        papx_entries: vec![(0, 0, Vec::new())],
+    };
+    let doc = read(&rich_doc_with(&spec, &RichExtra::default())).expect("opens");
+    let p = para0(&doc);
+    assert_eq!(p.text, "Date \u{FFFC}OLDNEW\u{FFFC} \u{FFFC}");
+    assert!(
+        matches!(p.objects.as_slice(), [InlineObject::FieldStart { instr, .. }, InlineObject::FieldEnd, InlineObject::Field { result, .. }] if instr == "DATE" && result == "3"),
+        "{:?}",
+        p.objects
+    );
+    let at = |t: &str| {
+        let c = p.props_of_char(p.text.find(t).unwrap());
+        (c.ins.is_some(), c.del.is_some())
+    };
+    assert_eq!((at("OLD"), at("NEW"), at("Date")), ((false, true), (true, false), (false, false)));
+}
