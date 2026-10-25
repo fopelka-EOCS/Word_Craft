@@ -861,6 +861,7 @@ fn describe(prop: &str, v: &Value) -> String {
             "right" => "Right",
             "justify" => "Justified",
             "distribute" => "Distributed",
+            "thaiDistribute" => "Thai Distributed",
             _ => "Left",
         })
         .to_string(),
@@ -905,6 +906,14 @@ fn camel_words(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::describe;
+    use serde_json::json;
+
+    #[test]
+    fn inspector_names_thai_distributed_alignment() {
+        assert_eq!(describe("align", &json!("thaiDistribute")), "Alignment: Thai Distributed");
+    }
+
     /// #1902: Clipboard Delete returns focus to the document like paste does.
     #[test]
     #[cfg(not(target_arch = "wasm32"))]
