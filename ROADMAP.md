@@ -138,6 +138,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 ## Progress log
 
+- 2026-10-25: Built-in styles and table styles write `w:bCs` beside `w:b` and `w:iCs` beside `w:i` in `word/styles.xml`, and `styles.modify` sets complex-script bold and italic alongside Latin when not given separately, so Arabic and Hebrew table headers and styled emphasis open bold or italic in Word and LibreOffice (#4198).
 - 2026-10-25: Text Highlight Color shows the last colour as the button's bar in the ribbon and mini toolbar; after No Color it shows the pen without a misleading yellow bar, and the button removes highlighting (#4087).
 - 2026-10-23: cu20we: DrawingML flat, square and round line caps are imported, saved, displayed and exported to PDF; absent or unknown caps default to flat. VML end caps (including shapetype inheritance) are preserved through DOCX save. Ink and metafile stroke handling remain separate. Synthetic DOCX, raster and PDF regressions cover the change; no new native Word comparison.
 - 2026-10-23: cu20we: paragraph-relative box floats start above effective space before; header, footer, cell and text-box layout regressions pass. Framed paragraph positioning is unchanged; no new native Word comparison.
@@ -626,6 +627,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-25 | trivial | Progress log: built-in styles and table styles write `w:bCs` beside `w:b` and `w:iCs` beside `w:i` (#4198) |
 | 2026-10-25 | trivial | Progress log: Text Highlight Color buttons show the remembered colour, or no colour bar after No Color (#4087) |
 | 2026-10-23 | minor | A command that changes nothing is not an edit: no undo step, no unsaved changes, no relayout, and the redo stack survives it. |
 | 2026-10-23 | trivial | cu20we: preserve and render outline caps across DOCX/VML, screen and PDF; synthetic regressions; readiness estimates unchanged |
