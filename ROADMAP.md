@@ -138,6 +138,9 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 
 ## Progress log
 
+- 2026-10-21: Static outer floating fit probes reuse completed extents or saved-height fallback while their fitted-cache prefix is unchanged (#2533). Linked, dynamic and nested inputs retain fresh probes; no cache-memory or universal once-per-pass bound.
+
+- 2026-10-21: Supported floating auto-fit textboxes exclude eligible direct rectangles from fitted extent and own paint (#2533). Square text displacement remains. Six native cases match the bounded policy; matched-reader TallInline retains its inherited geometry delta. See [policy and limits](docs/textbox-float-policy.md).
 - 2026-10-25: Text Highlight Color shows the last colour as the button's bar in the ribbon and mini toolbar; after No Color it shows the pen without a misleading yellow bar, and the button removes highlighting (#4087).
 - 2026-10-23: cu20we: DrawingML flat, square and round line caps are imported, saved, displayed and exported to PDF; absent or unknown caps default to flat. VML end caps (including shapetype inheritance) are preserved through DOCX save. Ink and metafile stroke handling remain separate. Synthetic DOCX, raster and PDF regressions cover the change; no new native Word comparison.
 - 2026-10-23: cu20we: paragraph-relative box floats start above effective space before; header, footer, cell and text-box layout regressions pass. Framed paragraph positioning is unchanged; no new native Word comparison.
@@ -626,6 +629,8 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-21 | trivial | Static outer floating fit probes reuse completed extents or saved-height fallback while their fitted-cache prefix is unchanged (#2533). Linked, dynamic and nested inputs retain fresh probes; no cache-memory or universal once-per-pass bound. |
+| 2026-10-21 | trivial | Bounded floating-rectangle fitting and own-paint policy (#2533); matched-reader TallInline retains its inherited native geometry delta. |
 | 2026-10-25 | trivial | Progress log: Text Highlight Color buttons show the remembered colour, or no colour bar after No Color (#4087) |
 | 2026-10-23 | minor | A command that changes nothing is not an edit: no undo step, no unsaved changes, no relayout, and the redo stack survives it. |
 | 2026-10-23 | trivial | cu20we: preserve and render outline caps across DOCX/VML, screen and PDF; synthetic regressions; readiness estimates unchanged |

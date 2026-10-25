@@ -123,6 +123,10 @@ The Language dialog reads effective character formatting, including document def
 
 Footer page-table height and body wrapping are corrected. Other pagination gaps remain open.
 
+Eligible direct floating rectangles no longer enlarge or paint inside supported auto-fit textboxes (#2533). Square wrapping still displaces text. Unsupported classes and the inherited TallInline geometry delta remain open; see [textbox-float-policy.md](textbox-float-policy.md). No gap estimate changes.
+
+Static outer floating fit probes reuse completed extents or saved-height fallback while their fitted-cache prefix is unchanged (#2533). Linked, dynamic and nested inputs retain fresh probes; no cache-memory or universal once-per-pass bound. Fitting and own-paint policy, unsupported classes and native limits are unchanged. No gap estimate changes.
+
 Small follow-ups from the 2026-10-25 field, table and AutoFormat batch (#4232):
 
 - Convert Table to Text has no "Convert nested tables" check box; nested tables always stay tables, which is Word's default (#4155).
@@ -141,6 +145,8 @@ Small follow-ups from the 2026-10-25 field, table and AutoFormat batch (#4232):
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-21 | trivial | Static outer floating fit probes reuse completed extents or saved-height fallback while their fitted-cache prefix is unchanged (#2533). Linked, dynamic and nested inputs retain fresh probes; no cache-memory or universal once-per-pass bound. |
+| 2026-10-21 | trivial | Bounded floating-rectangle fitting and own-paint policy (#2533); matched-reader TallInline retains its inherited native geometry delta. |
 | 2026-10-25 | trivial | Small follow-ups from the field, table and AutoFormat batch (#4232) |
 | 2026-10-25 | trivial | Highlight decisions include fully selected paragraph marks in whole cells and ordinary ranges, including empty paragraphs; partial text columns exclude unselected marks (#4085). |
 | 2026-10-25 | trivial | Highlight toggle checks the full target beyond 10,000 runs without collecting resolved formatting; mixed and inherited tails and Undo/Redo covered (#4085). |
