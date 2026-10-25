@@ -2,7 +2,8 @@
 //! `sprmCRgLid1`, `sprmCLidBi`) and RTF files (`\lang`, `\langfe`, `\deflang`) give a text's
 //! language in, as the language tags `w:lang` and [`CharProps::lang`](crate::props::CharProps)
 //! use. The table is [MS-LCID] §2.2's language IDs, the reserved ones included (Office wrote
-//! some of them).
+//! some of them). Spanish with traditional sort (0x040A), `es-ES_tradnl` there, is `es-ES`:
+//! the sort order isn't a language tag subtag.
 
 /// (language ID, language tag), sorted by ID.
 const TAGS: [(u16, &str); 454] = [
@@ -152,7 +153,7 @@ const TAGS: [(u16, &str); 454] = [
     (0x0407, "de-DE"),
     (0x0408, "el-GR"),
     (0x0409, "en-US"),
-    (0x040A, "es-ES_tradnl"),
+    (0x040A, "es-ES"),
     (0x040B, "fi-FI"),
     (0x040C, "fr-FR"),
     (0x040D, "he-IL"),
@@ -482,7 +483,7 @@ mod tests {
         assert_eq!(tag(0x0809), Some("en-GB"));
         assert_eq!(tag(0x0411), Some("ja-JP"));
         assert_eq!(tag(0x0401), Some("ar-SA"));
-        assert_eq!(tag(0x040A), Some("es-ES_tradnl"));
+        assert_eq!(tag(0x040A), Some("es-ES"), "traditional sort");
         assert_eq!(tag(0x0C0A), Some("es-ES"));
         assert_eq!(tag(0x0476), Some("la-VA"), "reserved but written by Office");
     }
@@ -491,6 +492,14 @@ mod tests {
     fn ids_that_name_no_language_give_none() {
         for lid in [0x0000, 0x0400, 0x0800, 0x0C00, 0x1000, 0x2000, 0x007F, 0xFFFF] {
             assert_eq!(tag(lid), None, "{lid:#06x}");
+        }
+    }
+
+    #[test]
+    fn tags_are_language_tags() {
+        // BCP 47: subtags of letters and digits, joined by hyphens.
+        for (lid, t) in TAGS {
+            assert!(t.split('-').all(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric())), "{lid:#06x} {t}");
         }
     }
 

@@ -2470,6 +2470,12 @@ fn is_format_word(w: &str) -> bool {
             | "chcbpat"
             | "cb"
             | "v"
+            | "lang"
+            | "langnp"
+            | "langfe"
+            | "langfenp"
+            | "alang"
+            | "noproof"
             | "pard"
             | "ql"
             | "qc"
@@ -2518,6 +2524,12 @@ fn is_char_format_word(w: &str) -> bool {
             | "chcbpat"
             | "cb"
             | "v"
+            | "lang"
+            | "langnp"
+            | "langfe"
+            | "langfenp"
+            | "alang"
+            | "noproof"
     ) || (w.starts_with("ul") && w.len() <= 8)
 }
 
@@ -3101,6 +3113,23 @@ mod tests {
         // No \deflang: our default stays.
         let d = import(br"{\rtf1\ansi x\par}").unwrap();
         assert_eq!(d.styles.default_chr.lang, wordcraft_doc::StyleSheet::builtin().default_chr.lang);
+    }
+
+    #[test]
+    fn tracked_language_changes_keep_the_old_languages() {
+        // #4190: `\oldcprops` holds the language words that changed (`\noproof0` turns No
+        // Proofing back off); Reject puts the old languages and proofing back.
+        let d = import(
+            br"{\rtf1\ansi\deflang1029{\*\revtbl {Unknown;}{Alice;}} {\lang1033\langfe1041\alang1037\noproof{\*\oldcprops \lang1029\langfe2052\alang1025\noproof0\crauth1}Hello}\par}",
+        )
+        .unwrap();
+        let p = d.body.first().and_then(|b| b.as_para()).unwrap();
+        let now = p.props_of_char(p.text.find("Hello").unwrap());
+        let s = |t: &str| Some(t.to_string());
+        assert_eq!((now.lang.clone(), now.lang_ea.clone(), now.lang_bidi.clone(), now.no_proof), (s("en-US"), s("ja-JP"), s("he-IL"), Some(true)));
+        let old = &now.fmt_change.as_deref().expect("the change").old;
+        assert_eq!((old.lang.clone(), old.lang_ea.clone(), old.lang_bidi.clone()), (s("cs-CZ"), s("zh-CN"), s("ar-SA")), "{old:?}");
+        assert_ne!(old.no_proof, Some(true), "{old:?}");
     }
 
     #[test]
