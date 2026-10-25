@@ -3438,19 +3438,19 @@ fn place_late(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, oi: usize, top
 }
 
 /// The line of `pl` each object of `p` goes with (by object index; None if it isn't laid out):
-/// the one holding its anchor, or for an anchor right after a page or column break (only other
-/// anchors before it on its line), the break's: Word keeps it on the page before (a cover page's
-/// title box, #1632).
+/// the one holding its anchor, or for anchors on a line after a page or column break that holds
+/// nothing taking room (no text, no inline picture; markers such as bookmarks take none), the
+/// break's: Word keeps them on the page before (a cover page's title box, #1632). With text after
+/// them they are on the new page with it (#4262).
 fn anchor_lines(p: &Paragraph, pl: &ParaLayout) -> Vec<Option<usize>> {
+    let empty = |c: &para::Cluster| c.kind == para::ClKind::Marker || matches!(c.kind, para::ClKind::Object(_)) && c.adv == 0.0 && c.obj_h == 0.0;
     let mut out = vec![None; p.objects.len()];
     for (li, l) in pl.lines.iter().enumerate() {
-        // Still only anchors from the start of a line after a break.
-        let mut lead = li.checked_sub(1).and_then(|k| pl.lines.get(k)).is_some_and(|l| matches!(l.end, LineEnd::PageBreak | LineEnd::ColumnBreak));
-        for c in pl.clusters.get(l.c0..l.c1).unwrap_or_default() {
-            let para::ClKind::Object(oi) = c.kind else {
-                lead = false;
-                continue;
-            };
+        let clusters = pl.clusters.get(l.c0..l.c1).unwrap_or_default();
+        let lead = li.checked_sub(1).and_then(|k| pl.lines.get(k)).is_some_and(|l| matches!(l.end, LineEnd::PageBreak | LineEnd::ColumnBreak))
+            && clusters.iter().all(empty);
+        for c in clusters {
+            let para::ClKind::Object(oi) = c.kind else { continue };
             if let Some(slot) = out.get_mut(oi).filter(|s| s.is_none()) {
                 *slot = Some(if lead { li - 1 } else { li });
             }
