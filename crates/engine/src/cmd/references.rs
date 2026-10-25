@@ -10,15 +10,20 @@ use wordcraft_doc::{Block, Paragraph, PartKind, Path, Pos, StoryRef, para_block}
 use super::{delete_selection, sel_result};
 use crate::{CmdError, CmdResult, CommandSpec, Selection, Session, p};
 
+mod pdf_toc;
+
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("references.toc", "Table of Contents", "References › Table of Contents", insert_toc).params(
             r#"{"levels"?: 1-9, "title"?: string, "pageNumbers"?: bool, "rightAlign"?: bool, "tabLeader"?: "dot|hyphen|underscore|none", "hyperlinks"?: bool, "headingStyles"?: bool, "outlineLevels"?: bool, "tcFields"?: bool, "styleLevels"?: {style name: 1-9}} (replaces an existing table; {} updates it)"#,
         ),
-        CommandSpec::new("references.updateToc", "Update Table", "References › Table of Contents", |s, _| {
+        CommandSpec::new("references.updateToc", "Update Table", "References › Table of Contents", |s, v| {
+            if p::bool(v, "forPdf").unwrap_or(false) {
+                return pdf_toc::refresh(s, v);
+            }
             update_toc(s)?;
             sel_result(s)
-        }),
+        }).params(r#"{"forPdf"?: bool (guarded single-table refresh for a disposable PDF session), "markup"?: bool}"#),
         CommandSpec::new("references.removeToc", "Remove Table of Contents", "References › Table of Contents", |s, _| {
             if let Some((start, end)) = toc_range(s) {
                 remove_toc(s, start, end)?;
@@ -248,7 +253,7 @@ fn heading_style_level(p: &Paragraph) -> Option<u8> {
 /// fields (`\f`, levels `\l`).
 fn toc_entries(s: &Session, f: &FieldCode) -> Vec<TocEntry> {
     let o = f.has('o').then(|| f.arg('o').and_then(level_range).unwrap_or((1, 9)));
-    let max = o.map(|r| r.1).unwrap_or(9);
+    let (min, max) = o.unwrap_or((1, 9));
     let styles: Vec<(String, u8)> = f
         .arg('t')
         .map(|t| {
@@ -284,8 +289,9 @@ fn toc_entries(s: &Session, f: &FieldCode) -> Vec<TocEntry> {
         let by_style =
             styles.iter().find(|(n, _)| s.doc.styles.get(style).is_some_and(|st| st.name.eq_ignore_ascii_case(n)) || n == style).map(|(_, l)| *l);
         // `Some(9)` direct outline level is body text: "Do Not Show in Table of Contents".
-        let by_outline = f.has('u').then_some(p.props.outline_level).flatten().filter(|l| *l < 9).map(|l| l + 1).filter(|l| *l <= max);
-        let hidden = f.has('u') && p.props.outline_level == Some(9);
+        let outline = s.doc.styles.resolve_para(&p.props).outline_level;
+        let by_outline = f.has('u').then_some(outline).flatten().filter(|l| *l < 9).map(|l| l + 1).filter(|l| (min..=max).contains(l));
+        let hidden = f.has('u') && outline == Some(9);
         let by_heading = o.and_then(|(a, b)| {
             let l = heading_style_level(p).or_else(|| {
                 s.doc
@@ -588,6 +594,20 @@ pub fn update_toc(s: &mut Session) -> Result<(), CmdError> {
     regenerate_toc(s, None, &tabs)
 }
 
+fn toc_entry_style(s: &Session, level: u8) -> String {
+    let canonical = format!("TOC{level}");
+    if s.doc.styles.get(&canonical).is_some() {
+        return canonical;
+    }
+    // Some imported built-in styles use the spaced ID. Keep their tabs and formatting.
+    let spaced = format!("TOC {level}");
+    s.doc
+        .styles
+        .get(&spaced)
+        .filter(|style| style.builtin && style.kind == wordcraft_doc::styles::StyleKind::Paragraph)
+        .map_or(canonical, |style| style.id.clone())
+}
+
 /// Rebuild the entries the TOC field's switches ask for. The tab leader is `leader`, or the one
 /// the entries had (Word keeps it in the entries' tab stops, not in the field).
 fn regenerate_toc(s: &mut Session, leader: Option<TabLeader>, tabs: &[(String, Vec<TabStop>)]) -> Result<(), CmdError> {
@@ -665,7 +685,7 @@ fn regenerate_toc(s: &mut Session, leader: Option<TabLeader>, tabs: &[(String, V
             let show_page = no_pages.is_none_or(|(a, b)| !(a..=b).contains(&(e.level + 1)));
             let text = if show_page { format!("{}{sep}{page}", e.text) } else { e.text.clone() };
             let props = CharProps { link: links.get(k).cloned().flatten(), ..Default::default() };
-            let mut para = Paragraph::with_text(&text, props).styled(&format!("TOC{}", e.level + 1));
+            let mut para = Paragraph::with_text(&text, props).styled(&toc_entry_style(s, e.level + 1));
             para.mark = CharProps::default();
             if e.text.contains('\t') {
                 para.props.tabs = tabs.iter().find(|(style, _)| Some(style) == para.props.style.as_ref()).map(|(_, tabs)| tabs.clone());
@@ -1115,8 +1135,8 @@ pub fn update_fields_in(s: &mut Session, all: bool) -> Result<(), CmdError> {
 /// date the template was last saved (#1672).
 ///
 /// Only those two. `CREATEDATE`, `SAVEDATE` and `PRINTDATE` record when something happened and
-/// are not "now"; `REF`, `PAGEREF`, `TOC` and citations are refreshed on an explicit update
-/// (`fields.updateAll`) and not on open, again as Word does. A field carrying `w:fldLock` keeps
+/// are not "now". Local `REF`/`PAGEREF` results refresh in temporary print/export copies;
+/// TOCs and citations require an explicit update. A field carrying `w:fldLock` keeps
 /// its stored result, which is what the lock is for.
 pub fn refresh_date_fields(doc: &mut wordcraft_doc::Document) {
     let stories: Vec<StoryRef> = std::iter::once(StoryRef::Body).chain(doc.parts.keys().copied().map(StoryRef::Part)).collect();

@@ -29,6 +29,9 @@ establish cross-platform reliability.
 
 Document renaming: desktop renaming requires a filesystem that supports hard links (exFAT/FAT drives and some network shares refuse it). Behaviour: [UI parity](ui-parity.md).
 
+Print field policy now follows native standalone and cached-TOC range controls. Ambiguous
+range caches and multi-paragraph REF caches remain preserved; pagination gaps remain open.
+
 > **Comment command update:** 2026-10-14 · malformed explicit IDs rejected; synthetic refusal, undo/redo and DOCX save/reopen checks (#1690 finding 3). Readiness estimates unchanged.
 
 Comment command safety (#1690, finding 3): Delete, Resolve, Reply and Edit reject explicit fractional, negative or wrong-type IDs before editing, rather than truncating floats or using the caret. Synthetic tests cover refusal without document or history changes, valid operations with undo/redo and repeated DOCX saves. This narrows the data-path risks in gap #3; the other audit findings and broader stability gate are outside this change.
@@ -141,6 +144,7 @@ Small follow-ups from the 2026-10-25 field, table and AutoFormat batch (#4232):
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-17 | trivial | Print PAGEREF range anchors follow native controls; ambiguous caches remain preserved. |
 | 2026-10-25 | trivial | Small follow-ups from the field, table and AutoFormat batch (#4232) |
 | 2026-10-25 | trivial | Highlight decisions include fully selected paragraph marks in whole cells and ordinary ranges, including empty paragraphs; partial text columns exclude unselected marks (#4085). |
 | 2026-10-25 | trivial | Highlight toggle checks the full target beyond 10,000 runs without collecting resolved formatting; mixed and inherited tails and Undo/Redo covered (#4085). |

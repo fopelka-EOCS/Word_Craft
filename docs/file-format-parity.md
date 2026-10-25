@@ -239,6 +239,24 @@ attributes inside stories and style or list definitions; a regenerated theme. Te
 
 
 
+## Printed cross-reference fields
+
+Engine PDF/PNG exports and PDF print jobs refresh supported unlocked local `REF` and
+`PAGEREF` results in a temporary copy. Page references follow reflow and section numbering.
+Cached TOC entry text remains intact. Print jobs and PNG commands retain session numeral
+mode and filename/path fallbacks. DOCX read/save and editor caches are unchanged.
+Original controls exported by Word for Mac 16.113.2 build26092012 show this behavior with
+both `updateFields` values, without an explicit field/table update.
+
+This pass retains caches under field locks or document protection. Existing header/footer
+field evaluation is unchanged. Multi-paragraph REF targets and unsupported numbering/relative
+switches retain their complete caches. Spanning PAGEREF ranges label their first text page;
+leading hard page breaks alone advance to the following text. Native standalone and cached-TOC
+controls prove this distinction. Blank starts, whitespace, unsupported objects and ranges without
+supported text retain their complete caches. Bookmark navigation is unchanged. Missing targets show WordCraft's
+own error text. External fields are not evaluated. REF dependencies settle before page
+reflow; pagination feedback has a separate pass limit and generated text work is bounded.
+Full TOC regeneration remains an explicit update.
 ## Saving legacy Word imports
 
 Word 97–2003 `.doc` and `.dot` remain import-only. A user Save without an explicit destination opens the existing Save As flow suggesting DOCX (#2445), including before Close. The original stays unchanged. Cancelling retains the draft, revision and path; a failed write keeps the draft open, and successful DOCX save/reopen retains the edited text. Uppercase extensions follow the same route. Scripts and explicitly supplied legacy destinations still receive an unsupported-format error and never open a dialog. Late Save As answers are rejected before writing if automation has replaced the document.
@@ -255,6 +273,9 @@ Imported text fields use the first nonempty cached result run's formatting on th
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-20 | trivial | Print REF/PAGEREF refresh discards partial changes and exports original cached results on cycles or work/pass limits. Range inspection indexes overlap once. |
+| 2026-10-17 | trivial | Print PAGEREF labels distinguish leading hard page breaks from text-first spanning ranges; ambiguous ranges keep complete caches. |
+| 2026-10-16 | trivial | Print/export refreshes supported local REF/PAGEREF in a transient copy without rebuilding cached TOC entries or changing saved results. |
 | 2026-10-23 | trivial | cu20we: preserve and render outline caps across DOCX/VML, screen and PDF; synthetic regressions; readiness estimates unchanged |
 | 2026-10-23 | trivial | A relationship the markup names without the prefix is read as it wrote: an unqualified `id` on an element that carries a relationship names that relationship, and the writer keeps the attribute with the id the new package holds the part under; an ordinary `id` — a VML shape's, a drawing's — names no part (#3411 follow-up) |
 | 2026-10-21 | trivial | The reader takes the relationship ids the markup refers to from the relationship attributes of the main document it has already parsed, so a document with many relationships opens in the time its part takes, and an id that only appears as text is not a reference (#3411) |
