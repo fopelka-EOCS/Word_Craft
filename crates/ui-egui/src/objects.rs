@@ -9,8 +9,8 @@
 //! was on is drawn again without it (see [`dragged_off_page`]), so it is not left behind where it
 //! was. The drop is one command, one relayout.
 //!
-//! Dragging an In Line with Text object moves it within the text, as in Word: a dashed insertion
-//! cursor follows the pointer through the text (#2233) and the drop puts it there, still inline
+//! Dragging an In Line with Text object moves it within the text, as in Word: a bold insertion
+//! cursor follows the pointer through the text (#2233, #4195) and the drop puts it there, still inline
 //! (`arrange.bounds` / `arrange.copyTo` with `to`, #2234). A floating one goes where it's dropped.
 //!
 //! Moving a floating one snaps it to alignment guides ([`crate::guides`]): the page's edges and
@@ -59,7 +59,7 @@ pub struct ObjectDrag {
     /// The object drawn alone over its rotated bounds, for the preview: made once it moves.
     preview: Option<egui::TextureHandle>,
     /// Moving an In Line with Text object: the text position under the pointer, where it lands,
-    /// and the colour of the dashed insertion cursor drawn there.
+    /// and the colour of the bold insertion cursor drawn there.
     drop_at: Option<(Pos, Color32)>,
 }
 
@@ -644,12 +644,13 @@ pub fn paint(app: &WordApp, painter: &Painter, t: &Tokens, layout: &DocLayout, p
     }
 }
 
-/// The dashed insertion cursor where a dragged In Line with Text object will land.
+/// The insertion cursor where a dragged In Line with Text object will land: solid and twice as
+/// wide as the caret, so it stands out as Word's does (#4195).
 fn paint_drop_caret(d: &ObjectDrag, painter: &Painter, layout: &DocLayout, pages: &[Rect], scale: f32) {
     let Some((pos, color)) = &d.drop_at else { return };
     let Some(c) = layout.caret_on(pos, d.drag.to_page) else { return };
     let Some(r) = screen(pages, scale, c.page, wordcraft_geom::Rect::new(c.x, c.top, 0.0, c.height)) else { return };
-    painter.extend(egui::Shape::dashed_line(&[r.left_top(), r.left_bottom()], egui::Stroke::new(1.5, *color), 2.0, 2.0));
+    painter.line_segment([r.left_top(), r.left_bottom()], egui::Stroke::new(3.0, *color));
 }
 
 /// A connector's end being dragged: a line from its other end to the pointer, and the connection
@@ -1015,7 +1016,7 @@ mod tests {
         assert_eq!(h.state().ui.keytips, crate::keytips::Phase::Off, "Alt during a drag isn't a keytip tap");
     }
 
-    /// #2233, #2234: dragging an In Line with Text picture into another paragraph shows a dashed
+    /// #2233, #2234: dragging an In Line with Text picture into another paragraph shows a bold
     /// insertion cursor at the text under the pointer (no alignment guides), and the drop puts the
     /// picture there, still inline and selected. Dropped back where it was, nothing changes.
     #[test]
@@ -1058,6 +1059,13 @@ mod tests {
         let d = h.state().canvas.obj_drag.as_ref().expect("dragging");
         assert_eq!(d.drop_at.as_ref().map(|(p, _)| p.clone()), Some(target.clone()), "the insertion cursor is at the text under the pointer");
         assert!(d.guides.is_empty(), "an inline object doesn't snap to guides");
+        // #4195: solid and twice the caret's width, so it can be seen, as in Word.
+        let (top, bottom) = (at(&mut h, c.x, c.top), at(&mut h, c.x, c.top + c.height));
+        let bold = h.output().shapes.iter().any(|s| {
+            matches!(&s.shape, egui::Shape::LineSegment { points: [a, b], stroke }
+                if a.distance(top) < 0.5 && b.distance(bottom) < 0.5 && stroke.width == 3.0)
+        });
+        assert!(bold, "a bold insertion cursor from the line's top to its bottom");
         button(&h, end, false);
         steps(&mut h, 3);
         assert!(h.state().canvas.obj_drag.is_none());
