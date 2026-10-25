@@ -706,7 +706,8 @@ fn info_page(app: &mut WordApp, ui: &mut Ui) {
         for (l, k) in [("Pages", "pages"), ("Words", "words"), ("Paragraphs", "paragraphs"), ("Sections", "sections"), ("Comments", "comments")] {
             ui.label(format!("{}: {}", tl!(l), info.get(k).map(|v| v.to_string()).unwrap_or_default()));
         }
-        let path = info.get("path").and_then(|v| v.as_str()).unwrap_or(tl!("Not saved yet"));
+        let unsaved = tl!("Not saved yet");
+        let path = info.get("path").and_then(|v| v.as_str()).unwrap_or(unsaved.as_ref());
         ui.label(crate::i18n::fmt(tl!("Location: {path}"), &[("path", path)]));
     });
 }

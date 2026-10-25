@@ -125,7 +125,7 @@ fn header_row(ui: &mut Ui, title: &str) -> bool {
         ui.label(egui::RichText::new(tl!(title)).font(semibold(15.0)));
         ui.with_layout(crate::i18n::trailing_layout(egui::Align::Center), |ui| {
             // Drawn, not the "✕" character: the interface fonts have no glyph for it.
-            if crate::widgets::icon_button(ui, "close", tl!("Close")).clicked() {
+            if crate::widgets::icon_button(ui, "close", &tl!("Close")).clicked() {
                 close = true;
             }
         });
@@ -863,7 +863,7 @@ fn describe(prop: &str, v: &Value) -> String {
     };
     let value = match (prop, v) {
         (_, Value::Bool(true)) => return label.to_string(),
-        (_, Value::Bool(false)) => return crate::i18n::fmt(tl!("Not {name}"), &[("name", label)]),
+        (_, Value::Bool(false)) => return crate::i18n::fmt(tl!("Not {name}"), &[("name", label.as_ref())]),
         ("scale", Value::Number(n)) => format!("{}%", trim_num(n.as_f64().unwrap_or(100.0))),
         ("outlineLevel", Value::Number(n)) => match n.as_u64().unwrap_or(9) {
             l @ 0..=8 => crate::i18n::fmt(tl!("Level {n}"), &[("n", &(l + 1).to_string())]),

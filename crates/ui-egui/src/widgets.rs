@@ -1,5 +1,7 @@
 //! Ribbon widgets: large and small buttons, split buttons, groups, combo fields, colour grids.
 
+use std::borrow::Cow;
+
 use egui::{Align2, Color32, CornerRadius, Rect, Response, Sense, Stroke, Ui, pos2, vec2};
 use serde_json::Value;
 
@@ -63,7 +65,8 @@ fn names_a_shortcut(label: &str) -> bool {
 }
 
 /// `text` with its first letter in capitals (the engine's reasons are lower case).
-fn capitalised(text: &str) -> String {
+fn capitalised(text: impl AsRef<str>) -> String {
+    let text = text.as_ref();
     let mut chars = text.chars();
     match chars.next() {
         Some(c) => c.to_uppercase().chain(chars).collect(),
@@ -136,8 +139,9 @@ fn tooltip(app: &WordApp, resp: Response, label: &str, id: &str) -> Response {
     } else if !app.has_document() && !crate::works_without_document(id) {
         Some(tl!("Open a document first"))
     } else {
-        Some(app.session.why_disabled(id).unwrap_or(""))
+        Some(Cow::Borrowed(app.session.why_disabled(id).unwrap_or("")))
     };
+    let reason = reason.as_deref();
     let (title, notes) = tooltip_lines(label, &shortcut_text(app, id), &desc, reason);
     show_hint(&resp, &title, &notes);
     resp
@@ -275,23 +279,29 @@ pub fn small(ui: &mut Ui, app: &mut WordApp, icon: &str, label: Option<&str>, ti
     // A compact group (#662) shows only the icon; the tooltip keeps the name.
     let label = label.filter(|_| !crate::ribbon_fit::compact(ui.ctx()));
     let t = Tokens::get(ui.ctx());
-    let text_w = label.map(|l| ui.ctx().fonts_mut(|f| f.layout_no_wrap(l.to_string(), regular(11.5), t.text).size().x) + 6.0).unwrap_or(0.0);
+    let text_w = label.as_ref().map(|l| ui.ctx().fonts_mut(|f| f.layout_no_wrap(l.to_string(), regular(11.5), t.text).size().x) + 6.0).unwrap_or(0.0);
     let (r, resp) = ui.allocate_exact_size(vec2(24.0 + text_w, 22.0), Sense::click());
-    keytip_badge(ui, r, id, tip);
+    keytip_badge(ui, r, id, tip.as_ref());
     let on = enabled(app, id);
     bg(ui, r, &resp, checked, &t);
     let ic = Rect::from_center_size(pos2(r.min.x + 12.0, r.center().y), vec2(17.0, 17.0));
     let (c, a) = if on { (t.icon, t.accent) } else { (t.text_disabled, t.text_disabled) };
     icons::paint(ui.painter(), ic, icon, c, a);
-    if let Some(l) = label {
-        ui.painter().text(pos2(r.min.x + 24.0, r.center().y), Align2::LEFT_CENTER, l, regular(11.5), if on { t.text } else { t.text_disabled });
+    if let Some(l) = label.as_ref() {
+        ui.painter().text(
+            pos2(r.min.x + 24.0, r.center().y),
+            Align2::LEFT_CENTER,
+            l.as_ref(),
+            regular(11.5),
+            if on { t.text } else { t.text_disabled },
+        );
     }
-    let resp = tooltip(app, resp, tip, id);
+    let resp = tooltip(app, resp, tip.as_ref(), id);
     command_menu(&resp, app, id);
     if resp.clicked() && on {
         run_from_ribbon(app, id, params);
     }
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, tip));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, tip.as_ref()));
     resp
 }
 
@@ -310,7 +320,7 @@ pub fn split(
     let tip = tl!(tip);
     let t = Tokens::get(ui.ctx());
     let (r, resp) = ui.allocate_exact_size(vec2(24.0, 22.0), Sense::click());
-    keytip_badge(ui, r, id, tip);
+    keytip_badge(ui, r, id, tip.as_ref());
     let (ar, aresp) = ui.allocate_exact_size(vec2(11.0, 22.0), Sense::click());
     let on = enabled(app, id);
     bg(ui, r, &resp, checked, &t);
@@ -323,14 +333,14 @@ pub fn split(
         ui.painter().rect_filled(Rect::from_min_max(pos2(r.min.x + 4.0, r.max.y - 5.0), pos2(r.max.x - 4.0, r.max.y - 2.0)), 0.0, sw);
     }
     icons::paint(ui.painter(), Rect::from_center_size(ar.center(), vec2(DROPDOWN, DROPDOWN)), "dropdown", c, a);
-    let resp = tooltip(app, resp, tip, id);
+    let resp = tooltip(app, resp, tip.as_ref(), id);
     command_menu(&resp, app, id);
     if resp.clicked() && on {
         run_from_ribbon(app, id, params);
     }
-    let (arrow_title, _) = tooltip_lines(&crate::i18n::fmt(tl!("{name} options"), &[("name", tip)]), "", "", None);
+    let (arrow_title, _) = tooltip_lines(&crate::i18n::fmt(tl!("{name} options"), &[("name", tip.as_ref())]), "", "", None);
     show_hint(&aresp, &arrow_title, &[]);
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, tip));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, tip.as_ref()));
     // The arrow opens the choices beside the button: it says whose, so it is not just "button"
     // (#3172).
     aresp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, &arrow_title));
@@ -368,16 +378,17 @@ pub fn menu_button(
     let (c, a, text) = if on { (t.icon, t.accent, t.text) } else { (t.text_disabled, t.text_disabled, t.text_disabled) };
     let resp = if big_btn {
         let galley_w = label
+            .as_deref()
             .unwrap_or("")
             .split('\n')
             .map(|l| ui.ctx().fonts_mut(|f| f.layout_no_wrap(l.to_string(), regular(11.5), t.text).size().x))
             .fold(0.0, f32::max);
         let w = (galley_w + 22.0).max(44.0);
         let (r, resp) = ui.allocate_exact_size(vec2(w, CONTENT_H), Sense::click());
-        keytip_badge(ui, r, "menu", tip);
+        keytip_badge(ui, r, "menu", tip.as_ref());
         bg(ui, r, &resp, false, &t);
         icons::paint(ui.painter(), Rect::from_center_size(pos2(r.center().x, r.min.y + BIG_ICON_Y), vec2(32.0, 32.0)), icon, c, a);
-        let lines: Vec<&str> = label.unwrap_or("").split('\n').collect();
+        let lines: Vec<&str> = label.as_deref().unwrap_or("").split('\n').collect();
         let mut y = r.min.y + BIG_LABEL_Y;
         for (i, l) in lines.iter().enumerate() {
             label_line(ui, r.center().x, y, l, regular(11.5), text, i + 1 == lines.len());
@@ -385,21 +396,22 @@ pub fn menu_button(
         }
         resp
     } else {
-        let text_w = label.map(|l| ui.ctx().fonts_mut(|f| f.layout_no_wrap(l.to_string(), regular(11.5), t.text).size().x) + 6.0).unwrap_or(0.0);
+        let text_w =
+            label.as_ref().map(|l| ui.ctx().fonts_mut(|f| f.layout_no_wrap(l.to_string(), regular(11.5), t.text).size().x) + 6.0).unwrap_or(0.0);
         let (r, resp) = ui.allocate_exact_size(vec2(24.0 + text_w + 10.0, 22.0), Sense::click());
-        keytip_badge(ui, r, "menu", tip);
+        keytip_badge(ui, r, "menu", tip.as_ref());
         bg(ui, r, &resp, false, &t);
         icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 12.0, r.center().y), vec2(17.0, 17.0)), icon, c, a);
-        if let Some(l) = label {
-            ui.painter().text(pos2(r.min.x + 24.0, r.center().y), Align2::LEFT_CENTER, l, regular(11.5), text);
+        if let Some(l) = label.as_ref() {
+            ui.painter().text(pos2(r.min.x + 24.0, r.center().y), Align2::LEFT_CENTER, l.as_ref(), regular(11.5), text);
         }
         icons::paint(ui.painter(), Rect::from_center_size(pos2(r.max.x - 6.0, r.center().y), vec2(DROPDOWN, DROPDOWN)), "dropdown", c, c);
         resp
     };
     let reason = if on { None } else { Some(app.session.why_disabled(id).unwrap_or("")) };
-    let (title, notes) = tooltip_lines(tip, &shortcut_text(app, id), "", reason);
+    let (title, notes) = tooltip_lines(tip.as_ref(), &shortcut_text(app, id), "", reason);
     show_hint(&resp, &title, &notes);
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, tip));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, tip.as_ref()));
     if !on {
         return;
     }
@@ -419,7 +431,7 @@ thread_local! {
 /// A ribbon group: content, a centred label below and a divider on the right.
 pub fn group(ui: &mut Ui, title: &str, launcher: Option<&str>, app: &mut WordApp, add: impl FnOnce(&mut Ui, &mut WordApp)) {
     // The English title keys the launcher's id; the drawn title is translated.
-    group_titled(ui, title, tl!(title), launcher, app, add);
+    group_titled(ui, title, &tl!(title), launcher, app, add);
 }
 
 /// A ribbon group whose title is shown as is (a custom group's name, Customize Ribbon).
@@ -1042,7 +1054,7 @@ pub fn combo_list(ui: &mut Ui, width: f32, current: &str, items: &[String], prev
 
 /// A row of a combo's list: a dim section heading nothing picks, or an entry.
 enum Row<'a> {
-    Heading(&'a str),
+    Heading(Cow<'static, str>),
     Item(&'a String),
 }
 
@@ -1138,7 +1150,7 @@ fn list_rows<'a>(
             let it = match row(k) {
                 Some(Row::Item(it)) => it,
                 Some(Row::Heading(h)) => {
-                    heading_row(ui, h, vec2(width + 60.0, row_h), k > 0);
+                    heading_row(ui, h.as_ref(), vec2(width + 60.0, row_h), k > 0);
                     continue;
                 }
                 None => continue,
@@ -1221,24 +1233,26 @@ pub fn icon_button(ui: &mut Ui, icon: &str, tip: &str) -> Response {
 /// A text button with a drawn icon in front. Symbols such as ✎ or 💬 aren't in the interface
 /// fonts and would draw as empty boxes, so icons are painted (`icons.rs`) rather than typed.
 /// It looks and reacts like `ui.button` (see [`drawn_state`]).
-pub fn icon_text_button(ui: &mut Ui, icon: &str, text: &str, font: egui::FontId) -> Response {
-    icon_text_button_with(ui, icon, text, font, false, true)
+pub fn icon_text_button(ui: &mut Ui, icon: &str, text: impl AsRef<str>, font: egui::FontId) -> Response {
+    icon_text_button_with(ui, icon, text.as_ref(), font, false, true)
 }
 
 /// [`icon_text_button`] that opens a menu: the drop-down marker follows the text.
-pub fn icon_text_menu_button(ui: &mut Ui, icon: &str, text: &str, font: egui::FontId) -> Response {
-    icon_text_button_with(ui, icon, text, font, true, true)
+pub fn icon_text_menu_button(ui: &mut Ui, icon: &str, text: impl AsRef<str>, font: egui::FontId) -> Response {
+    icon_text_button_with(ui, icon, text.as_ref(), font, true, true)
 }
 
 /// The icon-only form of [`icon_text_button`] / [`icon_text_menu_button`] for a crowded strip
 /// (#2026): `label` is the accessible name and the tooltip, not drawn.
-pub fn icon_only_button(ui: &mut Ui, icon: &str, label: &str, font: egui::FontId, marker: bool) -> Response {
+pub fn icon_only_button(ui: &mut Ui, icon: &str, label: impl AsRef<str>, font: egui::FontId, marker: bool) -> Response {
+    let label = label.as_ref();
     icon_text_button_with(ui, icon, label, font, marker, false).on_hover_text(label)
 }
 
 /// Width [`icon_text_button`] (or its menu / icon-only forms) takes.
-pub fn icon_text_button_width(ui: &Ui, text: &str, font: egui::FontId, marker: bool, show_text: bool) -> f32 {
-    let text_w = if show_text { ui.ctx().fonts_mut(|f| f.layout_no_wrap(text.to_string(), font, Color32::PLACEHOLDER).size().x) } else { 0.0 };
+pub fn icon_text_button_width(ui: &Ui, text: impl AsRef<str>, font: egui::FontId, marker: bool, show_text: bool) -> f32 {
+    let text_w =
+        if show_text { ui.ctx().fonts_mut(|f| f.layout_no_wrap(text.as_ref().to_string(), font, Color32::PLACEHOLDER).size().x) } else { 0.0 };
     icon_text_button_size(ui, text_w, marker, show_text)
 }
 

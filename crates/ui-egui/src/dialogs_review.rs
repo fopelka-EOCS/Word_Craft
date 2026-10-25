@@ -71,7 +71,7 @@ fn buttons(ui: &mut Ui, ok_enabled: bool) -> (bool, bool) {
             let (okb, cancelb) = crate::dialogs::ok_cancel_responses(
                 ui,
                 |ui| ui.add_enabled(ok_enabled, crate::widgets::primary_button(ui, tl!("OK"))),
-                tl!("Cancel"),
+                &tl!("Cancel"),
             );
             if cancelb.clicked() || crate::dialogs::cancel_key_pressed(ui) {
                 r.1 = true;

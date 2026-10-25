@@ -235,7 +235,7 @@ pub fn type_ui(app: &mut WordApp, ui: &mut Ui, f: &mut ChartTypeForm) -> bool {
             }
         }
     });
-    let (ok, cancel) = crate::dialogs::buttons(ui, tl!("OK"));
+    let (ok, cancel) = crate::dialogs::buttons(ui, &tl!("OK"));
     let Some(kind) = chosen.or(ok.then_some(f.kind)) else { return cancel };
     let r = if f.change { app.run("chart.type", json!({"type": kind.id()})) } else { app.run("insert.chart", json!({"type": kind.id()})) };
     r.is_ok() || cancel
@@ -323,7 +323,7 @@ pub fn data_ui(app: &mut WordApp, ui: &mut Ui, f: &mut ChartDataForm) -> bool {
     if !f.message.is_empty() {
         ui.label(egui::RichText::new(f.message.as_str()).color(Tokens::get(ui.ctx()).red));
     }
-    let (ok, cancel) = crate::dialogs::buttons(ui, tl!("OK"));
+    let (ok, cancel) = crate::dialogs::buttons(ui, &tl!("OK"));
     if !ok {
         return cancel;
     }

@@ -1784,6 +1784,26 @@ fn hebrew_locales_preference_and_catalog_are_right_to_left() {
     assert_eq!(trailing_layout(egui::Align::Center).main_dir, egui::Direction::RightToLeft);
 }
 
+/// Distinct right-to-left labels stay correct after the lookup cache fills, and the cache itself
+/// stays within its entry cap. The strings are owned, so filling it does not leak.
+#[test]
+fn visual_reorder_cache_stays_bounded() {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            set_current(Lang::EN);
+        }
+    }
+    let _restore = Restore;
+    set_current(lang("he"));
+    for i in 0..9_000 {
+        let logical = format!("שלום {i}");
+        assert_eq!(present(&logical).as_ref(), visual_for_ui(&logical));
+    }
+    assert!(visual_cache_entries() <= 8192);
+    assert_eq!(present("שלום").as_ref(), "םולש");
+}
+
 #[test]
 fn hebrew_rows_pack_from_the_right() {
     let ctx = egui::Context::default();

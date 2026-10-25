@@ -419,7 +419,7 @@ fn search_box(app: &mut WordApp, ui: &mut Ui, control_h: f32) {
     let t = Tokens::get(ui.ctx());
     let (r, resp) = ui.allocate_exact_size(vec2(260.0, control_h), Sense::click());
     let ph = tl!("Search commands and help");
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, ph));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, ph.as_ref()));
     ui.painter().rect(r, 6.0, if resp.hovered() { t.input } else { t.ribbon }, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
     let rtl = crate::i18n::current().is_rtl();
     let icon_x = if rtl { r.max.x - 16.0 } else { r.min.x + 16.0 };
@@ -431,7 +431,7 @@ fn search_box(app: &mut WordApp, ui: &mut Ui, control_h: f32) {
         ui.painter(),
         pos2(text_x, r.center().y - TypeRung::Control.line_height() / 2.0),
         if rtl { Align2::RIGHT_TOP } else { Align2::LEFT_TOP },
-        ph,
+        ph.as_ref(),
         &pfont,
         ptrack,
         t.text_dim,
@@ -583,7 +583,7 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                         Some(PartKind::Endnote) => tl!("Editing endnote"),
                         _ => tl!("Editing header/footer"),
                     };
-                    st(ui, label);
+                    st(ui, label.as_ref());
                 }
                 // The language at the caret; a click sets the proofing language (Review › Language).
                 let lang = crate::ribbon::caret_language(app);
@@ -613,9 +613,9 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                     crate::ribbon::language_menu(ui, app);
                 });
                 if app.session.doc.settings.track_changes {
-                    st(ui, tl!("Track Changes: On"));
+                    st(ui, &tl!("Track Changes: On"));
                 }
-                if app.session.prefs.overtype && st(ui, tl!("Overtype")).on_hover_text(tl!("Click to switch back to inserting")).clicked() {
+                if app.session.prefs.overtype && st(ui, &tl!("Overtype")).on_hover_text(tl!("Click to switch back to inserting")).clicked() {
                     let _ = app.run("text.overtype", json!({"value": false}));
                 }
                 // The message is drawn where the row is now; the controls are laid out first, so
@@ -644,7 +644,7 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                     if zresp.clicked() && !reading {
                         let _ = app.run("ui.dialog", json!({ "name": "zoom" }));
                     }
-                    if small_icon(ui, "plus", tl!("Zoom In")) {
+                    if small_icon(ui, "plus", &tl!("Zoom In")) {
                         if reading {
                             let _ = app.run("view.readTextSize", json!({"value": (z + 10.0).min(150.0)}));
                         } else {
@@ -659,7 +659,7 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                         let command = if reading { "view.readTextSize" } else { "view.zoom" };
                         let _ = app.run(command, json!({"value": (v * 100.0).round()}));
                     }
-                    if small_icon(ui, "minus", tl!("Zoom Out")) {
+                    if small_icon(ui, "minus", &tl!("Zoom Out")) {
                         if reading {
                             let _ = app.run("view.readTextSize", json!({"value": (z - 10.0).max(75.0)}));
                         } else {
@@ -681,8 +681,8 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                             ui.painter().rect_filled(r, 3.0, t.hover);
                         }
                         icons::paint(ui.painter(), r.shrink(3.0), icon, t.icon, t.accent);
-                        resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, name));
-                        if resp.on_hover_text(name).clicked() {
+                        resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, name.as_ref()));
+                        if resp.on_hover_text(name.as_ref()).clicked() {
                             let _ = app.run(id, json!({}));
                         }
                     }
@@ -703,12 +703,12 @@ pub fn status_bar(app: &mut WordApp, ui: &mut Ui) {
                         ui.painter(),
                         pos2(r.min.x + 22.0, r.center().y - TypeRung::Caption.line_height() / 2.0),
                         Align2::LEFT_TOP,
-                        focus,
+                        focus.as_ref(),
                         &ffont,
                         ftrack,
                         t.text_dim,
                     );
-                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, focus));
+                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, focus.as_ref()));
                     if resp.clicked() {
                         let _ = app.run("view.focus", json!({}));
                     }
@@ -925,8 +925,14 @@ mod tests {
         });
         out.textures_delta.clear();
         let update = out.platform_output.accesskit_update.take().unwrap();
-        let focus =
-            update.nodes.iter().find(|(_, node)| node.label() == Some(focus_label)).unwrap_or_else(|| panic!("Focus is drawn")).1.bounds().unwrap();
+        let focus = update
+            .nodes
+            .iter()
+            .find(|(_, node)| node.label() == Some(focus_label.as_ref()))
+            .unwrap_or_else(|| panic!("Focus is drawn"))
+            .1
+            .bounds()
+            .unwrap();
         let msg = ctx.read_response(status_message_id()).expect("the message is drawn");
         assert!(msg.rect.left() >= 0.0, "the message stays on the bar: {:?}", msg.rect);
         assert!(msg.rect.width() < whole, "the message is shortened: {:?} of {whole}", msg.rect);

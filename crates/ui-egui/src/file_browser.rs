@@ -339,10 +339,10 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>>
     }
     let mut location_done = false;
     ui.horizontal(|ui| {
-        if icon_button(ui, t, "chevronUp", tl!("Up one level"), b.dir.parent().is_some()) {
+        if icon_button(ui, t, "chevronUp", &tl!("Up one level"), b.dir.parent().is_some()) {
             b.up();
         }
-        if icon_button(ui, t, "homeFolder", tl!("Home folder"), true)
+        if icon_button(ui, t, "homeFolder", &tl!("Home folder"), true)
             && let Some(h) = home()
         {
             b.navigate(h);
@@ -455,7 +455,7 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>>
     ui.horizontal(|ui| {
         ui.with_layout(crate::i18n::trailing_layout(egui::Align::Center), |ui| {
             let (ok, cancelb) =
-                crate::dialogs::ok_cancel_responses(ui, |ui| ui.add(crate::widgets::primary_button(ui, tl!(b.ok_label()))), tl!("Cancel"));
+                crate::dialogs::ok_cancel_responses(ui, |ui| ui.add(crate::widgets::primary_button(ui, tl!(b.ok_label()))), &tl!("Cancel"));
             cancel |= cancelb.clicked();
             pick |= ok.clicked() || enter;
         });

@@ -353,7 +353,7 @@ fn caption_ui(app: &mut WordApp, ui: &mut Ui, f: &mut CaptionForm) -> Next {
     if let Some(g) = then {
         return go(g);
     }
-    let (ok, cancel) = buttons(ui, tl!("OK"));
+    let (ok, cancel) = buttons(ui, &tl!("OK"));
     if ok && let Err(e) = f.insert(app) {
         app.status(e);
     }
@@ -449,7 +449,7 @@ fn cross_ref_ui(app: &mut WordApp, ui: &mut Ui, f: &mut CrossRefForm) -> Next {
             }
         });
     });
-    let (ok, cancel) = buttons(ui, tl!("Insert"));
+    let (ok, cancel) = buttons(ui, &tl!("Insert"));
     if ok && let Some(params) = f.params() {
         if let Err(e) = app.run("insert.crossReference", params) {
             app.status(e);
@@ -486,7 +486,7 @@ fn numbering_ui(ui: &mut Ui, f: &mut CaptionForm, was: &CaptionForm) -> Next {
     });
     ui.add_space(4.0);
     ui.label(crate::i18n::fmt(tl!("Example: {sample}"), &[("sample", &f.preview())]));
-    let (ok, cancel) = buttons(ui, tl!("OK"));
+    let (ok, cancel) = buttons(ui, &tl!("OK"));
     if ok {
         return go(RefsDialog::Caption(f.clone()));
     }
@@ -502,7 +502,7 @@ fn new_label_ui(app: &mut WordApp, ui: &mut Ui, f: &mut CaptionForm) -> Next {
     if !r.has_focus() {
         r.request_focus();
     }
-    let (ok, cancel) = buttons(ui, tl!("OK"));
+    let (ok, cancel) = buttons(ui, &tl!("OK"));
     let name: String = f.new_label.chars().filter(|c| !matches!(c, '"' | '\\') && !c.is_control()).take(40).collect::<String>().trim().to_string();
     if ok && !name.is_empty() {
         if !f.labels.contains(&name) {
@@ -607,7 +607,7 @@ fn index_ui(app: &mut WordApp, ui: &mut Ui, f: &mut IndexForm) -> Next {
     if ui.button(tl!("Mark Entry…")).clicked() {
         return go(RefsDialog::MarkEntry(MarkForm::read(app)));
     }
-    let (ok, cancel) = buttons(ui, tl!("OK"));
+    let (ok, cancel) = buttons(ui, &tl!("OK"));
     if ok && let Err(e) = app.run("references.index", f.params()) {
         app.status(e);
     }
@@ -849,7 +849,7 @@ fn toc_ui(app: &mut WordApp, ui: &mut Ui, f: &mut TocForm) -> Next {
     if let Some(g) = then {
         return go(g);
     }
-    let (ok, cancel) = buttons(ui, tl!("OK"));
+    let (ok, cancel) = buttons(ui, &tl!("OK"));
     if ok && let Err(e) = app.run("references.toc", f.params()) {
         app.status(e);
     }
@@ -884,7 +884,7 @@ fn toc_options_ui(app: &mut WordApp, ui: &mut Ui, f: &mut TocForm, was: &TocForm
             *l = 0;
         }
     }
-    let (ok, cancel) = buttons(ui, tl!("OK"));
+    let (ok, cancel) = buttons(ui, &tl!("OK"));
     if ok {
         return go(RefsDialog::Toc(f.clone()));
     }
@@ -914,7 +914,7 @@ fn toc_styles_ui(app: &mut WordApp, ui: &mut Ui, f: &mut TocForm, level: &mut u8
         app.dialog = Some(d);
         return Next::Close;
     }
-    let (ok, cancel) = buttons(ui, tl!("OK"));
+    let (ok, cancel) = buttons(ui, &tl!("OK"));
     if ok || cancel { go(RefsDialog::Toc(f.clone())) } else { Next::Stay }
 }
 
@@ -990,7 +990,7 @@ fn figures_ui(app: &mut WordApp, ui: &mut Ui, f: &mut FiguresForm) -> Next {
         });
     });
     ui.add_space(4.0);
-    let (ok, cancel) = buttons(ui, tl!("OK"));
+    let (ok, cancel) = buttons(ui, &tl!("OK"));
     if ok && let Err(e) = app.run("references.tableOfFigures", f.params()) {
         app.status(e);
     }
@@ -1157,7 +1157,7 @@ fn source_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SourceForm) -> Next {
                 let hint = match key {
                     "author" => tl!("Last, First; Last, First"),
                     "tag" => tl!("Made from the author and year when empty"),
-                    _ => "",
+                    _ => std::borrow::Cow::Borrowed(""),
                 };
                 ui.add_enabled(!(edit && key == "tag"), egui::TextEdit::singleline(v).desired_width(260.0).hint_text(hint));
             }
@@ -1165,7 +1165,7 @@ fn source_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SourceForm) -> Next {
         }
     });
     ui.checkbox(&mut f.show_all, tl!("Show every bibliography field"));
-    let (ok, cancel) = buttons(ui, tl!("OK"));
+    let (ok, cancel) = buttons(ui, &tl!("OK"));
     if ok {
         let src = serde_json::to_value(&f.source).unwrap_or(Value::Null);
         let r = if f.cite { app.run("references.citation", json!({"source": src})) } else { app.run("references.sources", json!({"add": src})) };

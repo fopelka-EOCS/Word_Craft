@@ -1,5 +1,7 @@
 //! The ribbon: tab strip and every tab's groups. Each control runs a command by id.
 
+use std::borrow::Cow;
+
 use egui::{Align2, Rect, Sense, Stroke, Ui, pos2, vec2};
 use serde_json::{Value, json};
 
@@ -61,7 +63,7 @@ fn reading_toolbar(app: &mut WordApp, ui: &mut Ui, t: Tokens) {
                 });
                 ui.separator();
                 let spacing = app.session.view.read_line_spacing;
-                let label = spacing.map_or_else(|| tl!("Document").to_owned(), |v| format!("{v}×"));
+                let label = spacing.map_or_else(|| tl!("Document").into_owned(), |v| format!("{v}×"));
                 ui.menu_button(format!("{}: {}", tl!("Line spacing"), label), |ui| {
                     if ui.selectable_label(spacing.is_none(), tl!("Document")).clicked() {
                         let _ = app.run("view.readLineSpacing", json!({"value": "document"}));
@@ -314,13 +316,14 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                         let labels = level == 0;
                         let share_full = (share_w + 36.0).max(74.0);
                         let share_button = if level < 2 { share_full } else { 30.0 };
-                        let editing = crate::widgets::icon_text_button_width(ui, editing_label, regular(12.0), true, labels);
-                        let comment = crate::widgets::icon_text_button_width(ui, comments, regular(12.0), false, labels);
+                        let editing = crate::widgets::icon_text_button_width(ui, editing_label.as_ref(), regular(12.0), true, labels);
+                        let comment = crate::widgets::icon_text_button_width(ui, comments.as_ref(), regular(12.0), false, labels);
                         // The gaps (6 + 4 + 8) and the strip's margin.
                         spaced(share_button) + spaced(editing) + spaced(comment) + 18.0 + 12.0
                     };
                     let button_levels = [button_widths(0), button_widths(1), button_widths(2)];
-                    let labels: Vec<&str> = tabs.iter().map(|(tab, custom)| if *custom { tab.as_str() } else { tl!(tab) }).collect();
+                    let labels: Vec<Cow<str>> =
+                        tabs.iter().map(|(tab, custom)| if *custom { Cow::Borrowed(tab.as_str()) } else { tl!(tab) }).collect();
                     let specs: Vec<TabSpec> = tabs
                         .iter()
                         .zip(&labels)
@@ -351,9 +354,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                                 t.on_accent,
                             );
                             if share_text {
-                                ui.painter().text(pos2(r.min.x + 26.0, r.center().y), Align2::LEFT_CENTER, share, medium(12.0), t.on_accent);
+                                ui.painter().text(pos2(r.min.x + 26.0, r.center().y), Align2::LEFT_CENTER, share.as_ref(), medium(12.0), t.on_accent);
                             }
-                            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, share));
+                            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, share.as_ref()));
                             if resp.on_hover_text(tl!("Export a copy to share (PDF, Word document)")).clicked() {
                                 let _ = app.run("ui.backstage", json!({"value": true, "page": "export"}));
                             }
@@ -397,7 +400,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                                 let (tab, custom) = (tab.as_str(), *custom);
                                 let contextual = !custom && wordcraft_engine::ribbon::CONTEXTUAL_TABS.contains(&tab);
                                 // A custom tab's name is the user's own text: shown as typed.
-                                let shown = if custom { tab } else { tl!(tab) };
+                                let shown = if custom { Cow::Borrowed(tab) } else { tl!(tab) };
                                 let w = plan.widths.get(i).copied().unwrap_or(0.0) - 2.0;
                                 let cut = specs.get(i).is_some_and(|sp| sp.text_w + plan.pad > w + 0.5);
                                 let (r, resp) = ui.allocate_exact_size(vec2(w, 30.0), Sense::click());
@@ -408,14 +411,14 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                                     crate::keytips::record_tab(r, tab, "", &mut app.keytip_rects);
                                 }
                                 let active = app.ui.tab == tab && !app.ui.backstage;
-                                resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, active, shown));
+                                resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, active, shown.as_ref()));
                                 if resp.hovered() && !active {
                                     ui.painter().rect_filled(r.shrink2(vec2(0.0, 4.0)), 4.0, t.hover);
                                 }
                                 let color = if contextual || active { t.accent_text } else { t.text };
                                 if cut {
                                     let mut job = egui::text::LayoutJob::single_section(
-                                        shown.to_string(),
+                                        shown.as_ref().to_string(),
                                         egui::text::TextFormat::simple(if active { semibold(12.5) } else { medium(12.5) }, color),
                                     );
                                     job.wrap = egui::text::TextWrapping {
@@ -430,12 +433,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                                     ui.painter().text(
                                         r.center(),
                                         Align2::CENTER_CENTER,
-                                        shown,
+                                        shown.as_ref(),
                                         if active { semibold(12.5) } else { medium(12.5) },
                                         color,
                                     );
                                 }
-                                let resp = if cut { resp.on_hover_text(shown) } else { resp };
+                                let resp = if cut { resp.on_hover_text(shown.as_ref()) } else { resp };
                                 if active {
                                     let u = Rect::from_center_size(pos2(r.center().x, r.max.y - 2.0), vec2(w - 16.0, 3.0));
                                     ui.painter().rect_filled(u, 2.0, t.accent);
@@ -448,12 +451,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                                 }
                                 resp.context_menu(|ui| crate::widgets::customize_menu_items(ui, app));
                             }
-                            let left_out: Vec<(&str, &str)> = tabs
+                            let left_out: Vec<(&str, Cow<str>)> = tabs
                                 .iter()
                                 .zip(&labels)
                                 .zip(&plan.fits)
                                 .filter(|(_, fits)| !**fits)
-                                .map(|(((tab, _), shown), _)| (tab.as_str(), *shown))
+                                .map(|(((tab, _), shown), _)| (tab.as_str(), shown.clone()))
                                 .collect();
                             if !left_out.is_empty() {
                                 let (r, resp) = ui.allocate_exact_size(vec2(MORE_TABS_W, 30.0), Sense::click());
@@ -471,8 +474,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                                 );
                                 // "»" means nothing read aloud: the button says what it holds.
                                 let more = tl!("More tabs");
-                                resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, more));
-                                let resp = resp.on_hover_text(more);
+                                resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, more.as_ref()));
+                                let resp = resp.on_hover_text(more.as_ref());
                                 egui::Popup::menu(&resp).show(|ui| {
                                     for (tab, shown) in left_out {
                                         if ui.selectable_label(app.ui.tab == tab, shown).clicked() {
@@ -555,13 +558,13 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 let mut next = None;
                 if offset > 1.0 {
                     let left = Rect::from_min_max(r.left_top(), pos2(r.left() + 18.0, r.bottom()));
-                    if edge_cue(ui, left, "‹", tl!("Scroll ribbon left"), &t) {
+                    if edge_cue(ui, left, "‹", &tl!("Scroll ribbon left"), &t) {
                         next = Some(offset - step);
                     }
                 }
                 if overflow - offset > 1.0 {
                     let right = Rect::from_min_max(pos2(r.right() - 18.0, r.top()), r.right_bottom());
-                    if edge_cue(ui, right, "›", tl!("Scroll ribbon right"), &t) {
+                    if edge_cue(ui, right, "›", &tl!("Scroll ribbon right"), &t) {
                         next = Some(offset + step);
                     }
                 }
@@ -655,9 +658,9 @@ pub(crate) fn size_menu(ui: &mut Ui, app: &mut WordApp) {
         // Paper names are the industry's (Letter, A4, B5 (JIS)) and stay as they are; the
         // envelopes say what they are. Sizes in the measurement unit, written the region's
         // way (`21 cm × 29,7 cm`, #838).
-        let name = if n.starts_with("Envelope ") { tl!(n) } else { n };
+        let name = if n.starts_with("Envelope ") { tl!(n) } else { Cow::Borrowed(*n) };
         let (width, height) = (crate::options::length(*w), crate::options::length(*h));
-        let label = crate::i18n::fmt(tl!("{paper}   {width} × {height}"), &[("paper", name), ("width", &width), ("height", &height)]);
+        let label = crate::i18n::fmt(tl!("{paper}   {width} × {height}"), &[("paper", name.as_ref()), ("width", &width), ("height", &height)]);
         mi_check(ui, app, &label, current == Some(*n), "layout.size", json!({"name": n}));
     }
     ui.separator();
@@ -704,11 +707,11 @@ fn underline_item(ui: &mut Ui, app: &mut WordApp, style: &str, name: &str) {
     let enabled = crate::widgets::enabled(app, "format.underline");
     let resp = ui.add_enabled(enabled, egui::Button::new("").min_size(vec2(200.0, 22.0)));
     let label = tl!(name);
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label.as_ref()));
     let t = Tokens::get(ui.ctx());
     let color = if enabled { t.text } else { t.text_disabled };
     paint_underline(ui.painter(), resp.rect.shrink2(vec2(10.0, 0.0)), style, color);
-    if resp.on_hover_text(label).clicked() {
+    if resp.on_hover_text(label.as_ref()).clicked() {
         crate::widgets::run_from_ribbon(app, "format.underline", json!({"style": style}));
         ui.close();
     }
@@ -759,14 +762,14 @@ fn paint_underline(p: &egui::Painter, r: Rect, style: &str, color: egui::Color32
 }
 
 pub(crate) fn mi(ui: &mut Ui, app: &mut WordApp, label: &str, id: &str, params: Value) {
-    mi_text(ui, app, tl!(label), id, params);
+    mi_text(ui, app, &tl!(label), id, params);
 }
 
 /// [`mi`] with a drawn icon before the label.
 fn mi_icon(ui: &mut Ui, app: &mut WordApp, icon: &str, label: &str, id: &str, params: Value) {
     let sc = crate::widgets::shortcut_text(app, id);
     let enabled = crate::widgets::enabled(app, id);
-    let resp = ui.add_enabled_ui(enabled, |ui| crate::widgets::icon_menu_item(ui, icon, tl!(label), &sc, 200.0)).inner;
+    let resp = ui.add_enabled_ui(enabled, |ui| crate::widgets::icon_menu_item(ui, icon, &tl!(label), &sc, 200.0)).inner;
     if resp.clicked() {
         crate::widgets::run_from_ribbon(app, id, params);
         ui.close();
@@ -1083,7 +1086,7 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                 let fams = app.previews.families();
                 let recent: Vec<String> = app.ui.recent_fonts.iter().map(|f| app.previews.font_shown(f)).collect();
                 let prev = app.previews.font_preview_fn();
-                if let Some(f) = crate::widgets::font_combo_with_recent_hint(ui, "font", 150.0, &font, &fams, &recent, Some(&*prev), tl!("Font")) {
+                if let Some(f) = crate::widgets::font_combo_with_recent_hint(ui, "font", 150.0, &font, &fams, &recent, Some(&*prev), &tl!("Font")) {
                     let _ = if f == crate::widgets::ADD_FONT {
                         app.run("font.add", json!({}))
                     } else if f == crate::widgets::LOAD_SYSTEM_FONTS {
@@ -1100,7 +1103,7 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                     .unwrap_or_default();
                 let sizes: Vec<String> =
                     wordcraft_engine::cmd::format::SIZES.iter().map(|s| if s.fract() == 0.0 { format!("{s:.0}") } else { s.to_string() }).collect();
-                if let Some(v) = crate::widgets::combo_hint(ui, "size", 52.0, &size, &sizes, None, tl!("Font Size"))
+                if let Some(v) = crate::widgets::combo_hint(ui, "size", 52.0, &size, &sizes, None, &tl!("Font Size"))
                     && let Ok(x) = v.trim().parse::<f64>()
                 {
                     let _ = app.run("format.size", json!({"size": x}));
@@ -2302,7 +2305,7 @@ fn outlining(app: &mut WordApp, ui: &mut Ui) {
                 small(ui, app, "outlineTop", None, "Promote to Heading 1", "outline.promoteToHeading1", json!({}), false);
                 small(ui, app, "outlinePromote", None, "Promote", "outline.promote", json!({}), false);
                 let levels: Vec<String> = (1..=BODY).map(name).collect();
-                if let Some(v) = crate::widgets::combo_hint(ui, "outlineLevel", 100.0, &name(level), &levels, None, tl!("Outline Level"))
+                if let Some(v) = crate::widgets::combo_hint(ui, "outlineLevel", 100.0, &name(level), &levels, None, &tl!("Outline Level"))
                     && let Some(i) = levels.iter().position(|x| *x == v)
                 {
                     let l = if i + 1 >= usize::from(BODY) { json!("body") } else { json!(i + 1) };
@@ -2322,7 +2325,7 @@ fn outlining(app: &mut WordApp, ui: &mut Ui) {
                 let mut shown: Vec<String> = vec![tl!("All Levels").to_string()];
                 shown.extend((1..BODY).map(name));
                 let current = shown.get(usize::from(o.show_level)).cloned().unwrap_or_default();
-                if let Some(v) = crate::widgets::combo_hint(ui, "outlineShowLevel", 90.0, &current, &shown, None, tl!("Show Level"))
+                if let Some(v) = crate::widgets::combo_hint(ui, "outlineShowLevel", 90.0, &current, &shown, None, &tl!("Show Level"))
                     && let Some(i) = shown.iter().position(|x| *x == v)
                 {
                     let l = if i == 0 { json!("all") } else { json!(i) };
@@ -3432,11 +3435,11 @@ mod tests {
             app,
         );
         h.run_steps(3);
-        let buttons = [tl!("Comments"), tl!("Editing")].map(|b| h.get_by_label(b).rect());
+        let buttons = [tl!("Comments"), tl!("Editing")].map(|b| h.get_by_label(b.as_ref()).rect());
         for tab in ["Table Design", "Table Layout"] {
-            let r = h.get_by_label(tl!(tab)).rect();
+            let r = h.get_by_label(&tl!(tab)).rect();
             assert!(r.right() <= 1280.0 && buttons.iter().all(|b| !b.intersects(r)), "{tab} {r:?} under {buttons:?}");
-            h.get_by_label(tl!(tab)).click();
+            h.get_by_label(&tl!(tab)).click();
             h.run_steps(2);
             assert_eq!(h.state().ui.tab, tab);
         }
@@ -3469,11 +3472,11 @@ mod tests {
                 for tab in crate::ribbon::TABS.iter().copied().chain(["Table Design", "Table Layout"]) {
                     // A group folded into a button can share the tab's name (Draw): only the node on
                     // the strip is the tab.
-                    let Some(r) = h.query_all_by_label(tl!(tab)).map(|n| n.rect()).find(|r| r.top() <= 40.0) else { continue };
+                    let Some(r) = h.query_all_by_label(&tl!(tab)).map(|n| n.rect()).find(|r| r.top() <= 40.0) else { continue };
                     assert!(r.right() <= width + 0.5, "{lang} {width}: {tab} {r:?} past the window");
                     assert!(buttons.iter().all(|b| !b.intersects(r)), "{lang} {width}: {tab} {r:?} under {buttons:?}");
                 }
-                assert!(h.query_by_label(tl!("File")).is_some(), "{lang} {width}: File stays on the strip");
+                assert!(h.query_by_label(&tl!("File")).is_some(), "{lang} {width}: File stays on the strip");
             }
         }
     }
@@ -3508,9 +3511,9 @@ mod tests {
                 .find(|r| r.top() < 80.0 && r.bottom() < 90.0)
                 .unwrap_or_else(|| panic!("{label} is not on the tab strip"))
         };
-        let file = on_strip(tl!("File"));
-        let home = on_strip(tl!("Home"));
-        let share = on_strip(tl!("Share"));
+        let file = on_strip(&tl!("File"));
+        let home = on_strip(&tl!("Home"));
+        let share = on_strip(&tl!("Share"));
         assert!(file.center().x > home.center().x, "File sits to the right of Home: {file:?} {home:?}");
         assert!(file.center().x > share.center().x, "tabs sit to the right of Share: {file:?} {share:?}");
     }
@@ -3565,12 +3568,14 @@ mod tests {
             app,
         );
         h.run_steps(3);
-        h.get_by_role_and_label(egui::accesskit::Role::Button, tl!("Share"));
-        let more = h.get_by_role_and_label(egui::accesskit::Role::Button, tl!("More tabs"));
+        let share_label = tl!("Share");
+        let more_label = tl!("More tabs");
+        h.get_by_role_and_label(egui::accesskit::Role::Button, share_label.as_ref());
+        let more = h.get_by_role_and_label(egui::accesskit::Role::Button, more_label.as_ref());
         more.click();
         h.run_steps(2);
         // The menu lists a tab that didn't fit (View is among the last on a narrow strip).
-        assert!(h.query_by_label(tl!("View")).is_some(), "the » menu lists the tabs left out");
+        assert!(h.query_by_label(&tl!("View")).is_some(), "the » menu lists the tabs left out");
     }
 
     #[test]

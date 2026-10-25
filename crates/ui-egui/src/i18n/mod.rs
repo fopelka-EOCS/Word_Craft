@@ -28,6 +28,7 @@
 
 mod catalog;
 
+use std::borrow::Cow;
 use std::cell::Cell;
 use std::sync::OnceLock;
 
@@ -522,38 +523,65 @@ pub fn visual_for_ui(text: &str) -> String {
     out
 }
 
-/// `s` as egui should paint it. Left-to-right interfaces return `s` unchanged.
-pub fn present(s: &str) -> &str {
+/// `s` as egui should paint it. Left-to-right interfaces borrow `s`. A right-to-left interface
+/// returns an owned reordering; the caller drops it, and the lookup cache does too when it is full.
+pub fn present(s: &str) -> Cow<'_, str> {
     #[cfg(test)]
     if pseudo::on() {
-        return s;
+        return Cow::Borrowed(s);
     }
     if !current().is_rtl() || !contains_rtl(s) {
-        return s;
+        return Cow::Borrowed(s);
     }
-    intern_visual(s)
+    Cow::Owned(cached_visual(s))
 }
 
-fn intern_visual(logical: &str) -> &'static str {
-    use std::collections::HashMap;
-    use std::sync::Mutex;
-    static CACHE: Mutex<Option<HashMap<String, &'static str>>> = Mutex::new(None);
-    let mut guard = CACHE.lock().unwrap_or_else(|err| err.into_inner());
-    let map = guard.get_or_insert_with(HashMap::new);
-    if let Some(found) = map.get(logical) {
-        return found;
+/// Reordered strings for labels drawn every frame. Entries are owned and dropped when the cache
+/// is full, so a document with many distinct right-to-left names cannot grow this without bound.
+const VISUAL_CACHE_MAX_ENTRIES: usize = 8192;
+const VISUAL_CACHE_MAX_BYTES: usize = 512 * 1024;
+
+struct VisualCache {
+    map: std::collections::HashMap<String, String>,
+    bytes: usize,
+}
+
+static VISUAL_CACHE: std::sync::LazyLock<std::sync::Mutex<VisualCache>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(VisualCache { map: std::collections::HashMap::new(), bytes: 0 }));
+
+fn cached_visual(logical: &str) -> String {
+    let guard = VISUAL_CACHE.lock().unwrap_or_else(|err| err.into_inner());
+    if let Some(found) = guard.map.get(logical) {
+        return found.clone();
     }
+    drop(guard);
     let visual = visual_for_ui(logical);
-    let leaked: &'static str = Box::leak(visual.into_boxed_str());
-    if map.len() < 8192 {
-        map.insert(logical.to_string(), leaked);
+    let cost = logical.len().saturating_add(visual.len());
+    // One enormous label is painted from the caller's copy and is not kept.
+    if cost > VISUAL_CACHE_MAX_BYTES {
+        return visual;
     }
-    leaked
+    let mut guard = VISUAL_CACHE.lock().unwrap_or_else(|err| err.into_inner());
+    if let Some(found) = guard.map.get(logical) {
+        return found.clone();
+    }
+    if guard.map.len() >= VISUAL_CACHE_MAX_ENTRIES || guard.bytes.saturating_add(cost) > VISUAL_CACHE_MAX_BYTES {
+        guard.map.clear();
+        guard.bytes = 0;
+    }
+    guard.bytes = guard.bytes.saturating_add(cost);
+    guard.map.insert(logical.to_string(), visual.clone());
+    visual
 }
 
 /// [`present`] as an owned string, for text built from more than one lookup.
 pub fn present_owned(s: &str) -> String {
-    present(s).to_string()
+    present(s).into_owned()
+}
+
+#[cfg(test)]
+pub(crate) fn visual_cache_entries() -> usize {
+    VISUAL_CACHE.lock().unwrap_or_else(|err| err.into_inner()).map.len()
 }
 
 /// Pack a horizontal row toward the trailing edge: the right in a left-to-right interface, the
@@ -611,7 +639,8 @@ pub fn prefixed(prefix: &str, rest: &str) -> String {
 
 /// Fill `{name}` placeholders in one pass. Unknown placeholders stay as written, and inserted
 /// values are never read as templates again, so a file name containing `{n}` stays intact.
-pub fn fmt(template: &str, args: &[(&str, &str)]) -> String {
+pub fn fmt(template: impl AsRef<str>, args: &[(&str, &str)]) -> String {
+    let template = template.as_ref();
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
     while let Some((before, after_open)) = rest.split_once('{') {

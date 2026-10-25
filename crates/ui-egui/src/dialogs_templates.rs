@@ -80,7 +80,7 @@ pub fn templates(app: &mut WordApp, ui: &mut Ui, f: &mut TemplatesForm) -> bool 
     if !f.message.is_empty() {
         ui.add(egui::Label::new(egui::RichText::new(f.message.as_str()).small().color(ui.visuals().error_fg_color)).wrap());
     }
-    let (ok, cancel) = buttons(ui, tl!("OK"));
+    let (ok, cancel) = buttons(ui, &tl!("OK"));
     if organizer {
         let back = TemplatesForm { message: String::new(), ..f.clone() };
         app.dialog = Some(Dialog::Organizer { form: Box::new(OrganizerForm::read(app, Some(back))) });

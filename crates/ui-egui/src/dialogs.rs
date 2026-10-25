@@ -1647,7 +1647,7 @@ pub(crate) fn buttons(ui: &mut Ui, ok: &str) -> (bool, bool) {
         ui.with_layout(crate::i18n::trailing_layout(egui::Align::Center), |ui| {
             // Enter and Escape belong to the Colors dialog while it is open above this one.
             let keys = !crate::colors::is_open(ui.ctx());
-            let (okb, cancelb) = ok_cancel_responses(ui, |ui| ui.add(crate::widgets::primary_button(ui, ok)), tl!("Cancel"));
+            let (okb, cancelb) = ok_cancel_responses(ui, |ui| ui.add(crate::widgets::primary_button(ui, ok)), &tl!("Cancel"));
             if cancelb.clicked() || (keys && cancel_key_pressed(ui)) {
                 r.1 = true;
             }
@@ -1749,7 +1749,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             if !message.is_empty() {
                 ui.colored_label(ui.visuals().error_fg_color, message.as_str());
             }
-            let (ok, cancel) = buttons(ui, tl!("Rename"));
+            let (ok, cancel) = buttons(ui, &tl!("Rename"));
             if cancel {
                 return true;
             }
@@ -1887,7 +1887,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             let mut job = egui::text::LayoutJob::single_section(sample, fmt);
             job.wrap.max_width = ui.available_width().min(400.0);
             ui.label(job);
-            let (ok, cancel) = buttons(ui, tl!("OK"));
+            let (ok, cancel) = buttons(ui, &tl!("OK"));
             if ok {
                 apply_font(app, d);
             }
@@ -1938,9 +1938,9 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                     ui.horizontal(|ui| {
                         ui.label(tl!("Alignment:"));
                         let shown = if mixed.contains("align") {
-                            ""
+                            std::borrow::Cow::Borrowed("")
                         } else {
-                            ALIGNS.iter().find(|(v, _)| v == align).map_or(align.as_str(), |(_, l)| tl!(l))
+                            ALIGNS.iter().find(|(v, _)| v == align).map_or_else(|| std::borrow::Cow::Borrowed(align.as_str()), |(_, l)| tl!(l))
                         };
                         egui::ComboBox::from_id_salt("para_align").selected_text(shown).show_ui(ui, |ui| {
                             for (v, l) in ALIGNS {
@@ -1963,7 +1963,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                         para_number(ui, first, ParaNumber::Length, "indentFirst", mixed);
                         ui.end_row();
                     });
-                    para_check(ui, &mut opts[0], tl!("Mirror indents"), "mirrorIndents", mixed);
+                    para_check(ui, &mut opts[0], &tl!("Mirror indents"), "mirrorIndents", mixed);
                     ui.label(egui::RichText::new(tl!("Spacing")).font(semibold(12.5)));
                     egui::Grid::new("sp").num_columns(4).show(ui, |ui| {
                         ui.label(tl!("Before:"));
@@ -1975,36 +1975,36 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                         para_number(ui, after, ParaNumber::Points, "spaceAfter", mixed);
                         ui.end_row();
                     });
-                    para_check(ui, &mut opts[1], tl!("Don't add space between paragraphs of the same style"), "contextualSpacing", mixed);
+                    para_check(ui, &mut opts[1], &tl!("Don't add space between paragraphs of the same style"), "contextualSpacing", mixed);
                 }
                 1 => {
                     ui.label(egui::RichText::new(tl!("Line and Page Breaks")).font(semibold(12.5)));
-                    para_check(ui, widow, tl!("Widow/Orphan control"), "widowControl", mixed);
-                    para_check(ui, keep_next, tl!("Keep with next"), "keepNext", mixed);
-                    para_check(ui, keep_lines, tl!("Keep lines together"), "keepLines", mixed);
-                    para_check(ui, page_break, tl!("Page break before"), "pageBreakBefore", mixed);
+                    para_check(ui, widow, &tl!("Widow/Orphan control"), "widowControl", mixed);
+                    para_check(ui, keep_next, &tl!("Keep with next"), "keepNext", mixed);
+                    para_check(ui, keep_lines, &tl!("Keep lines together"), "keepLines", mixed);
+                    para_check(ui, page_break, &tl!("Page break before"), "pageBreakBefore", mixed);
                     ui.label(egui::RichText::new(tl!("Formatting exceptions")).font(semibold(12.5)));
-                    para_check(ui, &mut opts[2], tl!("Suppress line numbers"), "suppressLineNumbers", mixed);
-                    para_check(ui, &mut opts[3], tl!("Don't hyphenate"), "suppressHyphens", mixed);
+                    para_check(ui, &mut opts[2], &tl!("Suppress line numbers"), "suppressLineNumbers", mixed);
+                    para_check(ui, &mut opts[3], &tl!("Don't hyphenate"), "suppressHyphens", mixed);
                 }
                 _ => {
                     let [kinsoku, word_wrap, overflow, top_line, de, dn] = asian;
                     ui.label(egui::RichText::new(tl!("Line breaking")).font(semibold(12.5)));
-                    para_check(ui, kinsoku, tl!("Apply Asian line-breaking rules (kinsoku)"), "kinsoku", mixed);
+                    para_check(ui, kinsoku, &tl!("Apply Asian line-breaking rules (kinsoku)"), "kinsoku", mixed);
                     // The model's flag is "wrap whole words"; the box offers the opposite.
                     let mut mid_word = !*word_wrap;
-                    para_check(ui, &mut mid_word, tl!("Allow Latin text to wrap in the middle of a word"), "wordWrap", mixed);
+                    para_check(ui, &mut mid_word, &tl!("Allow Latin text to wrap in the middle of a word"), "wordWrap", mixed);
                     *word_wrap = !mid_word;
-                    para_check(ui, overflow, tl!("Allow hanging punctuation"), "overflowPunct", mixed);
+                    para_check(ui, overflow, &tl!("Allow hanging punctuation"), "overflowPunct", mixed);
                     ui.label(egui::RichText::new(tl!("Character Spacing")).font(semibold(12.5)));
-                    para_check(ui, top_line, tl!("Compress punctuation at the start of a line"), "topLinePunct", mixed);
-                    para_check(ui, de, tl!("Add space between Asian and Latin text"), "autoSpaceDE", mixed);
-                    para_check(ui, dn, tl!("Add space between Asian text and numbers"), "autoSpaceDN", mixed);
+                    para_check(ui, top_line, &tl!("Compress punctuation at the start of a line"), "topLinePunct", mixed);
+                    para_check(ui, de, &tl!("Add space between Asian and Latin text"), "autoSpaceDE", mixed);
+                    para_check(ui, dn, &tl!("Add space between Asian text and numbers"), "autoSpaceDN", mixed);
                 }
             }
             ui.add_space(6.0);
             let tabs = ui.button(tl!("Tabs…")).clicked();
-            let (ok, cancel) = buttons(ui, tl!("OK"));
+            let (ok, cancel) = buttons(ui, &tl!("OK"));
             if ok || tabs {
                 apply_paragraph(app, d);
             }
@@ -2155,7 +2155,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                     }
                 });
             });
-            let (ok, cancel) = buttons(ui, tl!("OK"));
+            let (ok, cancel) = buttons(ui, &tl!("OK"));
             if ok {
                 let params = if style == "none" { json!({"shape": null}) } else { json!({"shape": shape, "style": style, "text": text}) };
                 let _ = app.run("format.enclose", params);
@@ -2164,7 +2164,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         }
         Dialog::TableProperties { form, basis } => {
             table_properties(ui, form);
-            let (ok, cancel) = buttons(ui, tl!("OK"));
+            let (ok, cancel) = buttons(ui, &tl!("OK"));
             if ok {
                 let changes = form.changes(basis);
                 if changes.as_object().is_some_and(|m| !m.is_empty()) {
@@ -2175,7 +2175,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         }
         Dialog::CellMargins { form, basis } => {
             cell_margins_dialog(ui, form);
-            let (ok, cancel) = buttons(ui, tl!("OK"));
+            let (ok, cancel) = buttons(ui, &tl!("OK"));
             if ok {
                 let changes = form.changes(basis);
                 if changes.as_object().is_some_and(|m| !m.is_empty()) {
@@ -2193,7 +2193,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 ui.add(egui::DragValue::new(rows).range(1..=1000));
                 ui.end_row();
             });
-            let (ok, cancel) = buttons(ui, tl!("OK"));
+            let (ok, cancel) = buttons(ui, &tl!("OK"));
             if ok {
                 let _ = app.run("insert.table", json!({"rows": *rows, "cols": *cols}));
             }
@@ -2267,7 +2267,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             ui.label(egui::RichText::new(tl!("Headers and footers")).font(semibold(12.5)));
             ui.checkbox(odd_even, tl!("Different Odd & Even Pages"));
             ui.checkbox(first_page, tl!("Different First Page"));
-            let (mut ok, cancel) = buttons(ui, tl!("OK"));
+            let (mut ok, cancel) = buttons(ui, &tl!("OK"));
             if ok {
                 // Everything OK changes is one undo step; a refused command applies nothing.
                 let result = page_layout_commands(app, (*paper, *paper_was), *landscape, (*top, *bottom, *left, *right))
@@ -2382,7 +2382,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                     *pick = Some(c);
                 }
             }
-            let (ok, cancel) = buttons(ui, tl!("OK"));
+            let (ok, cancel) = buttons(ui, &tl!("OK"));
             if ok {
                 if *place {
                     let Some((mut params, _)) = pick.clone() else { return false };
@@ -2418,7 +2418,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             {
                 *stats = v;
             }
-            let (ok, cancel) = buttons(ui, tl!("Close"));
+            let (ok, cancel) = buttons(ui, &tl!("Close"));
             ok || cancel
         }
         Dialog::Zoom { percent } => {
@@ -2447,7 +2447,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 let _ = app.run("view.zoom", json!({"value": f}));
                 return true;
             }
-            let (ok, cancel) = buttons(ui, tl!("OK"));
+            let (ok, cancel) = buttons(ui, &tl!("OK"));
             if ok {
                 let _ = app.run("view.zoom", json!({"value": *percent}));
             }
@@ -2462,7 +2462,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 ui.radio_value(diagonal, true, tl!("Diagonal"));
                 ui.radio_value(diagonal, false, tl!("Horizontal"));
             });
-            let (ok, cancel) = buttons(ui, tl!("OK"));
+            let (ok, cancel) = buttons(ui, &tl!("OK"));
             if ok {
                 let _ = app.run("design.watermark", json!({"text": text, "diagonal": *diagonal}));
             }
@@ -2506,7 +2506,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 ui.add_space(4.0);
                 remove = ui.button(tl!("Remove")).clicked();
             }
-            let (ok, cancel) = buttons(ui, tl!("OK"));
+            let (ok, cancel) = buttons(ui, &tl!("OK"));
             if remove {
                 let _ = app.run("format.phonetic", json!({"ruby": null}));
             } else if ok {
@@ -2524,7 +2524,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 ui.end_row();
             });
             ui.label(egui::RichText::new(tl!("The new style takes the formatting of the current paragraph.")).small().weak());
-            let (ok, cancel) = buttons(ui, tl!("OK"));
+            let (ok, cancel) = buttons(ui, &tl!("OK"));
             let mut created = None;
             if ok {
                 created =
@@ -2569,7 +2569,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 ui.checkbox(bold, tl!("Bold"));
                 ui.checkbox(italic, tl!("Italic"));
             });
-            let (ok, cancel) = buttons(ui, tl!("OK"));
+            let (ok, cancel) = buttons(ui, &tl!("OK"));
             if ok {
                 let mut chr = json!({"font": font, "size": *size, "bold": *bold, "italic": *italic});
                 if let Some(c) = wordcraft_doc::Rgb::parse(color) {
@@ -2666,7 +2666,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 };
                 ui.label(egui::RichText::new(tl!(hint)).weak());
             }
-            let (ok, cancel) = buttons(ui, tl!("OK"));
+            let (ok, cancel) = buttons(ui, &tl!("OK"));
             if ok && let Some(f) = formats.get(*choice) {
                 let mut params = payload.clone();
                 params["as"] = json!(f);
@@ -2690,7 +2690,8 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 2 => crate::credits::models_ui(ui),
                 _ => {
                     ui.label(egui::RichText::new(tl!("WordCraft")).font(semibold(22.0)));
-                    let build = option_env!("WORDCRAFT_BUILD_SHA").map(|s| s.get(..8).unwrap_or(s)).unwrap_or(tl!("development build"));
+                    let dev = tl!("development build");
+                    let build = option_env!("WORDCRAFT_BUILD_SHA").map(|s| s.get(..8).unwrap_or(s)).unwrap_or(dev.as_ref());
                     ui.label(crate::i18n::fmt(tl!("Version {version} ({build})"), &[("version", env!("CARGO_PKG_VERSION")), ("build", build)]));
                     ui.label(tl!(
                         "A free, open-source word processor written from scratch in Rust.\nPart of the Crafting Apps from the ArtCraft team."
@@ -2707,7 +2708,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                     );
                 }
             }
-            let (ok, cancel) = buttons(ui, tl!("Close"));
+            let (ok, cancel) = buttons(ui, &tl!("Close"));
             ok || cancel
         }
         Dialog::DiscardRecovery { name, .. } => {
@@ -2801,7 +2802,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 ui.label(tl!("Field:"));
                 ui.text_edit_singleline(field);
             });
-            let (ok, cancel) = buttons(ui, tl!("Insert"));
+            let (ok, cancel) = buttons(ui, &tl!("Insert"));
             if ok && !field.trim().is_empty() {
                 let _ = app.run("mailings.insertField", json!({"field": field.trim()}));
                 return true;
@@ -2821,7 +2822,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             if !message.is_empty() {
                 ui.label(egui::RichText::new(message.as_str()).small().color(ui.visuals().error_fg_color));
             }
-            let (ok, cancel) = buttons(ui, tl!("OK"));
+            let (ok, cancel) = buttons(ui, &tl!("OK"));
             if ok && !password.is_empty() {
                 let mut p = params.clone();
                 if let Some(o) = p.as_object_mut() {
@@ -2866,7 +2867,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             if !message.is_empty() {
                 ui.label(egui::RichText::new(message.as_str()).small().color(ui.visuals().error_fg_color));
             }
-            let (ok, cancel) = buttons(ui, tl!("OK"));
+            let (ok, cancel) = buttons(ui, &tl!("OK"));
             if ok {
                 if password != confirm {
                     *message = tl!("The passwords don't match.").to_string();
@@ -2903,7 +2904,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             if !message.is_empty() {
                 ui.label(egui::RichText::new(message.as_str()).small().weak());
             }
-            let (ok, cancel) = buttons(ui, tl!("OK"));
+            let (ok, cancel) = buttons(ui, &tl!("OK"));
             if ok && !code.trim().is_empty() {
                 let r = if *edit {
                     app.run("fields.setCode", json!({"code": code.trim()}))
@@ -2939,7 +2940,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             if !message.is_empty() {
                 ui.label(egui::RichText::new(message.as_str()).color(Tokens::get(ui.ctx()).red));
             }
-            let (ok, cancel) = buttons(ui, tl!("OK"));
+            let (ok, cancel) = buttons(ui, &tl!("OK"));
             if ok || picked {
                 let mut p = params.clone();
                 if let Some(o) = p.as_object_mut() {
@@ -2965,7 +2966,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             if !message.is_empty() {
                 ui.label(egui::RichText::new(message.as_str()).small().weak());
             }
-            let (ok, cancel) = buttons(ui, tl!("Find"));
+            let (ok, cancel) = buttons(ui, &tl!("Find"));
             if ok && !text.trim().is_empty() {
                 match app.run("mailings.findRecipient", json!({"text": text.trim()})) {
                     Ok(_) => return true,
@@ -3006,7 +3007,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                     ui.end_row();
                 }
             });
-            let (ok, cancel) = buttons(ui, tl!("OK"));
+            let (ok, cancel) = buttons(ui, &tl!("OK"));
             let params = rule_params(d);
             if ok && let Some(params) = params {
                 let _ = app.run("mailings.rules", params);
@@ -3031,7 +3032,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                     }
                 });
             }
-            let (ok, cancel) = buttons(ui, tl!("Close"));
+            let (ok, cancel) = buttons(ui, &tl!("Close"));
             ok || cancel
         }
         Dialog::CheckErrors { unknown, records } => {
@@ -3047,7 +3048,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             }
             ui.add_space(4.0);
             ui.label(egui::RichText::new(crate::i18n::fmt(tl!("Recipients: {count}"), &[("count", &records.to_string())])).weak());
-            let (ok, cancel) = buttons(ui, tl!("Close"));
+            let (ok, cancel) = buttons(ui, &tl!("Close"));
             ok || cancel
         }
     }
@@ -3220,7 +3221,7 @@ pub(crate) fn recipient_list(
     if !message.is_empty() {
         ui.label(egui::RichText::new(message.as_str()).color(Tokens::get(ui.ctx()).red));
     }
-    let (ok, cancel) = buttons(ui, tl!("OK"));
+    let (ok, cancel) = buttons(ui, &tl!("OK"));
     if !ok {
         return cancel;
     }
@@ -3798,7 +3799,7 @@ fn command_matches(c: &wordcraft_engine::CommandSpec, query: &str) -> bool {
         c.label.to_lowercase(),
         c.location.to_lowercase(),
         c.id.to_lowercase(),
-        crate::i18n::lowercase(tl!(c.label)),
+        crate::i18n::lowercase(&tl!(c.label)),
         crate::i18n::lowercase(&crate::i18n::location(c.location))
     );
     query.split_whitespace().all(|w| hay.contains(&w.to_lowercase()) || hay.contains(&crate::i18n::lowercase(w)))
@@ -3960,7 +3961,7 @@ fn icons_body(app: &mut WordApp, ui: &mut Ui, query: &mut String, category: &mut
     let name = icon_lib::find(selected).map(|i| i.name).unwrap_or("");
     ui.add_space(4.0);
     ui.label(egui::RichText::new(name).color(t.text_dim));
-    let (ok, cancel) = buttons(ui, tl!("Insert"));
+    let (ok, cancel) = buttons(ui, &tl!("Insert"));
     if (ok || insert) && !selected.is_empty() {
         let _ = app.run("insert.icon", json!({"id": selected.as_str()}));
         return true;
@@ -4017,7 +4018,7 @@ fn page_valign_combo(ui: &mut egui::Ui, valign: &mut wordcraft_doc::section::Pag
         [(PageVAlign::Top, "Top"), (PageVAlign::Center, "Center"), (PageVAlign::Justify, "Justified"), (PageVAlign::Bottom, "Bottom")];
     ui.horizontal(|ui| {
         ui.label(tl!("Vertical alignment:"));
-        let shown = CHOICES.iter().find(|(v, _)| v == valign).map_or("", |(_, l)| tl!(l));
+        let shown = CHOICES.iter().find(|(v, _)| v == valign).map_or_else(|| std::borrow::Cow::Borrowed(""), |(_, l)| tl!(l));
         egui::ComboBox::from_id_salt("ps_valign").selected_text(shown).show_ui(ui, |ui| {
             for (v, l) in CHOICES {
                 ui.selectable_value(valign, v, tl!(l));

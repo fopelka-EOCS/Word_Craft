@@ -120,7 +120,7 @@ fn buttons(ui: &mut Ui, ok: &str, ok_enabled: bool) -> (bool, bool) {
     ui.horizontal(|ui| {
         ui.with_layout(crate::i18n::trailing_layout(egui::Align::Center), |ui| {
             let (okb, cancelb) =
-                crate::dialogs::ok_cancel_responses(ui, |ui| ui.add_enabled(ok_enabled, crate::widgets::primary_button(ui, tl!(ok))), tl!("Cancel"));
+                crate::dialogs::ok_cancel_responses(ui, |ui| ui.add_enabled(ok_enabled, crate::widgets::primary_button(ui, tl!(ok))), &tl!("Cancel"));
             if cancelb.clicked() || crate::dialogs::cancel_key_pressed(ui) {
                 r.1 = true;
             }
@@ -639,6 +639,7 @@ fn product_label(i: usize) -> String {
         "return" => tl!("Return address labels"),
         _ => tl!("Address labels"),
     };
+    let paper = tl!(p.paper);
     // Inches on Letter, millimetres on A4, as the sheets are sold.
     let size = if p.paper == "A4" {
         let mm = |pt: f32| with_decimal(format!("{:.1}", pt * 25.4 / 72.0));
@@ -650,7 +651,7 @@ fn product_label(i: usize) -> String {
     let (columns, rows) = (p.cols.to_string(), p.rows.to_string());
     crate::i18n::fmt(
         tl!("{kind}, {columns} × {rows}, {size} ({paper})"),
-        &[("kind", kind), ("columns", &columns), ("rows", &rows), ("size", &size), ("paper", tl!(p.paper))],
+        &[("kind", kind.as_ref()), ("columns", &columns), ("rows", &rows), ("size", &size), ("paper", paper.as_ref())],
     )
 }
 

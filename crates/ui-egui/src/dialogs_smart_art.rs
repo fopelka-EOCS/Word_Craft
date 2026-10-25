@@ -209,7 +209,7 @@ pub fn picker_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SmartArtForm) -> bool {
                     // A label wider than the tile (a long translation) breaks at its middle space.
                     let label = tl!(layout.label());
                     let width = |text: &str| ui.ctx().fonts_mut(|f| f.layout_no_wrap(text.to_string(), regular(10.5), t.text).size().x);
-                    let lines = if width(label) <= rect.width() - 6.0 {
+                    let lines = if width(label.as_ref()) <= rect.width() - 6.0 {
                         vec![label.to_string()]
                     } else {
                         let split = label
@@ -297,7 +297,7 @@ pub fn frame_button(app: &mut WordApp, ctx: &egui::Context, layout: &wordcraft_l
     let t = Tokens::get(ctx);
     egui::Area::new(egui::Id::new("smart_art_frame_button")).order(egui::Order::Foreground).fixed_pos(at).show(ctx, |ui| {
         egui::Frame::NONE.fill(t.panel).stroke(Stroke::new(1.0, t.border)).corner_radius(4).inner_margin(2).show(ui, |ui| {
-            if crate::widgets::icon_button(ui, "textPane", tl!("Text Pane")).clicked() {
+            if crate::widgets::icon_button(ui, "textPane", &tl!("Text Pane")).clicked() {
                 let _ = app.run("smartArt.textPane", json!({"value": true}));
             }
         });

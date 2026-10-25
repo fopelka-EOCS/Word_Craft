@@ -295,20 +295,20 @@ fn preview(app: &mut WordApp, ui: &mut Ui, lay: &DocLayout, total: usize) {
             icons::paint(ui.painter(), r.shrink(4.0), icon, col, col);
             enabled && resp.on_hover_text(tip).clicked()
         };
-        if nav(ui, "chevronLeft", tl!("Previous Page"), page > 0) {
+        if nav(ui, "chevronLeft", &tl!("Previous Page"), page > 0) {
             app.ui.print.preview = page - 1;
         }
         ui.label(egui::RichText::new(&label).font(regular(13.0)));
-        if nav(ui, "chevronRight", tl!("Next Page"), page + 1 < total) {
+        if nav(ui, "chevronRight", &tl!("Next Page"), page + 1 < total) {
             app.ui.print.preview = page + 1;
         }
         ui.with_layout(crate::i18n::trailing_layout(egui::Align::Center), |ui| {
             let z = scale / crate::canvas::PX_PER_PT;
-            if nav(ui, "onePage", tl!("One Page"), true) {
+            if nav(ui, "onePage", &tl!("One Page"), true) {
                 app.ui.print.zoom = None;
             }
             ui.label(egui::RichText::new(format!("{}%", (z * 100.0).round())).font(regular(13.0)));
-            if nav(ui, "plus", tl!("Zoom In"), z < 5.0) {
+            if nav(ui, "plus", &tl!("Zoom In"), z < 5.0) {
                 app.ui.print.zoom = Some(zoom_step(z, true));
             }
             // A narrow window shortens the slider, then drops it, before it covers the page indicator.
@@ -320,7 +320,7 @@ fn preview(app: &mut WordApp, ui: &mut Ui, lay: &DocLayout, total: usize) {
                     app.ui.print.zoom = Some(v.clamp(0.1, 5.0));
                 }
             }
-            if nav(ui, "minus", tl!("Zoom Out"), z > 0.1) {
+            if nav(ui, "minus", &tl!("Zoom Out"), z > 0.1) {
                 app.ui.print.zoom = Some(zoom_step(z, false));
             }
         });
