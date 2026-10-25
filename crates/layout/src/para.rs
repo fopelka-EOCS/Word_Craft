@@ -82,6 +82,9 @@ fn undrawable_bullet(text: &str, lvl: &Level, rc: &ResolvedChar) -> bool {
 #[derive(Clone, Debug)]
 pub struct StyleRun {
     pub face: FaceRef,
+    /// The face the run's font resolves to, which `face` replaces where it lacks a character (a
+    /// fallback face, the East Asian font for CJK): the face new text typed in the run asks for.
+    pub requested_face: FaceRef,
     pub size: f32,
     pub synth_bold: bool,
     pub synth_italic: bool,
@@ -901,6 +904,7 @@ impl<'a> Builder<'a> {
         };
         let st = StyleRun {
             face,
+            requested_face: r.face,
             size,
             synth_bold,
             synth_italic,
