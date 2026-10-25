@@ -1360,6 +1360,9 @@ impl Exporter<'_> {
             }
         }
         let heads = table.rows.iter().take_while(|r| r.props.header).count();
+        // A row whose cells all continue merges from above has no cell of its own and no `TR`:
+        // a merged cell's `RowSpan` counts only the rows that have one.
+        let has_tr = |r: usize| table.rows.get(r).is_some_and(|row| row.cells.iter().any(|x| x.props.vmerge != VMerge::Continue));
         let span = |n: usize| NonZeroU32::new(u32::try_from(n).unwrap_or(1)).filter(|n| n.get() > 1);
         let (mut head, mut body) = (Vec::new(), Vec::new());
         for (r, row) in table.rows.iter().enumerate() {
@@ -1369,7 +1372,7 @@ impl Exporter<'_> {
                     continue;
                 }
                 let content = cells.remove(&(r, c)).map(|s| self.nodes(s)).unwrap_or_default();
-                let rows = span(table.vertical_extent(r, c).map_or(1, |(_, k)| k));
+                let rows = span(table.vertical_extent(r, c).map_or(1, |(_, k)| (r..r + k).filter(|&i| has_tr(i)).count()));
                 let cols = span(cell.span());
                 let tag: TagKind = if r < heads {
                     Tag::TH(TableHeaderScope::Column).with_row_span(rows).with_col_span(cols).into()

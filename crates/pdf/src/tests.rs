@@ -2713,3 +2713,26 @@ fn lists_pictures_and_tables_in_a_cell_stay_in_the_cell() {
     let expected = "Table(TBody(TR(TD(L(LI(Lbl LBody) LI(Lbl LBody))) TD(P Div(Figure)) TD(Table(TBody(TR(TD(P))))))))";
     assert!(tree.contains(expected), "{tree}");
 }
+
+/// When every cell of a row continues a merge from above, the row has no cells of its own and
+/// no `TR`, and the merged cells' `RowSpan` leaves it out, so the spans match the rows there are.
+#[test]
+fn a_row_merged_away_is_left_out_of_row_spans() {
+    use wordcraft_doc::props::VMerge;
+    let mut d = Document::new();
+    let mut t = Table::new(3, 2, 400.0);
+    for c in 0..2 {
+        t.rows[0].cells[c].props.vmerge = VMerge::Restart;
+        t.rows[1].cells[c].props.vmerge = VMerge::Continue;
+    }
+    t.rows[0].cells[0].blocks = text_cell("Both rows");
+    t.rows[0].cells[1].blocks = text_cell("Also both");
+    t.rows[2].cells[0].blocks = text_cell("Below");
+    t.rows[2].cells[1].blocks = text_cell("Below too");
+    d.body = vec![Arc::new(Block::Table(t))];
+    let bytes = export(&d, &PdfOptions { compress: false, tagged: true, ..Default::default() }).unwrap();
+    let tree = structure(&bytes);
+    assert!(tree.contains("Table(TBody(TR(TD(P) TD(P)) TR(TD(P) TD(P))))"), "{tree}");
+    let raw = String::from_utf8_lossy(&bytes);
+    assert!(!raw.contains("/RowSpan"), "no cell spans more rows than there are");
+}
