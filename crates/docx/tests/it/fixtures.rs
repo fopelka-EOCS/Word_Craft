@@ -3840,6 +3840,84 @@ fn equation_in_alternate_content_is_read() {
     assert!(!p.plain_text().contains("[picture]"));
 }
 
+#[test]
+fn pattern_alpha_transform_order() {
+    let cases = [
+        (
+            r#"<a:alpha val="40000"/><a:alphaMod val="50000"/><a:alphaOff val="10000"/>"#,
+            r#"<a:alpha val="40000"/><a:alphaOff val="10000"/><a:alphaMod val="50000"/>"#,
+            (30_000, 25_000),
+        ),
+        (r#"<a:alphaMod val="50000"/><a:alphaOff val="-10000"/>"#, r#"<a:alphaOff val="-10000"/><a:alphaMod val="50000"/>"#, (40_000, 45_000)),
+        (
+            r#"<a:alpha val="10000"/><a:alphaMod val="50000"/><a:alpha val="80000"/><a:alphaOff val="-20000"/>"#,
+            r#"<a:alphaOff val="100000"/><a:alphaMod val="50000"/>"#,
+            (60_000, 100_000),
+        ),
+    ];
+    let pattern = |doc: &Document| match &paras(doc)[0].objects[0] {
+        InlineObject::Shape { extra, .. } => **extra.pattern.as_ref().unwrap(),
+        object => panic!("{object:?}"),
+    };
+    for (foreground, background, expected) in cases {
+        let fill = format!(
+            r#"<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:pattFill prst="ltVert"><a:fgClr><a:srgbClr val="204060">{foreground}</a:srgbClr></a:fgClr><a:bgClr><a:srgbClr val="A0B0C0">{background}</a:srgbClr></a:bgClr></a:pattFill>"#
+        );
+        let doc = read_body(&format!("<w:p>{}</w:p>", anchored_wsp("Pattern", 1270000, 635000, &fill, "", "<wps:cNvSpPr/>")));
+        let read = pattern(&doc);
+        assert_eq!((read.foreground.alpha, read.background.alpha), expected, "{foreground}; {background}");
+        assert_eq!(read.foreground.color, Rgb(0x20, 0x40, 0x60));
+        assert_eq!(read.background.color, Rgb(0xA0, 0xB0, 0xC0));
+        let bytes = wordcraft_docx::write(&doc).unwrap();
+        let parts = unzip(&bytes);
+        let xml = String::from_utf8_lossy(parts.get("word/document.xml").unwrap());
+        for alpha in [expected.0, expected.1] {
+            assert!(xml.contains(&format!("<a:alpha val=\"{alpha}\"/>")), "{xml}");
+        }
+        let again = wordcraft_docx::read(&bytes).unwrap();
+        assert_eq!(pattern(&again), read);
+    }
+}
+
+/// A fill's `a:alpha` is its opacity: a translucent white wash over a picture stayed opaque and
+/// hid the picture.
+#[test]
+fn a_shape_fill_keeps_its_transparency() {
+    let fill =
+        r#"<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="FFFFFF"><a:alpha val="30980"/></a:srgbClr></a:solidFill>"#;
+    let d = read_body(&format!("<w:p>{}</w:p>", anchored_wsp("Wash", 1270000, 635000, fill, "", "<wps:cNvSpPr/>")));
+    let transparency = |d: &Document| match &paras(d)[0].objects[0] {
+        InlineObject::Shape { fill: Some(wordcraft_doc::fill::Fill::Solid { color, transparency }), .. } => (Some(*color), *transparency),
+        o => panic!("{o:?}"),
+    };
+    const FILL_ALPHA: u32 = 30_980;
+    const ALPHA_SCALE: f32 = 100_000.0;
+    // Canonical Fill stores the percentage computed from opacity, including f32 rounding.
+    let expected = 100.0 - (FILL_ALPHA as f32 / ALPHA_SCALE) * 100.0;
+    assert_eq!(transparency(&d), (Some(Rgb(255, 255, 255)), expected));
+    let bytes = wordcraft_docx::write(&d).unwrap();
+    let parts = unzip(&bytes);
+    let xml = String::from_utf8_lossy(parts.get("word/document.xml").unwrap());
+    assert!(xml.contains(&format!("<a:alpha val=\"{FILL_ALPHA}\"/>")), "{xml}");
+    let again = wordcraft_docx::read(&bytes).unwrap();
+    assert_eq!(transparency(&again), (Some(Rgb(255, 255, 255)), expected));
+}
+
+/// Pattern foreground/background opacity must survive editing, not become a solid fill.
+#[test]
+fn ltvert_fill_roundtrips() {
+    let paint = r#"<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:pattFill prst="ltVert"><a:fgClr><a:srgbClr val="9BBB59"><a:alpha val="80000"/></a:srgbClr></a:fgClr><a:bgClr><a:srgbClr val="FFFFFF"><a:alpha val="40000"/></a:srgbClr></a:bgClr></a:pattFill>"#;
+    let d = read_body(&format!("<w:p>{}</w:p>", anchored_wsp("Pattern", 254000, 254000, paint, "", "<wps:cNvSpPr/>")));
+    let saved = wordcraft_docx::write(&d).unwrap();
+    let xml = text(&unzip(&saved), "word/document.xml");
+    assert!(xml.contains("<a:pattFill prst=\"ltVert\">"), "pattern was flattened: {xml}");
+    assert!(xml.contains("<a:bgClr>"));
+    assert!(xml.contains("val=\"80000\""));
+    assert!(xml.contains("val=\"40000\""));
+    let again = wordcraft_docx::read(&saved).unwrap();
+    assert_eq!(d.body, again.body);
+}
+
 /// #1500: gradient fills and transparency on shapes (the cases in the issue), from the shape's
 /// own properties, the theme's fill styles (`a:fillRef` 3 and 1003, as Word's cover pages use),
 /// a group's fill (`a:grpFill`), an outline gradient and VML's `v:fill`. Each is read as the
