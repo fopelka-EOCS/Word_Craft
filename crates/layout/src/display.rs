@@ -572,8 +572,9 @@ fn stories_display(doc: &Document, stories: &[&Vec<Placed>], opts: &DisplayOptio
             if hidden.as_ref().is_some_and(|h| h.hides(it)) {
                 continue;
             }
-            if let Placed::Lines { story, path, .. } = it
-                && let Some(rect) = cell_clip(&clips, *story, &path.0)
+            if !clips.is_empty()
+                && let Some((story, path)) = it.source()
+                && let Some(rect) = cell_clip(&clips, story, &path.0)
             {
                 let mut inner = Vec::new();
                 item(doc, it, opts, a, &mut inner);
