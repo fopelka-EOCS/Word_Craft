@@ -271,7 +271,9 @@ impl Writer {
         // leaks the reader's NTLM credentials.
         match f.link.as_deref().filter(|l| wordcraft_doc::link::is_safe_href(l)) {
             Some(l) => {
-                out.push_str(&format!("{{\\field{{\\*\\fldinst{{HYPERLINK \"{}\"}}}}{{\\fldrslt{{{}}}}}}}", esc(&l.replace('"', "%22")), body));
+                // In a field's quotes `\\` is one backslash; a quote is stored as `%22`.
+                let target = l.replace('\\', "\\\\").replace('"', "%22");
+                out.push_str(&format!("{{\\field{{\\*\\fldinst{{HYPERLINK \"{}\"}}}}{{\\fldrslt{{{}}}}}}}", esc(&target), body));
             }
             None => out.push_str(&body),
         }
@@ -2510,78 +2512,9 @@ fn spacing(st: &St) -> model::Spacing {
     model::Spacing { before: gap(st.sb), after: gap(st.sa), line, left: st.li.map(pt), right: st.ri.map(pt), first: st.fi.map(pt) }
 }
 
-/// The target of a `HYPERLINK "url"` (or `HYPERLINK "url" \l "bookmark"`, `HYPERLINK \l "bookmark"`) field instruction.
+/// The target of a `HYPERLINK` field instruction; `%22` is a quote, as the writer stores one.
 fn hyperlink(instr: &str) -> Option<String> {
-    let t = instr.trim();
-    let rest = if t.get(..9).is_some_and(|h| h.eq_ignore_ascii_case("hyperlink")) {
-        t[9..].trim()
-    } else {
-        return None;
-    };
-    if rest.is_empty() {
-        return None;
-    }
-
-    let mut url: Option<String> = None;
-    let mut local: Option<String> = None;
-    let mut switch: Option<&str> = None;
-
-    let mut i = 0;
-    let bytes = rest.as_bytes();
-    while i < bytes.len() {
-        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
-            i += 1;
-        }
-        if i >= bytes.len() {
-            break;
-        }
-        if bytes[i] == b'\\' {
-            let start = i;
-            i += 1;
-            while i < bytes.len() && (bytes[i].is_ascii_alphabetic() || bytes[i] == b'*') {
-                i += 1;
-            }
-            switch = Some(&rest[start..i]);
-            continue;
-        }
-        let arg = if bytes[i] == b'"' {
-            i += 1;
-            let start = i;
-            while i < bytes.len() && bytes[i] != b'"' {
-                i += 1;
-            }
-            let val = &rest[start..i];
-            if i < bytes.len() && bytes[i] == b'"' {
-                i += 1;
-            }
-            val.to_string()
-        } else {
-            let start = i;
-            while i < bytes.len() && !bytes[i].is_ascii_whitespace() {
-                i += 1;
-            }
-            rest[start..i].to_string()
-        };
-        let clean_arg = arg.replace("%22", "\"");
-        if switch.take() == Some("\\l") {
-            local = Some(clean_arg);
-        } else if url.is_none() {
-            url = Some(clean_arg);
-        }
-    }
-
-    match (url, local) {
-        (Some(u), Some(l)) if !u.is_empty() && !l.is_empty() => {
-            let frag = l.trim_start_matches('#');
-            if u.contains('#') { Some(u) } else { Some(format!("{u}#{frag}")) }
-        }
-        (Some(u), _) if !u.is_empty() => Some(u),
-        (None, Some(l)) if !l.is_empty() => {
-            let frag = l.trim_start_matches('#');
-            Some(format!("#{frag}"))
-        }
-        _ => None,
-    }
+    wordcraft_doc::link::hyperlink_target(instr).map(|t| t.replace("%22", "\""))
 }
 
 /// Parse RTF bytes into the flow model.
@@ -4361,6 +4294,40 @@ mod tests {
         assert_eq!(hyperlink(r#"Hyperlink "http://example.com""#), Some("http://example.com".into()));
         assert_eq!(hyperlink(r#"HYPERLINK "http://example.com/path\latest""#), Some("http://example.com/path\\latest".into()));
         assert_eq!(hyperlink(r#"HYPERLINK "http://example.com" \o "Help text""#), Some("http://example.com".into()));
+        // A tooltip or frame before the address, a longer field name, escapes and the writer's `%22`.
+        assert_eq!(hyperlink(r#"HYPERLINK \o "tip" \t "_blank" "http://example.com""#), Some("http://example.com".into()));
+        assert_eq!(hyperlink(r#"HYPERLINKX "http://example.com""#), None);
+        assert_eq!(hyperlink(r#"HYPERLINK "C:\\Docs\\f.rtf""#), Some(r"C:\Docs\f.rtf".into()));
+        assert_eq!(hyperlink(r#"HYPERLINK "http://example.com/a%22b""#), Some(r#"http://example.com/a"b"#.into()));
+    }
+
+    /// A link with a quote in it survives export and import: the writer stores it as `%22`.
+    #[test]
+    fn a_quote_in_a_link_round_trips() {
+        let rtf = br#"{\rtf1\ansi{\field{\*\fldinst{HYPERLINK "http://a.b/x%22y"}}{\fldrslt{link}}}\par}"#;
+        let link = |d: &Document| d.body.iter().find_map(|b| b.as_para()?.runs.iter().find_map(|r| r.props.link.clone()));
+        let d = import(rtf).unwrap();
+        assert_eq!(link(&d).as_deref(), Some(r#"http://a.b/x"y"#));
+        let exported = export(&d);
+        assert!(exported.contains("x%22y"), "{exported}");
+        assert_eq!(link(&import(exported.as_bytes()).unwrap()).as_deref(), Some(r#"http://a.b/x"y"#));
+    }
+
+    /// Backslashes in a link survive export and import, a trailing one and two in a row too.
+    #[test]
+    fn backslashes_in_a_link_round_trip() {
+        let link = |d: &Document| d.body.iter().find_map(|b| b.as_para()?.runs.iter().find_map(|r| r.props.link.clone()));
+        for target in [r"docs\", r"a\\b", r"..\up\f.doc"] {
+            let mut d = import(br#"{\rtf1\ansi{\field{\*\fldinst{HYPERLINK "x"}}{\fldrslt{link}}}\par}"#).unwrap();
+            for b in d.body.iter_mut() {
+                if let wordcraft_doc::Block::Para(p) = std::sync::Arc::make_mut(b) {
+                    p.runs.iter_mut().filter(|r| r.props.link.is_some()).for_each(|r| r.props.link = Some(target.into()));
+                }
+            }
+            assert_eq!(link(&d).as_deref(), Some(target));
+            let exported = export(&d);
+            assert_eq!(link(&import(exported.as_bytes()).unwrap()).as_deref(), Some(target), "{exported}");
+        }
     }
 
     #[test]
