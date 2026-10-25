@@ -335,6 +335,7 @@ Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target 
 | 2026-10-15 | Selection bar mirrors for right-to-left paragraphs (the right margin) and works beside table rows: a click in the page margin beside a row selects the row, a drag selects rows, Shift+click extends by rows (a right-to-left table's bar is on the right); `table.selectAt {"extend"}`. Word's right-pointing arrow still missing |
 | 2026-10-17 | Language dialog keeps inherited proofing language and no-proof choices (#2717). Opening and accepting unchanged no longer replaces style-derived values with English US and proofing enabled. |
 | 2026-10-16 | Text with the legacy Outline, Shadow, Emboss or Engrave font effects (`w:outline`, `w:shadow`, `w:emboss`, `w:imprint`) is drawn with them on screen and in PDFs, no longer as plain text: hollow outlined letters, or a grey copy behind the letters; the PDF keeps the text (#2534) |
+| 2026-10-16 | Quarter-turned text boxes turn their text; upright text round-trips |
 | 2026-10-15 | Table Layout › Cell Margins opens an editable dialog initialized from the table defaults; confirming an unchanged dialog preserves imported margins, and changing one side retains the others (#1960) |
 | 2026-10-15 | Word's native ink inside groups and drawing canvases survives DOCX saves (gap 2): the ink member keeps its InkML part, relationship, content type and picture fallback, stays in its place among the members, moves with the group and is drawn from its fallback picture; deleting the group drops its part |
 | 2026-10-15 | Crash recovery copies and native .json files store pictures and kept parts as base64 text instead of arrays of numbers (#586 follow-up, #518): with a 27 MiB picture a recovery copy is 36 MiB instead of 96 MiB and a .json file 36 MiB instead of 286 MiB, written and read about five times faster. Copies and files written before still open |
@@ -683,6 +684,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | 2026-10-19 | trivial | Progress log: a Thai run with Latin finds one installed font covering it all on Linux too (#1549) |
 | 2026-10-19 | trivial | Progress log: forms protection keeps its content controls: no inserting, Properties or Remove Content Control |
 | 2026-10-19 | trivial | Progress log: text typed into a content control takes the control's formatting; localized placeholder styles recognised |
+| 2026-10-19 | trivial | Retain quarter-turn text-box parity evidence and current upstream history. Runtime code is unchanged by the conflict repair. |
 | 2026-10-17 | trivial | Progress log: #2048 entry covers anchors pushed onto the next page |
 | 2026-10-17 | trivial | A line breaks after a hyphen before a digit, like Word (#2712) |
 | 2026-10-15 | trivial | Progress log: text above a float's anchor wraps around it, #2048 |
@@ -746,6 +748,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | 2026-10-16 | trivial | Progress log: Hebrew field results and smart quotes (#1670) |
 | 2026-10-16 | trivial | Progress log: Ctrl+wheel zoom no longer scrolls the document (#1743) |
 | 2026-10-16 | trivial | Hint-reliant CJK fonts execute TrueType contour assembly; Windows DFKai-SB no longer loses strokes. Synthetic local-font regression; no font binaries bundled. |
+| 2026-10-16 | trivial | Quarter-turned text boxes turn their text; upright text round-trips. Arbitrary angles and combined text direction remain outside this fix. |
 | 2026-10-16 | trivial | Drawing dispatch uses the direct graphic-data child so nested pictures keep their text boxes. Synthetic regressions. |
 | 2026-10-14 | trivial | Progress log: RTF export writes sections (gap 19) |
 | 2026-10-15 | trivial | Progress log: multi-letter equation scripts (#1609) |
