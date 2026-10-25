@@ -60,7 +60,10 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 // The hit area is scoped to the chevron, not the whole 200px-wide row (#3041):
                 // the row reads as plain sidebar background next to it, so clicking there must
                 // not also close the File page, same as the macOS chevron fix (#2972) below.
-                let (r, _) = ui.allocate_exact_size(vec2(200.0, 40.0), Sense::hover());
+                let (r, drag) = ui.allocate_exact_size(vec2(200.0, 40.0), if app.window_controls { Sense::click_and_drag() } else { Sense::hover() });
+                if app.window_controls && drag.drag_started() {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                }
                 let c = pos2(r.min.x + 26.0, r.center().y);
                 let resp = ui.interact(Rect::from_center_size(c, vec2(22.0, r.height())), ui.id().with("backstage_back"), Sense::click());
                 icons::paint(ui.painter(), Rect::from_center_size(c, vec2(18.0, 18.0)), "chevronLeft", egui::Color32::WHITE, egui::Color32::WHITE);

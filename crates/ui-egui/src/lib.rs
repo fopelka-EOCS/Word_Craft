@@ -74,6 +74,20 @@ pub mod print_page;
 pub mod printing;
 pub mod read_aloud;
 pub mod ribbon;
+
+fn parse_resize_direction(value: &str) -> Option<egui::ResizeDirection> {
+    match value {
+        "north" => Some(egui::ResizeDirection::North),
+        "south" => Some(egui::ResizeDirection::South),
+        "east" => Some(egui::ResizeDirection::East),
+        "west" => Some(egui::ResizeDirection::West),
+        "northeast" => Some(egui::ResizeDirection::NorthEast),
+        "northwest" => Some(egui::ResizeDirection::NorthWest),
+        "southeast" => Some(egui::ResizeDirection::SouthEast),
+        "southwest" => Some(egui::ResizeDirection::SouthWest),
+        _ => None,
+    }
+}
 pub mod ribbon_fit;
 pub mod ruler_tabs;
 pub mod scroll;
@@ -564,6 +578,9 @@ pub struct WordApp {
     pub(crate) dialog_pick: Option<String>,
     /// macOS: the window has no title bar; leave room for the traffic lights.
     pub integrated_titlebar: bool,
+    /// Linux/BSD: the window has no system frame; the title bar draws its controls and edges resize.
+    pub window_controls: bool,
+    viewport_commands: Vec<egui::ViewportCommand>,
     /// macOS: the title bar's height and where its content starts, around the traffic lights.
     pub mac_titlebar: chrome::MacTitleBar,
     /// Focus (#1678): the ribbon is dropped down from the Focus bar, over the page.
@@ -716,6 +733,8 @@ impl WordApp {
             status_msg: None,
             previews: previews::Previews::default(),
             integrated_titlebar: false,
+            window_controls: false,
+            viewport_commands: Vec::new(),
             mac_titlebar: chrome::MacTitleBar::default(),
             focus_ribbon: false,
             control_rx: None,
@@ -1569,6 +1588,25 @@ impl WordApp {
     fn ui_command(&mut self, id: &str, p: &Value) -> Option<Result<Value, String>> {
         let s = |k: &str| p.get(k).and_then(Value::as_str);
         Some(Ok(match id {
+            "ui.window.minimize" => {
+                self.viewport_commands.push(egui::ViewportCommand::Minimized(true));
+                json!({})
+            }
+            "ui.window.maximize" => {
+                self.viewport_commands.push(egui::ViewportCommand::Maximized(p.get("on").and_then(Value::as_bool).unwrap_or(true)));
+                json!({})
+            }
+            "ui.window.close" => {
+                self.viewport_commands.push(egui::ViewportCommand::Close);
+                json!({})
+            }
+            "ui.window.beginResize" => {
+                let Some(direction) = s("direction").and_then(parse_resize_direction) else {
+                    return Some(Err("direction must be north, south, east, west, northeast, northwest, southeast, or southwest".into()));
+                };
+                self.viewport_commands.push(egui::ViewportCommand::BeginResize(direction));
+                json!({})
+            }
             "ui.tab" => {
                 let tab = s("tab").unwrap_or("Home").to_string();
                 if tab == "File" {
@@ -1860,6 +1898,12 @@ impl WordApp {
             }
             _ => return None,
         }))
+    }
+
+    pub(crate) fn flush_viewport_commands(&mut self, ctx: &egui::Context) {
+        for command in self.viewport_commands.drain(..) {
+            ctx.send_viewport_cmd(command);
+        }
     }
 
     /// Submit the selected print job; the implementation lives beside its localized controls.
@@ -2515,6 +2559,8 @@ impl WordApp {
         zotero::show_alert(self, &ctx);
         read_aloud::show(self, &ctx);
         crate::keytips::show(self, &ctx, ui);
+        chrome::window_frame(self, &ctx);
+        self.flush_viewport_commands(&ctx);
         keys::global_shortcuts(self, &ctx);
         self.refocus_after_chrome_click(&ctx);
         if let Some(url) = self.canvas.open_url.take() {
@@ -2907,6 +2953,10 @@ pub(crate) fn works_without_document(id: &str) -> bool {
             | "ui.quickAccessToolbar"
             | "ui.keytips"
             | "ui.dark"
+            | "ui.window.minimize"
+            | "ui.window.maximize"
+            | "ui.window.close"
+            | "ui.window.beginResize"
             | "ui.theme"
             | "ui.interfaceSize"
             | "ui.animations"
@@ -3549,6 +3599,37 @@ mod tests {
         c.start_screen();
         assert!(!c.has_document());
         assert_eq!(c.run("ui.quickAccessToolbar", json!({"value": false})).unwrap()["quickAccessToolbar"], false, "works without a document");
+    }
+
+    #[test]
+    fn window_caption_commands_dispatch_with_or_without_a_document() {
+        for mut a in [app(), {
+            let mut a = app();
+            a.start_screen();
+            a
+        }] {
+            for (id, params, expected) in [
+                ("ui.window.minimize", json!({}), egui::ViewportCommand::Minimized(true)),
+                ("ui.window.maximize", json!({"on": true}), egui::ViewportCommand::Maximized(true)),
+                ("ui.window.close", json!({}), egui::ViewportCommand::Close),
+                ("ui.window.beginResize", json!({"direction": "east"}), egui::ViewportCommand::BeginResize(egui::ResizeDirection::East)),
+            ] {
+                assert!(a.run(id, params).is_ok(), "{id} should dispatch without a document");
+                assert!(a.viewport_commands.contains(&expected), "{id} queues {expected:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn frameless_caption_close_emits_viewport_close() {
+        use egui_kittest::kittest::Queryable;
+        let mut a = app();
+        a.window_controls = true;
+        let mut h = harness(a);
+        h.run_steps(4);
+        h.query_by_label("Close").expect("the frameless close button is exposed").click();
+        h.run_steps(1);
+        assert!(h.output().viewport_output.values().flat_map(|v| v.commands.iter()).any(|c| matches!(c, egui::ViewportCommand::Close)));
     }
 
     fn harness(a: WordApp) -> egui_kittest::Harness<'static, WordApp> {
