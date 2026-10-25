@@ -776,10 +776,10 @@ pub fn sync_fit_zoom(app: &mut WordApp, scale: f32) {
 /// marks and markup, dark mode, the page colour and watermark, header/body dimming, the media,
 /// and (while a drag lasts) the object left out of the page.
 /// Taken once per frame.
-fn view_key(app: &WordApp, dim_body: bool, hidden: Option<&Pos>) -> u64 {
+pub(crate) fn view_key(app: &WordApp, dim_body: bool, hidden: Option<&Pos>) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     let v = &app.session.view;
-    (v.marks, app.session.prefs.marks, v.show_markup, v.dark_mode, wordcraft_render::DARK_PAPER, v.hide_ink, v.draw.replay).hash(&mut h);
+    (v.marks, app.session.prefs.marks, v.show_markup, app.page_is_dark(), wordcraft_render::DARK_PAPER, v.hide_ink, v.draw.replay).hash(&mut h);
     (v.read_mode, v.read_page_color).hash(&mut h);
     app.session.prefs.markup.hash(&mut h);
     dim_body.hash(&mut h);
@@ -1059,12 +1059,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         app.canvas.read_target_page = None;
         app.canvas.scroll_request = Some(vec2(page as f32 * step, 0.0));
     }
-    // View › Switch Modes: dark paper, inverted document colours.
+    // Dark paper, inverted document colours: the theme, or View › Switch Modes (#1722).
     // In Read Mode the Page color setting is used instead: Inverse draws the dark page, Sepia
     // draws sepia paper and None draws white paper.
     use wordcraft_engine::cmd::view::ReadPageColor;
     let read_mode = app.session.view.read_mode;
-    let dark_page = if read_mode { app.session.view.read_page_color == ReadPageColor::Inverse } else { app.session.view.dark_mode };
+    let dark_page = if read_mode { app.session.view.read_page_color == ReadPageColor::Inverse } else { app.page_is_dark() };
     let sepia_page = read_mode && app.session.view.read_page_color == ReadPageColor::Sepia;
     let dark_paper = wordcraft_render::DARK_PAPER;
     let show_ruler = app.session.view.ruler
@@ -3603,7 +3603,7 @@ fn field_showing_code(app: &WordApp, pos: &wordcraft_doc::Pos) -> Option<wordcra
 }
 
 /// Render options for this view's page rasters: marks, markup, dark page, header/body dimming.
-fn page_render_options(app: &WordApp, dim_body: bool) -> wordcraft_render::RenderOptions {
+pub(crate) fn page_render_options(app: &WordApp, dim_body: bool) -> wordcraft_render::RenderOptions {
     let mut opts = screen_render_options();
     opts.display.marks = app.session.view.marks;
     opts.display.always = app.session.prefs.marks;
@@ -3612,7 +3612,7 @@ fn page_render_options(app: &WordApp, dim_body: bool) -> wordcraft_render::Rende
     // Ink Replay draws the ink itself, stroke by stroke, over pages without it.
     opts.display.hide_ink = app.session.view.hide_ink || app.session.view.draw.replay;
     opts.display.revisions = app.session.prefs.markup.clone();
-    opts.dark = app.session.view.dark_mode;
+    opts.dark = app.page_is_dark();
     opts.dark_paper = wordcraft_render::DARK_PAPER;
     // In Read Mode the Page color sets the paper and the dark page, and Switch Modes is ignored.
     if app.session.view.read_mode {
