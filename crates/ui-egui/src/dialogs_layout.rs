@@ -2,12 +2,13 @@
 //! Numbering Options…), Hyphenation (Hyphenation Options… and Manual…), Language (Review ›
 //! Language), Envelopes and Labels (Mailings › Create), Formula (Table Layout › Data, #1201)
 //! Sort (Table Layout › Data, #1200), Split Cells (Table Layout › Merge), Convert Text to Table
-//! (Insert › Table, #2592), Size (Picture Format › Size, #2573) and Format Page Numbers (Insert ›
+//! (Insert › Table, #2592), Size (Picture Format › Size, #2573), Layout's Position tab (Layout ›
+//! Arrange › Position › More Layout Options…) and Format Page Numbers (Insert ›
 //! Header & Footer › Page Number ▸ Format Page Numbers…, #1113). Each ends by running a
 //! command (`layout.lineNumbers`, `layout.hyphenation`, `layout.manualHyphenation` with
 //! `caret.set` and `text.optionalHyphen`, `review.language`, `mailings.envelopes`,
 //! `mailings.labels`, `table.formula`, `table.sort`, `table.split`, `table.fromText`,
-//! `picture.size`, `layout.pageNumberFormat`), so scripts and agents get the same result without
+//! `picture.size`, `arrange.positionOptions`, `layout.pageNumberFormat`), so scripts and agents get the same result without
 //! the dialog. Shown through [`crate::dialogs::Dialog::Layout`].
 
 use egui::{Ui, vec2};
@@ -37,6 +38,7 @@ pub enum LayoutDialog {
     TextToTable(TextToTableForm),
     TableToText(TableToTextForm),
     Size(SizeForm),
+    Position(Box<PositionForm>),
     PageNumbers(PageNumbersForm),
 }
 
@@ -55,6 +57,7 @@ impl LayoutDialog {
             LayoutDialog::TextToTable(_) => "textToTable",
             LayoutDialog::TableToText(_) => "tableToText",
             LayoutDialog::Size(_) => "pictureSize",
+            LayoutDialog::Position(_) => "layoutPosition",
             LayoutDialog::PageNumbers(_) => "pageNumbers",
         }
     }
@@ -74,6 +77,7 @@ impl LayoutDialog {
             LayoutDialog::TextToTable(_) => "Convert Text to Table",
             LayoutDialog::TableToText(_) => "Convert to Text",
             LayoutDialog::Size(_) => "Size",
+            LayoutDialog::Position(_) => "Layout",
             LayoutDialog::PageNumbers(_) => "Page Number Format",
         }
     }
@@ -94,6 +98,7 @@ pub fn open(name: &str, app: &mut WordApp) -> Option<LayoutDialog> {
         "textToTable" => LayoutDialog::TextToTable(TextToTableForm::read(app)?),
         "tableToText" => LayoutDialog::TableToText(TableToTextForm::read(app)?),
         "pictureSize" => LayoutDialog::Size(SizeForm::read(app)?),
+        "layoutPosition" => LayoutDialog::Position(Box::new(PositionForm::read(app)?)),
         "pageNumbers" => LayoutDialog::PageNumbers(PageNumbersForm::read(app)),
         _ => return None,
     })
@@ -114,6 +119,7 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, d: &mut LayoutDialog) -> bool {
         LayoutDialog::TextToTable(f) => text_to_table_ui(app, ui, f),
         LayoutDialog::TableToText(f) => table_to_text_ui(app, ui, f),
         LayoutDialog::Size(f) => size_ui(app, ui, f),
+        LayoutDialog::Position(f) => position_ui(app, ui, f),
         LayoutDialog::PageNumbers(f) => page_numbers_ui(app, ui, f),
     }
 }
@@ -1385,6 +1391,219 @@ fn size_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SizeForm) -> bool {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Position
+
+/// What a horizontal position can be relative to: `arrange.positionOptions` name, label.
+const ACROSS_TO: [(&str, &str); 7] = [
+    ("margin", "Margin"),
+    ("page", "Page"),
+    ("column", "Column"),
+    ("leftMargin", "Left Margin"),
+    ("rightMargin", "Right Margin"),
+    ("insideMargin", "Inside Margin"),
+    ("outsideMargin", "Outside Margin"),
+];
+/// What a vertical position can be relative to; a paragraph takes an offset only.
+const DOWN_TO: [(&str, &str); 7] = [
+    ("margin", "Margin"),
+    ("page", "Page"),
+    ("paragraph", "Paragraph"),
+    ("topMargin", "Top Margin"),
+    ("bottomMargin", "Bottom Margin"),
+    ("insideMargin", "Inside Margin"),
+    ("outsideMargin", "Outside Margin"),
+];
+const ACROSS_ALIGN: [(&str, &str); 5] = [("left", "Left"), ("center", "Centered"), ("right", "Right"), ("inside", "Inside"), ("outside", "Outside")];
+const DOWN_ALIGN: [(&str, &str); 5] = [("top", "Top"), ("center", "Centered"), ("bottom", "Bottom"), ("inside", "Inside"), ("outside", "Outside")];
+
+/// One axis of the Position tab: an alignment relative to `align_to`, or `offset` points from
+/// `offset_to` (names as `arrange.positionOptions` takes them).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AxisForm {
+    pub aligned: bool,
+    pub align: String,
+    pub align_to: String,
+    pub offset: f32,
+    pub offset_to: String,
+}
+
+impl AxisForm {
+    /// The axis as the object has it. Anchors the dialog doesn't list are shown as layout places
+    /// them: across, as the column; down, as the paragraph.
+    fn read(across: bool, rel: wordcraft_doc::para::Anchor, align: Option<wordcraft_doc::para::FloatAlign>, offset: f32) -> AxisForm {
+        use wordcraft_doc::para::{Anchor, FloatAlign};
+        let to = match (rel, across) {
+            (Anchor::Margin, _) => "margin",
+            (Anchor::Page, _) => "page",
+            (Anchor::InsideMargin, _) => "insideMargin",
+            (Anchor::OutsideMargin, _) => "outsideMargin",
+            (Anchor::LeftMargin, true) => "leftMargin",
+            (Anchor::RightMargin, true) => "rightMargin",
+            (_, true) => "column",
+            (Anchor::TopMargin, false) => "topMargin",
+            (Anchor::BottomMargin, false) => "bottomMargin",
+            (_, false) => "paragraph",
+        };
+        let name = match (align, across) {
+            (Some(FloatAlign::Start) | None, true) => "left",
+            (Some(FloatAlign::Start) | None, false) => "top",
+            (Some(FloatAlign::Center), _) => "center",
+            (Some(FloatAlign::End), true) => "right",
+            (Some(FloatAlign::End), false) => "bottom",
+            (Some(FloatAlign::Inside), _) => "inside",
+            (Some(FloatAlign::Outside), _) => "outside",
+        };
+        AxisForm {
+            aligned: align.is_some(),
+            align: name.into(),
+            align_to: if to == "paragraph" { "margin".into() } else { to.into() },
+            offset: if offset.is_finite() { offset } else { 0.0 },
+            offset_to: to.into(),
+        }
+    }
+
+    /// This axis's part of `arrange.positionOptions`.
+    fn params(&self, across: bool) -> Value {
+        if self.aligned {
+            json!({"align": self.align, "relativeTo": self.align_to})
+        } else {
+            json!({(if across { "x" } else { "y" }): self.offset, "relativeTo": self.offset_to})
+        }
+    }
+}
+
+/// What [`PositionForm::follow`] compares: the object's wrapping and position, bit for bit.
+type Placed = (wordcraft_doc::para::Wrap, String);
+
+fn placed(o: &wordcraft_doc::para::InlineObject) -> Placed {
+    o.frame().map_or((wordcraft_doc::para::Wrap::Inline, String::new()), |(_, _, f)| {
+        (f.wrap, format!("{:?} {:?} {} {:?} {:?} {}", f.h_rel, f.h_align, f.x.to_bits(), f.v_rel, f.v_align, f.y.to_bits()))
+    })
+}
+
+/// The Layout dialog's Position tab for the selected picture or shape.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PositionForm {
+    pub at: wordcraft_doc::Pos,
+    /// In Line with Text: OK floats it, so both axes are sent, from where it is on the page.
+    pub inline: bool,
+    pub horizontal: AxisForm,
+    pub vertical: AxisForm,
+    #[serde(skip)]
+    basis: (AxisForm, AxisForm),
+    #[serde(skip)]
+    seen: Placed,
+}
+
+impl PositionForm {
+    /// The selected object's position; None when nothing movable is selected.
+    pub fn read(app: &mut WordApp) -> Option<PositionForm> {
+        use wordcraft_doc::para::{Anchor, InlineObject, Wrap};
+        let (at, o) = wordcraft_engine::cmd::objects::selected(&app.session)?;
+        if matches!(o, InlineObject::Graphic { .. }) {
+            return None;
+        }
+        let (_, _, f) = o.frame()?;
+        let inline = f.wrap == Wrap::Inline;
+        let (horizontal, vertical) = if inline {
+            let r = app.session.layout().object(&at, app.session.page_hint)?.rect;
+            (AxisForm::read(true, Anchor::Page, None, r.x), AxisForm::read(false, Anchor::Page, None, r.y))
+        } else {
+            (AxisForm::read(true, f.h_rel, f.h_align, f.x), AxisForm::read(false, f.v_rel, f.v_align, f.y))
+        };
+        Some(PositionForm { at, inline, basis: (horizontal.clone(), vertical.clone()), horizontal, vertical, seen: placed(&o) })
+    }
+
+    /// Follow the selection, as the Size dialog does: another object, or this one moved by a drag,
+    /// starts the form over; nothing selected closes it (false).
+    pub fn follow(&mut self, app: &mut WordApp) -> bool {
+        match wordcraft_engine::cmd::objects::selected(&app.session) {
+            Some((at, o)) if at == self.at && placed(&o) == self.seen => true,
+            Some(_) => PositionForm::read(app).map(|f| *self = f).is_some(),
+            None => false,
+        }
+    }
+
+    /// `arrange.positionOptions` parameters: the axes changed (both for an inline object), or
+    /// `{}` when nothing changed.
+    pub fn params(&self) -> Value {
+        let (h, v) = (self.horizontal != self.basis.0, self.vertical != self.basis.1);
+        let mut out = serde_json::Map::new();
+        if h || (self.inline && v) {
+            out.insert("horizontal".into(), self.horizontal.params(true));
+        }
+        if v || (self.inline && h) {
+            out.insert("vertical".into(), self.vertical.params(false));
+        }
+        Value::Object(out)
+    }
+}
+
+/// A dropdown of `items` (name, label) setting `value` to a name.
+fn pick(ui: &mut Ui, salt: &str, value: &mut String, items: &[(&str, &str)]) {
+    let shown = items.iter().find(|(n, _)| *n == value.as_str()).map_or("", |(_, l)| *l);
+    egui::ComboBox::from_id_salt(salt).selected_text(tl!(shown)).width(130.0).show_ui(ui, |ui| {
+        for (n, l) in items {
+            ui.selectable_value(value, (*n).to_string(), tl!(l));
+        }
+    });
+}
+
+/// One axis as two rows of the dialog's grid: Alignment … relative to …, or Absolute position …
+/// to the right of (below) ….
+fn axis_rows(ui: &mut Ui, a: &mut AxisForm, across: bool) {
+    let unit = unit();
+    let k = unit.pt_per_unit();
+    let (key, aligns, tos) = if across { ("h", &ACROSS_ALIGN, &ACROSS_TO[..]) } else { ("v", &DOWN_ALIGN, &DOWN_TO[..]) };
+    let align_tos: Vec<(&str, &str)> = tos.iter().copied().filter(|(n, _)| *n != "paragraph").collect();
+    ui.radio_value(&mut a.aligned, true, tl!("Alignment"));
+    ui.add_enabled_ui(a.aligned, |ui| pick(ui, &format!("{key}_align"), &mut a.align, aligns));
+    ui.label(tl!("relative to"));
+    ui.add_enabled_ui(a.aligned, |ui| pick(ui, &format!("{key}_align_to"), &mut a.align_to, &align_tos));
+    ui.end_row();
+    ui.radio_value(&mut a.aligned, false, tl!("Absolute position"));
+    ui.add_enabled_ui(!a.aligned, |ui| {
+        let mut v = a.offset / k;
+        let field = egui::DragValue::new(&mut v).speed(1.0 / k).range(-4000.0 / k..=4000.0 / k).measure(unit).max_decimals(2);
+        if ui.add(field.update_while_editing(false)).changed() && v.is_finite() {
+            a.offset = (v * k).clamp(-4000.0, 4000.0);
+        }
+    });
+    ui.label(if across { tl!("to the right of") } else { tl!("below") });
+    ui.add_enabled_ui(!a.aligned, |ui| pick(ui, &format!("{key}_offset_to"), &mut a.offset_to, tos));
+    ui.end_row();
+}
+
+/// The Layout dialog's Position tab; returns true to close it.
+fn position_ui(app: &mut WordApp, ui: &mut Ui, f: &mut PositionForm) -> bool {
+    if !f.follow(app) {
+        return true;
+    }
+    // One grid for both axes, so their fields line up; `heading` adds space, which a grid can't.
+    let title = |ui: &mut Ui, s: &str| ui.label(egui::RichText::new(tl!(s)).font(semibold(12.5)));
+    egui::Grid::new("position").num_columns(4).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
+        title(ui, "Horizontal");
+        ui.end_row();
+        axis_rows(ui, &mut f.horizontal, true);
+        title(ui, "Vertical");
+        ui.end_row();
+        axis_rows(ui, &mut f.vertical, false);
+    });
+    if f.inline {
+        ui.add_space(4.0);
+        ui.weak(tl!("The object is In Line with Text: OK floats it with Square wrapping."));
+    }
+    let (ok, cancel) = buttons(ui, "OK", true);
+    if ok {
+        let params = f.params();
+        return params.as_object().is_some_and(|m| m.is_empty()) || run(app, "arrange.positionOptions", params);
+    }
+    cancel
+}
+
+// ---------------------------------------------------------------------------------------------
 // Format Page Numbers
 
 /// The Format Page Numbers dialog's fields (#1113): the number format, and where numbering
@@ -2039,6 +2258,100 @@ mod tests {
     fn selected_size(a: &WordApp) -> (f32, f32) {
         let (_, o) = wordcraft_engine::cmd::objects::selected(&a.session).unwrap();
         o.frame().map(|(w, h, _)| (w, h)).unwrap()
+    }
+
+    fn float_of(a: &WordApp) -> wordcraft_doc::para::Float {
+        let (_, o) = wordcraft_engine::cmd::objects::selected(&a.session).unwrap();
+        o.frame().unwrap().2.clone()
+    }
+
+    /// More Layout Options… (`arrange.positionOptions` without a position) opens the Position tab
+    /// on the selected shape; OK sends only the axis that changed, in one undo step, and a drag
+    /// while it is open starts the form over.
+    #[test]
+    fn position_dialog_sets_an_alignment_or_an_offset() {
+        use wordcraft_doc::para::{Anchor, FloatAlign};
+        let mut a = WordApp::new(Session::new(wordcraft_doc::Document::from_text("one\ntwo")), Services::default());
+        a.run("insert.shape", json!({"kind": "rectangle", "width": 100, "height": 50})).unwrap();
+        a.run("arrange.bounds", json!({"page": 0, "x": 150, "y": 200})).unwrap();
+        let was = float_of(&a);
+        assert_eq!(a.run("arrange.positionOptions", json!({})).unwrap(), json!({"pending": "layoutPosition"}));
+        let LayoutDialog::Position(mut f) = form(&mut a) else { panic!("position") };
+        assert!(!f.inline && !f.horizontal.aligned && !f.vertical.aligned, "a dragged shape is placed by offsets");
+        assert_eq!((f.horizontal.offset, f.vertical.offset), (was.x, was.y));
+        assert_eq!(f.params(), json!({}), "nothing changed, nothing to send");
+        f.horizontal.aligned = true;
+        f.horizontal.align = "right".into();
+        f.horizontal.align_to = "page".into();
+        assert_eq!(f.params(), json!({"horizontal": {"align": "right", "relativeTo": "page"}}));
+        a.run("arrange.positionOptions", f.params()).unwrap();
+        let now = float_of(&a);
+        assert_eq!((now.h_rel, now.h_align, now.v_rel, now.y), (Anchor::Page, Some(FloatAlign::End), was.v_rel, was.y));
+        a.run("edit.undo", json!({})).unwrap();
+        assert_eq!(float_of(&a), was, "one undo step");
+        // An offset from the page's top.
+        a.run("ui.dialog", json!({"name": "layoutPosition"})).unwrap();
+        let LayoutDialog::Position(mut f) = form(&mut a) else { panic!("position") };
+        f.vertical.offset = 300.0;
+        f.vertical.offset_to = "page".into();
+        a.run("arrange.positionOptions", f.params()).unwrap();
+        let r = a.session.layout().object(&f.at, 0).unwrap().rect;
+        assert!((r.y - 300.0).abs() < 0.5, "{r:?}");
+        // The object moves while the dialog is open: the form reads it again.
+        a.run("ui.dialog", json!({"name": "layoutPosition"})).unwrap();
+        let LayoutDialog::Position(mut f) = form(&mut a) else { panic!("position") };
+        a.run("arrange.nudge", json!({"dx": 6})).unwrap();
+        assert!(f.follow(&mut a));
+        assert_eq!(f.horizontal.offset, float_of(&a).x);
+        // Nothing selected: the dialog closes.
+        a.run("select.collapse", json!({"end": true})).unwrap();
+        a.run("text.insert", json!({"text": "x"})).unwrap();
+        assert!(!f.follow(&mut a));
+    }
+
+    /// The Position tab draws for an inline and a floating object with either kind of position
+    /// picked, without one of egui's debug assertions firing (`add_space` in its grid did).
+    #[test]
+    fn position_dialog_draws() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx, crate::theme::Appearance::Light);
+        let mut a = picture_app(40, 20);
+        for floating in [false, true] {
+            if floating {
+                a.run("arrange.bounds", json!({"page": 0, "x": 100, "y": 150})).unwrap();
+            }
+            a.run("ui.dialog", json!({"name": "layoutPosition"})).unwrap();
+            let mut d = form(&mut a);
+            for aligned in [false, true] {
+                if let LayoutDialog::Position(f) = &mut d {
+                    (f.horizontal.aligned, f.vertical.aligned) = (aligned, aligned);
+                }
+                let close = std::cell::Cell::new(true);
+                ctx.run_ui(egui::RawInput::default(), |ui| close.set(body(&mut a, ui, &mut d))).drop_without_applying_deltas();
+                assert!(!close.get(), "the dialog stays open while drawn");
+            }
+        }
+    }
+
+    /// An In Line with Text picture opens at its place on the page, and OK floats it there with
+    /// both axes set.
+    #[test]
+    fn position_dialog_floats_an_inline_picture() {
+        let mut a = picture_app(40, 20);
+        let at = wordcraft_engine::cmd::objects::selected(&a.session).unwrap().0;
+        let r0 = a.session.layout().object(&at, 0).unwrap().rect;
+        a.run("ui.dialog", json!({"name": "layoutPosition"})).unwrap();
+        let LayoutDialog::Position(mut f) = form(&mut a) else { panic!("position") };
+        assert!(f.inline);
+        assert_eq!((f.horizontal.offset_to.as_str(), f.vertical.offset_to.as_str()), ("page", "page"));
+        f.horizontal.offset += 50.0;
+        let p = f.params();
+        assert!(p.get("horizontal").is_some() && p.get("vertical").is_some(), "{p}");
+        a.run("arrange.positionOptions", p).unwrap();
+        assert_ne!(float_of(&a).wrap, wordcraft_doc::para::Wrap::Inline);
+        let r = a.session.layout().object(&at, 0).unwrap().rect;
+        assert!((r.x - r0.x - 50.0).abs() < 0.5 && (r.y - r0.y).abs() < 0.5, "{r0:?} -> {r:?}");
     }
 
     /// #2573: Picture Format › Size's launcher (`picture.size` without a size) opens the Size

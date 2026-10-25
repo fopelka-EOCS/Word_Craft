@@ -1741,8 +1741,9 @@ impl Session {
                 // Outline view: collapsed headings follow edits; the caret stays where it shows.
                 crate::cmd::outline::after_command(self, &sel_before, self.rev != rev_before);
                 // Extra selected objects last until something else is edited or selected; formatting
-                // them keeps them selected, as in Word.
-                if !matches!(id, "select.addObject" | "arrange.ungroup" | "shape.fill" | "shape.effects") && (spec.mutates || self.sel != sel_before)
+                // or aligning them keeps them selected, as in Word.
+                if !matches!(id, "select.addObject" | "arrange.ungroup" | "arrange.align" | "shape.fill" | "shape.effects")
+                    && (spec.mutates || self.sel != sel_before)
                 {
                     self.also_selected.clear();
                 }

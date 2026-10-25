@@ -2815,6 +2815,8 @@ fn input_dialog(id: &str, params: &Value) -> Option<&'static str> {
         "table.cellMargins" if params.as_object().is_none_or(|m| m.is_empty()) => Some("tableCellMargins"),
         // Size without a size (Picture Format › Size's launcher) shows the Size dialog (#2573).
         "picture.size" if params.as_object().is_none_or(|m| m.is_empty()) => Some("pictureSize"),
+        // More Layout Options… without a position shows the Layout dialog's Position tab.
+        "arrange.positionOptions" if params.as_object().is_none_or(|m| m.is_empty()) => Some("layoutPosition"),
         // Formula without one asks for it, suggested from the numbers next to the cell (#1201).
         "table.formula" if !has("formula") => Some("tableFormula"),
         // Sort without settings asks for the column, order and header row (#1200).

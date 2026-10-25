@@ -1856,7 +1856,7 @@ fn layout(app: &mut WordApp, ui: &mut Ui) {
         });
     });
     group(ui, "Arrange", None, app, |ui, app| {
-        big(ui, app, "position", "Position", "arrange.position", json!({}), false);
+        position_menu(ui, app);
         wrap_menu(ui, app);
         stack(ui, |ui| {
             small(ui, app, "bringForward", Some("Bring Forward"), "Bring Forward", "arrange.bringForward", json!({}), false);
@@ -1936,13 +1936,66 @@ fn group_menu(ui: &mut Ui, app: &mut WordApp, label: Option<&str>) {
     });
 }
 
-/// Arrange › Align: horizontal position relative to the margin (#3242 — a plain button ran
-/// `arrange.align` with no `value`, which always centers; a menu reaches Left and Right too).
+/// Arrange › Position: In Line with Text, nine places on the page with Square wrapping, and the
+/// Layout dialog for an exact position.
+fn position_menu(ui: &mut Ui, app: &mut WordApp) {
+    menu_button(ui, app, "position", Some("Position"), "Position", true, "arrange.position", |ui, app| {
+        mi(ui, app, "In Line with Text", "arrange.wrap", json!({"wrap": "inline"}));
+        ui.separator();
+        for (l, p) in [
+            ("Top Left", "topLeft"),
+            ("Top Center", "topCenter"),
+            ("Top Right", "topRight"),
+            ("Middle Left", "middleLeft"),
+            ("Middle Center", "middleCenter"),
+            ("Middle Right", "middleRight"),
+            ("Bottom Left", "bottomLeft"),
+            ("Bottom Center", "bottomCenter"),
+            ("Bottom Right", "bottomRight"),
+        ] {
+            mi(ui, app, l, "arrange.position", json!({"preset": p}));
+        }
+        ui.separator();
+        mi(ui, app, "More Layout Options…", "arrange.positionOptions", json!({}));
+    });
+}
+
+/// What Align lines objects up with, as last chosen in its menu (Align to Page, Align to Margin
+/// or Align Selected Objects); None until chosen.
+fn align_to_id() -> egui::Id {
+    egui::Id::new("arrange.align.to")
+}
+
+/// Arrange › Align: left to bottom, Distribute, and what they line up with (#3242: a plain button
+/// always centred). With two or more objects selected the default is each other, else the margin.
 fn align_menu(ui: &mut Ui, app: &mut WordApp, label: Option<&str>) {
+    let several = wordcraft_engine::cmd::objects::picked_objects(&app.session).len() >= 2;
+    let chosen = ui.ctx().data(|d| d.get_temp::<&'static str>(align_to_id()));
+    let to = chosen.filter(|t| *t != "selected" || several).unwrap_or(if several { "selected" } else { "margin" });
     menu_button(ui, app, "align", label, "Align", false, "arrange.align", |ui, app| {
-        mi(ui, app, "Align Left", "arrange.align", json!({"value": "left"}));
-        mi(ui, app, "Align Center", "arrange.align", json!({"value": "center"}));
-        mi(ui, app, "Align Right", "arrange.align", json!({"value": "right"}));
+        for (l, v) in [
+            ("Align Left", "left"),
+            ("Align Center", "center"),
+            ("Align Right", "right"),
+            ("Align Top", "top"),
+            ("Align Middle", "middle"),
+            ("Align Bottom", "bottom"),
+        ] {
+            mi(ui, app, l, "arrange.align", json!({"value": v, "to": to}));
+        }
+        ui.separator();
+        mi(ui, app, "Distribute Horizontally", "arrange.align", json!({"value": "distributeHorizontally", "to": to}));
+        mi(ui, app, "Distribute Vertically", "arrange.align", json!({"value": "distributeVertically", "to": to}));
+        ui.separator();
+        for (l, v) in [("Align to Page", "page"), ("Align to Margin", "margin"), ("Align Selected Objects", "selected")] {
+            let mark = egui::RichText::new("✓");
+            let mark = if to == v { mark } else { mark.color(egui::Color32::TRANSPARENT) };
+            let on = v != "selected" || several;
+            if ui.add_enabled(on, egui::Button::new((mark, tl!(l))).selected(to == v).min_size(vec2(200.0, 0.0))).clicked() {
+                ui.ctx().data_mut(|d| d.insert_temp(align_to_id(), v));
+                ui.close();
+            }
+        }
     });
 }
 
@@ -2643,7 +2696,7 @@ fn shape_format(app: &mut WordApp, ui: &mut Ui) {
     });
     shape_text_group(app, ui);
     group(ui, "Arrange", None, app, |ui, app| {
-        big(ui, app, "position", "Position", "arrange.position", json!({}), false);
+        position_menu(ui, app);
         wrap_menu(ui, app);
         stack(ui, |ui| {
             rotate_menu(ui, app, Some("Rotate"));
@@ -2819,7 +2872,7 @@ fn picture_format(app: &mut WordApp, ui: &mut Ui) {
     });
     alt_text_group(ui, app);
     group(ui, "Arrange", None, app, |ui, app| {
-        big(ui, app, "position", "Position", "arrange.position", json!({}), false);
+        position_menu(ui, app);
         wrap_menu(ui, app);
         stack(ui, |ui| {
             rotate_menu(ui, app, Some("Rotate"));
