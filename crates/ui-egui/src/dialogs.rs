@@ -417,6 +417,15 @@ pub enum Dialog {
         #[serde(default)]
         message: String,
     },
+    /// Saving back over a DOCX that was opened with unreadable parts would make the loss permanent.
+    ConfirmDamagedSave {
+        path: String,
+        skipped_parts: Vec<String>,
+        skipped_parts_more: usize,
+        document: u64,
+        #[serde(skip)]
+        params: Value,
+    },
     /// Mailings › Select Recipients / Edit Recipient List: a table of recipients to type or
     /// edit (field names on top), or a file to load instead (#240).
     RecipientList {
@@ -994,6 +1003,7 @@ impl Dialog {
             Dialog::PasteSpecial { .. } => "pasteSpecial",
             Dialog::About { .. } => "about",
             Dialog::SaveChanges { .. } => "saveChanges",
+            Dialog::ConfirmDamagedSave { .. } => "confirmDamagedSave",
             Dialog::DiscardRecovery { .. } => "discardRecovery",
             Dialog::RecipientList { .. } => "recipientList",
             Dialog::SelectTable { .. } => "selectTable",
@@ -1469,6 +1479,7 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
         Dialog::PasteSpecial { .. } => "Paste Special",
         Dialog::About { .. } => "About WordCraft",
         Dialog::SaveChanges { .. } => "WordCraft",
+        Dialog::ConfirmDamagedSave { .. } => tl!("Save damaged document?"),
         Dialog::DiscardRecovery { .. } => "Discard recovery copy",
         Dialog::RecipientList { .. } => "Recipient List",
         Dialog::SelectTable { .. } => "Select Table",
@@ -2762,6 +2773,69 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                     app.status(e.clone());
                 }
                 return result.is_ok();
+            }
+            false
+        }
+        Dialog::ConfirmDamagedSave { path, skipped_parts, skipped_parts_more, document, params } => {
+            ui.label(tl!("Some parts of this document could not be read and will be missing from the saved file."));
+            let mut warning = wordcraft_engine::cmd::file::skipped_parts_warning(skipped_parts);
+            if *skipped_parts_more > 0 {
+                warning.push_str(&format!(" Also {} additional parts were omitted.", skipped_parts_more));
+            }
+            ui.label(warning);
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new(path.as_str()).small().weak());
+            ui.add_space(8.0);
+            let answer = ui
+                .horizontal(|ui| {
+                    let cancel = ui.button(tl!("Cancel"));
+                    let save = ui.add(crate::widgets::primary_button(ui, tl!("Save Anyway")));
+                    (cancel.clicked(), save.clicked())
+                })
+                .inner;
+            if ui.input(|i| i.key_pressed(egui::Key::Escape)) || answer.0 {
+                if let Some(wait) = app.damaged_save_continuation.take() {
+                    let name = app.prompt_name();
+                    let message = crate::i18n::fmt(tl!("Saving {name} was cancelled, so it is still open and nothing was lost."), &[("name", &name)]);
+                    app.prompt_again(message, wait.then, wait.params, wait.document);
+                }
+                return true;
+            }
+            if answer.1 {
+                let tracked_source = app.session.damaged_source.as_ref().is_some_and(|(source, _)| source == std::path::Path::new(path));
+                if app.session.document_id() != *document || (!tracked_source && app.session.path.as_deref() != Some(std::path::Path::new(path))) {
+                    app.damaged_save_continuation = None;
+                    app.status(tl!("The document changed while this confirmation was open. Save canceled."));
+                    return true;
+                }
+                let save_path = path.clone();
+                let mut save_params = params.clone();
+                if !save_params.is_object() {
+                    save_params = json!({});
+                }
+                save_params["path"] = json!(save_path);
+                save_params["confirmDamaged"] = json!(true);
+                app.dialog = Some(Dialog::ConfirmDamagedSave {
+                    path: save_path.clone(),
+                    skipped_parts: skipped_parts.clone(),
+                    skipped_parts_more: *skipped_parts_more,
+                    document: *document,
+                    params: save_params.clone(),
+                });
+                match app.run("file.save", save_params) {
+                    Ok(result) if result.get("saved").and_then(Value::as_bool) == Some(true) => {
+                        app.dialog = None;
+                        if let Some(wait) = app.damaged_save_continuation.take()
+                            && wait.document == app.session.document_id()
+                            && let Err(error) = app.execute_user(&wait.then, wait.params)
+                        {
+                            app.status(error);
+                        }
+                        return true;
+                    }
+                    Ok(_) => app.status(tl!("The damaged document was not saved.")),
+                    Err(error) => app.status(error),
+                }
             }
             false
         }

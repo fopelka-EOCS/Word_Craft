@@ -221,6 +221,13 @@ struct AwaitingSave {
     rev: u64,
 }
 
+/// A Save Changes command held until the user confirms a damaged-source overwrite.
+struct DamagedSaveContinuation {
+    then: String,
+    params: Value,
+    document: u64,
+}
+
 /// What [`Services::make_default_app`] did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DefaultApp {
@@ -658,6 +665,7 @@ pub struct WordApp {
     saves_in_flight: Vec<SaveInFlight>,
     /// Web: the command a Save Changes prompt held back until its picker save ends (#1315).
     awaiting_save: Option<AwaitingSave>,
+    damaged_save_continuation: Option<DamagedSaveContinuation>,
     /// The file dialog the host is showing, and what its answer is for ([`file_dialogs`]).
     file_dialog: Option<file_dialogs::PendingDialog>,
     /// The built-in file browser, when it is open, and the folder it showed last (#576).
@@ -766,6 +774,7 @@ impl WordApp {
             autosave_path: None,
             saves_in_flight: Vec::new(),
             awaiting_save: None,
+            damaged_save_continuation: None,
             change_picture_target: None,
             recipient_list_pending: false,
             font_generation: wordcraft_fonts::FontDb::global().generation(),
@@ -986,6 +995,10 @@ impl WordApp {
     /// Run a command for a script or an agent (control channel, MCP bridge): never asks first.
     /// UI-level commands (`ui.*`) are handled here, the rest by the engine.
     pub fn execute(&mut self, id: &str, params: Value) -> Result<Value, String> {
+        self.execute_inner(id, params, false)
+    }
+
+    fn execute_inner(&mut self, id: &str, params: Value, user_initiated: bool) -> Result<Value, String> {
         // A pending Change Picture only survives until the next action (#147).
         if !matches!(id, "ui.changePicture" | "picture.change" | "insert.picture") {
             self.change_picture_target = None;
@@ -1128,7 +1141,7 @@ impl WordApp {
         if let Ok(v) = &r {
             self.keep_web_font(id, &params, v);
         }
-        self.after_command(id);
+        self.after_command(id, user_initiated);
         if let Err(e) = &r {
             self.status(e.clone());
         }
@@ -1204,7 +1217,7 @@ impl WordApp {
                     file_dialogs::Asked::Busy => Ok(json!({"done": false})),
                 };
             }
-            SaveChoice::Save => match self.save_for_prompt() {
+            SaveChoice::Save => match self.save_for_prompt(&then, &params, document) {
                 Ok(PromptSave::Saved) => true,
                 Ok(PromptSave::NotSaved) => false,
                 // The browser's picker finishes later: the command waits for it (#1315).
@@ -1241,7 +1254,7 @@ impl WordApp {
             };
         }
         let retry = (id == "file.open").then(|| params.clone());
-        let r = self.execute(id, params);
+        let r = self.execute_inner(id, params, true);
         if let (Err(e), Some(params)) = (&r, retry)
             && wordcraft_engine::io::needs_password(e)
         {
@@ -1261,8 +1274,13 @@ impl WordApp {
     /// file locked by another app, a missing folder) is the save's error ([`Self::save_failed`]
     /// tells the user).
     /// In the browser the save picker may write the file later ([`PromptSave::Later`], #1315).
-    fn save_for_prompt(&mut self) -> Result<PromptSave, String> {
-        let v = self.execute("file.save", json!({}))?;
+    fn save_for_prompt(&mut self, then: &str, params: &Value, document: u64) -> Result<PromptSave, String> {
+        let v = self.execute_user("file.save", json!({}))?;
+        if v.get("confirmationRequired").and_then(Value::as_str) == Some("damagedDocx") {
+            self.damaged_save_continuation = Some(DamagedSaveContinuation { then: then.into(), params: params.clone(), document });
+        } else {
+            self.damaged_save_continuation = None;
+        }
         let saved = v.get("saved").and_then(Value::as_bool) == Some(true) || v.get("downloaded").is_some();
         if !self.safely_saved(saved) {
             return Ok(PromptSave::NotSaved);
@@ -1422,7 +1440,7 @@ impl WordApp {
         Ok(json!({"closed": true}))
     }
 
-    fn after_command(&mut self, id: &str) {
+    fn after_command(&mut self, id: &str, user_initiated: bool) {
         options::sync(self);
         self.canvas.caret_visible_since = now_ms();
         if id == "view.outline" {
@@ -1467,6 +1485,11 @@ impl WordApp {
             self.canvas.scroll_to_caret = true;
         }
         for req in std::mem::take(&mut self.session.ui_requests) {
+            // Programmatic saves return the confirmation requirement to their caller. Only a
+            // save initiated through the app's UI may open the confirmation dialog.
+            if !user_initiated && req.get("open").and_then(Value::as_str) == Some("confirmDamagedSave") {
+                continue;
+            }
             self.handle_request(&req);
         }
         if let Some(p) = self.session.path.as_ref().map(|p| p.to_string_lossy().to_string())
@@ -1508,6 +1531,19 @@ impl WordApp {
         if let Some(what) = req.get("open").and_then(Value::as_str) {
             match what {
                 "openFile" => self.open_dialog(),
+                "confirmDamagedSave" => {
+                    let Some(path) = req.get("path").and_then(Value::as_str) else { return };
+                    let skipped_parts = req
+                        .get("skippedParts")
+                        .and_then(Value::as_array)
+                        .map(|parts| parts.iter().filter_map(Value::as_str).map(str::to_owned).take(3).collect())
+                        .unwrap_or_default();
+                    let skipped_parts_more = req.get("skippedPartsMore").and_then(Value::as_u64).unwrap_or(0) as usize;
+                    let document = req.get("document").and_then(Value::as_u64).unwrap_or_else(|| self.session.document_id());
+                    let params = req.get("params").cloned().unwrap_or_else(|| json!({"path": path}));
+                    self.dialog =
+                        Some(dialogs::Dialog::ConfirmDamagedSave { path: path.into(), skipped_parts, skipped_parts_more, document, params });
+                }
                 "saveAs" => {
                     self.save_as_dialog();
                 }
