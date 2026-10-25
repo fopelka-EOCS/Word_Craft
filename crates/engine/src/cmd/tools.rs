@@ -1030,7 +1030,11 @@ pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError>
     } else {
         last
     };
-    let mut sentence = sentence_on && starts_sentence(before_word, &exceptions, german) && should_capitalize(first, next);
+    // German text capitalises a sentence's first word inside its quotes (`„hallo“` → `„Hallo“`);
+    // English keeps the quoted word as typed until Word's behaviour is observed.
+    let lead = if german { first.len() - first.trim_start_matches(|c: char| SENTENCE_QUOTES_OPEN.contains(c)).len() } else { 0 };
+    let bare = if german { first[lead..].trim_end_matches(|c: char| SENTENCE_QUOTES_CLOSE.contains(c)) } else { first };
+    let mut sentence = sentence_on && starts_sentence(before_word, &exceptions, german) && should_capitalize(bare, next);
     let prev = if sentence { prev_token(before_word) } else { String::new() };
     // Typing the word again after backspacing an automatic capital: the user doesn't want it
     // (Word's "Automatically add words to list"); an exception, so no capital this time either.
@@ -1042,14 +1046,15 @@ pub fn autocorrect_word(s: &mut Session, on_enter: bool) -> Result<(), CmdError>
         s.prefs.autocorrect.add_exception(prev.clone());
         sentence = false;
     }
-    let day = ac.cap_days && DAYS.contains(&first);
+    let day = ac.cap_days && DAYS.contains(&bare);
     if sentence || day {
         let para = s.doc.para_mut(f.story, &f.path)?;
-        if let Some(c) = word.chars().next() {
+        if let Some(c) = word[lead..].chars().next() {
             let up = upper_char(c, turkic);
-            let props = para.props_of_char(start).clone().without_symbol();
-            para.delete(start, start + c.len_utf8())?;
-            para.insert_text(start, &up, &props)?;
+            let at = start + lead;
+            let props = para.props_of_char(at).clone().without_symbol();
+            para.delete(at, at + c.len_utf8())?;
+            para.insert_text(at, &up, &props)?;
             let off = (caret + up.len()).saturating_sub(c.len_utf8());
             s.sel = Selection::caret(Pos { off, ..f.clone() });
             if sentence && !prev.is_empty() && !replaced {
@@ -1121,7 +1126,7 @@ fn case_fix(caps: &AutoCorrectPrefs, word: &str, turkic: bool) -> Option<(usize,
     let rest = word.get(at..)?;
     let letters = rest.get(..rest.find(|c: char| !c.is_alphabetic()).unwrap_or(rest.len()))?;
     let tail = rest.get(letters.len()..)?;
-    if !word.get(..at)?.chars().all(|c| "\"'“‘([".contains(c)) || !tail.chars().all(|c| "\"'”’)]".contains(c)) {
+    if !word.get(..at)?.chars().all(|c| OPENING_QUOTES.contains(c)) || !tail.chars().all(|c| CLOSING_QUOTES.contains(c)) {
         return None;
     }
     let cs: Vec<char> = letters.chars().collect();
@@ -1282,6 +1287,10 @@ const DAYS: [&str; 7] = ["monday", "tuesday", "wednesday", "thursday", "friday",
 /// and the quotes of English, German (“ ‘ close) and Swiss German (» › close), either way round.
 const CLOSING_QUOTES: &str = "\"'”’“‘»›«‹)]";
 const OPENING_QUOTES: &str = "\"'“‘„‚«»‹›([";
+/// Quotes around the first word of a German sentence, which is then capitalised inside them. No
+/// brackets, and no straight apostrophe before the word.
+const SENTENCE_QUOTES_OPEN: &str = "\"“‘„‚«»‹›";
+const SENTENCE_QUOTES_CLOSE: &str = "\"'”’“‘»›«‹";
 
 /// Does a word typed after `before` (the paragraph text up to the word) begin a sentence?
 /// `exceptions` are the lowercase abbreviations whose full stop doesn't end one; with

@@ -574,6 +574,32 @@ fn german_abbreviations_and_ordinals_dont_end_sentences() {
     assert_eq!(s.doc.plain_text(StoryRef::Body), "We won 3. Then it ended ");
 }
 
+/// #735: a German sentence that starts with a quote is capitalised at its first letter, and TWo INitial
+/// CApitals is corrected inside German and Swiss quotes.
+#[test]
+fn german_quotes_capitalise_and_fix_two_initial_capitals() {
+    let mut s = in_lang("de-DE");
+    typ(&mut s, "\"hallo welt\", sagte er. \"nein\" ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "„Hallo welt“, sagte er. „Nein“ ");
+    let mut s = in_lang("de-CH");
+    typ(&mut s, "\"grüezi\" ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "«Grüezi» ");
+    // English keeps its quoted first word as typed (not yet compared with Word).
+    let mut s = in_lang("en-US");
+    typ(&mut s, "\"hello\" ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "“hello” ");
+    // Mid-sentence a quoted word keeps its letter.
+    let mut s = in_lang("de-DE");
+    typ(&mut s, "Er sagte \"hallo\" ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Er sagte „hallo“ ");
+    let mut s = in_lang("de-DE");
+    typ(&mut s, "Ein \"TEst\" und ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Ein „Test“ und ");
+    let mut s = in_lang("de-CH");
+    typ(&mut s, "Ein \"TEst\" und ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Ein «Test» und ");
+}
+
 #[test]
 fn autocorrect_options_change_what_typing_does() {
     let mut s = s();
