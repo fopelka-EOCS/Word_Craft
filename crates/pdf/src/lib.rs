@@ -22,8 +22,8 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 #![forbid(unsafe_code)]
 
-use std::collections::{HashMap, HashSet};
-use std::num::NonZeroU16;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::num::{NonZeroU16, NonZeroU32};
 use std::sync::Arc;
 
 use craft_pdf::write::{self, Metadata, WriteError, Writer, backend as krilla};
@@ -39,7 +39,9 @@ use krilla::outline::{Outline, OutlineNode};
 use krilla::page::PageSettings;
 use krilla::paint::{Fill, FillRule, LineCap, LineJoin, Stroke, StrokeDash};
 use krilla::surface::Surface;
-use krilla::tagging::{Artifact, ArtifactType, ContentTag, Identifier, ListNumbering, Node, SpanTag, Tag, TagGroup, TagKind, TagTree};
+use krilla::tagging::{
+    Artifact, ArtifactType, ContentTag, Identifier, ListNumbering, Node, SpanTag, TableHeaderScope, Tag, TagGroup, TagKind, TagTree,
+};
 use krilla::text::{Font, GlyphId, KrillaGlyph};
 use wordcraft_doc::graphic::GraphicKind;
 use wordcraft_doc::para::{InlineObject, ShapeKind};
@@ -188,6 +190,8 @@ fn write_attempt(doc: &Document, lay: &DocLayout, opts: &PdfOptions, pages: &[us
         tags: Vec::new(),
         tag_index: HashMap::new(),
         inline_owner: None,
+        anchor: None,
+        drawn_lines: HashSet::new(),
         links: Vec::new(),
         bookmarks: std::cell::OnceCell::new(),
     };
@@ -728,11 +732,55 @@ struct TagEntry {
     list: Option<ListPlace>,
     /// A list item's number or bullet, for the item's `Lbl`.
     label: Vec<Node>,
+    /// Where its content is in the document (story and paragraph path): content in a table cell
+    /// goes in that cell's `TD` or `TH`.
+    at: Option<(StoryRef, Vec<u32>)>,
 }
 
 impl TagEntry {
     fn new(kind: TagKind, children: Vec<Node>) -> Self {
-        Self { kind, children, list: None, label: Vec::new() }
+        Self { kind, children, list: None, label: Vec::new(), at: None }
+    }
+}
+
+/// Structure entries in reading order, the content of each table gathered in the table's place.
+enum Slot {
+    Entry(TagEntry),
+    Table(TableSlot),
+}
+
+/// A table being collected: the content of its cells by (row, cell), each in reading order. A
+/// row split across pages, or a cell whose text runs onto the next page, still fills one cell.
+struct TableSlot {
+    story: StoryRef,
+    /// The table block's path.
+    path: Vec<u32>,
+    cells: BTreeMap<(usize, usize), Vec<Slot>>,
+}
+
+/// Put entry `e`, whose paragraph is at `path`, in `slots`: in the cell holding it when the path
+/// goes on into a table past its first `k` indices (a cell's paragraph path is the table's path,
+/// then row, cell and block), nested tables included.
+fn slot_in(slots: &mut Vec<Slot>, story: StoryRef, path: &[u32], k: usize, e: TagEntry) {
+    let cell = match (path.get(..k), path.get(k..)) {
+        (Some(prefix), Some(&[t, r, c, _, ..])) => Some((prefix, t, r, c)),
+        _ => None,
+    };
+    let Some((prefix, t, r, c)) = cell else {
+        slots.push(Slot::Entry(e));
+        return;
+    };
+    let mut table = prefix.to_vec();
+    table.push(t);
+    let i = match slots.iter().rposition(|s| matches!(s, Slot::Table(ts) if ts.story == story && ts.path == table)) {
+        Some(i) => i,
+        None => {
+            slots.push(Slot::Table(TableSlot { story, path: table, cells: BTreeMap::new() }));
+            slots.len() - 1
+        }
+    };
+    if let Some(Slot::Table(ts)) = slots.get_mut(i) {
+        slot_in(ts.cells.entry((r as usize, c as usize)).or_default(), story, path, k + 3, e);
     }
 }
 
@@ -837,6 +885,12 @@ struct Exporter<'a> {
     /// The structure entry of the paragraph whose lines are being drawn: a picture inline in a
     /// list item is tagged inside the item, not after it.
     inline_owner: Option<usize>,
+    /// The paragraph the content being drawn belongs to (an inline picture's, or a floating
+    /// picture's anchor), for the figures it makes: one in a table cell stays in that cell.
+    anchor: Option<(StoryRef, Vec<u32>)>,
+    /// Cell lines already drawn (story, paragraph, first line): drawn again, they are a header
+    /// row repeated at the top of a later page.
+    drawn_lines: HashSet<(StoryRef, DocPath, usize)>,
     /// Link rectangles on the current page: (x0, y0, x1, y1, target).
     links: Vec<(f32, f32, f32, f32, String)>,
     /// Bookmark positions by name (the first of a name wins), gathered once: looking each internal
@@ -971,7 +1025,10 @@ impl Exporter<'_> {
                 // Inline in a list item: part of the item's body, so the list goes on after it.
                 match self.inline_owner.and_then(|i| self.tags.get_mut(i)).filter(|e| e.list.is_some()) {
                     Some(item) => item.children.push(Node::Group(g)),
-                    None => self.tags.push(TagEntry::new(Tag::Div.into(), vec![Node::Group(g)])),
+                    None => {
+                        let at = self.anchor.clone();
+                        self.tags.push(TagEntry { at, ..TagEntry::new(Tag::Div.into(), vec![Node::Group(g)]) });
+                    }
                 }
             }
         }
@@ -1073,9 +1130,19 @@ impl Exporter<'_> {
         for it in &page.items {
             let draws = self.draws(page, it, &dopts);
             match it {
+                // A table's header row repeated at the top of a later page: read once, where the
+                // table starts, and an artifact on the pages after (as Word exports it).
+                Placed::Lines { story, path, l0, .. } if path.cell().is_some() && !self.drawn_lines.insert((*story, path.clone(), *l0)) => {
+                    self.tagged(s, Role::Artifact(ArtifactType::Other), None, |me, s| {
+                        for d in &draws {
+                            me.draw(s, d);
+                        }
+                    });
+                }
                 Placed::Lines { story, path, para, .. } => {
                     let idx = self.entry(*story, path, para);
                     self.inline_owner = Some(idx);
+                    self.anchor = Some((*story, path.0.clone()));
                     for d in &draws {
                         match d {
                             // A list item's number or bullet: its label, apart from its text.
@@ -1100,8 +1167,10 @@ impl Exporter<'_> {
                         }
                     }
                     self.inline_owner = None;
+                    self.anchor = None;
                 }
                 Placed::Image { story, path, off, .. } => {
+                    self.anchor = Some((*story, path.0.clone()));
                     let obj = self.doc.para(*story, path).and_then(|p| p.object_at(*off));
                     let role = if obj.is_some_and(InlineObject::is_decorative) { Role::Artifact(ArtifactType::Other) } else { Role::Figure };
                     let alt = match obj {
@@ -1113,6 +1182,7 @@ impl Exporter<'_> {
                             me.draw(s, d);
                         }
                     });
+                    self.anchor = None;
                 }
                 // A floating shape with a description: a figure (see `shape_figure_alt`).
                 Placed::Shape { alt, .. } if !alt.is_empty() => self.tagged(s, Role::Figure, Some(alt), |me, s| {
@@ -1121,6 +1191,7 @@ impl Exporter<'_> {
                     }
                 }),
                 Placed::Graphic { story, path, off, graphic, .. } => {
+                    self.anchor = Some((*story, path.0.clone()));
                     let alt = match self.doc.para(*story, path).and_then(|p| p.object_at(*off)) {
                         Some(InlineObject::Graphic { alt, .. }) => graphic_alt(alt, graphic.kind).to_string(),
                         _ => graphic.kind.noun().to_string(),
@@ -1130,6 +1201,7 @@ impl Exporter<'_> {
                             me.draw(s, d);
                         }
                     });
+                    self.anchor = None;
                 }
                 _ => self.tagged(s, Role::Artifact(ArtifactType::Other), None, |me, s| {
                     for d in &draws {
@@ -1189,7 +1261,7 @@ impl Exporter<'_> {
             }),
             _ => None,
         };
-        self.tags.push(TagEntry { list, ..TagEntry::new(kind, Vec::new()) });
+        self.tags.push(TagEntry { list, at: Some((story, path.0.clone())), ..TagEntry::new(kind, Vec::new()) });
         let i = self.tags.len() - 1;
         self.tag_index.insert((story, path.clone()), i);
         i
@@ -1197,21 +1269,45 @@ impl Exporter<'_> {
 
     fn tag_tree(&mut self) -> TagTree {
         let mut tree = TagTree::new().with_lang(self.doc.styles.default_chr.lang.clone());
+        let mut slots = Vec::new();
+        for e in std::mem::take(&mut self.tags) {
+            match e.at.clone() {
+                Some((story, path)) => slot_in(&mut slots, story, &path, 0, e),
+                None => slots.push(Slot::Entry(e)),
+            }
+        }
+        for n in self.nodes(slots) {
+            tree.push(n);
+        }
+        tree
+    }
+
+    /// The structure of `slots`: consecutive list items of one container grouped into lists,
+    /// tables as tables.
+    fn nodes(&self, slots: Vec<Slot>) -> Vec<Node> {
+        let mut out = Vec::new();
         // Consecutive list items of one container, waiting to be grouped into a list.
         let mut run: Vec<Option<(u32, u8, ListNumbering, Vec<Node>, Vec<Node>)>> = Vec::new();
         let mut last: Option<ListPlace> = None;
-        let flush = |run: &mut Vec<Option<(u32, u8, ListNumbering, Vec<Node>, Vec<Node>)>>, tree: &mut TagTree| {
+        let flush = |run: &mut Vec<Option<(u32, u8, ListNumbering, Vec<Node>, Vec<Node>)>>, out: &mut Vec<Node>| {
             let mut i = 0;
             while i < run.len() {
                 let Some(Some((num, level, numbering, _, _))) = run.get(i) else { break };
                 let list = (*num, *level, *numbering);
-                if let Node::Group(g) = list_group(run, &mut i, list) {
-                    tree.push(g);
-                }
+                out.push(list_group(run, &mut i, list));
             }
             run.clear();
         };
-        for e in std::mem::take(&mut self.tags) {
+        for slot in slots {
+            let e = match slot {
+                Slot::Entry(e) => e,
+                Slot::Table(t) => {
+                    flush(&mut run, &mut out);
+                    last = None;
+                    out.push(self.table_node(t));
+                    continue;
+                }
+            };
             // A list item with a number but no text still counts: it keeps its list together.
             if e.children.is_empty() && e.label.is_empty() {
                 continue;
@@ -1222,20 +1318,86 @@ impl Exporter<'_> {
                         .as_ref()
                         .is_some_and(|p| p.story == place.story && p.container == place.container && p.block.checked_add(1) == Some(place.block));
                     if !follows {
-                        flush(&mut run, &mut tree);
+                        flush(&mut run, &mut out);
                     }
                     run.push(Some((place.num, place.level, place.numbering, e.label, e.children)));
                     last = Some(place);
                 }
                 None => {
-                    flush(&mut run, &mut tree);
+                    flush(&mut run, &mut out);
                     last = None;
-                    tree.push(TagGroup::with_children(e.kind, e.children));
+                    out.push(Node::Group(TagGroup::with_children(e.kind, e.children)));
                 }
             }
         }
-        flush(&mut run, &mut tree);
-        tree
+        flush(&mut run, &mut out);
+        out
+    }
+
+    /// A table's structure, as Word exports it: its leading header rows ("Repeat as header row at
+    /// the top of each page") in `THead` with `TH` cells scoped to their column, the other rows in
+    /// `TBody` with `TD` cells. Every cell of the table is there, empty ones included, so the
+    /// grid a screen reader announces matches the page; a merged cell is one cell with its
+    /// `RowSpan` / `ColSpan`.
+    fn table_node(&self, t: TableSlot) -> Node {
+        let TableSlot { story, path, mut cells } = t;
+        let Some(table) = self.doc.table(story, &DocPath(path)) else {
+            // Not a table any more (can't happen for a laid out document): its content, kept.
+            let content = cells.into_values().flat_map(|s| self.nodes(s)).collect();
+            return Node::Group(TagGroup::with_children(Tag::Div, content));
+        };
+        use wordcraft_doc::props::VMerge;
+        // What a vertically merged cell's later rows hold belongs to the merged cell.
+        for (r, row) in table.rows.iter().enumerate() {
+            for (c, cell) in row.cells.iter().enumerate() {
+                if cell.props.vmerge != VMerge::Continue {
+                    continue;
+                }
+                let Some(moved) = cells.remove(&(r, c)) else { continue };
+                let top = table.vertical_extent(r, c).map_or(r, |(top, _)| top);
+                let at = table.cell_at_grid(top, table.grid_col(r, c)).map_or((r, c), |tc| (top, tc));
+                cells.entry(at).or_default().extend(moved);
+            }
+        }
+        let heads = table.rows.iter().take_while(|r| r.props.header).count();
+        let span = |n: usize| NonZeroU32::new(u32::try_from(n).unwrap_or(1)).filter(|n| n.get() > 1);
+        let (mut head, mut body) = (Vec::new(), Vec::new());
+        for (r, row) in table.rows.iter().enumerate() {
+            let mut tr = Vec::new();
+            for (c, cell) in row.cells.iter().enumerate() {
+                if cell.props.vmerge == VMerge::Continue {
+                    continue;
+                }
+                let content = cells.remove(&(r, c)).map(|s| self.nodes(s)).unwrap_or_default();
+                let rows = span(table.vertical_extent(r, c).map_or(1, |(_, k)| k));
+                let cols = span(cell.span());
+                let tag: TagKind = if r < heads {
+                    Tag::TH(TableHeaderScope::Column).with_row_span(rows).with_col_span(cols).into()
+                } else {
+                    Tag::TD.with_row_span(rows).with_col_span(cols).into()
+                };
+                tr.push(Node::Group(TagGroup::with_children(tag, content)));
+            }
+            if tr.is_empty() {
+                continue;
+            }
+            let tr = Node::Group(TagGroup::with_children(Tag::TR, tr));
+            if r < heads { head.push(tr) } else { body.push(tr) }
+        }
+        // Content of a cell the table doesn't have (can't happen for a laid out document): kept,
+        // in a row of its own.
+        if !cells.is_empty() {
+            let tds = cells.into_values().map(|s| Node::Group(TagGroup::with_children(Tag::TD, self.nodes(s)))).collect();
+            body.push(Node::Group(TagGroup::with_children(Tag::TR, tds)));
+        }
+        let mut parts = Vec::new();
+        if !head.is_empty() {
+            parts.push(Node::Group(TagGroup::with_children(Tag::THead, head)));
+        }
+        if !body.is_empty() {
+            parts.push(Node::Group(TagGroup::with_children(Tag::TBody, body)));
+        }
+        Node::Group(TagGroup::with_children(Tag::Table, parts))
     }
 
     /// Paint one display item on the PDF surface in its current point-coordinate system.

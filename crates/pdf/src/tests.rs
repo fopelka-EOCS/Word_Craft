@@ -1343,6 +1343,8 @@ fn bookmark_destination_is_the_page_of_its_start() {
         tags: Vec::new(),
         tag_index: HashMap::new(),
         inline_owner: None,
+        anchor: None,
+        drawn_lines: HashSet::new(),
         links: Vec::new(),
         bookmarks: std::cell::OnceCell::new(),
     };
@@ -2610,4 +2612,104 @@ fn a_numbered_headings_number_stays_in_the_heading() {
     assert_eq!(tree, "Document(H1 P)");
     let text = squash(&extract_text(&bytes).concat());
     assert!(text.contains("1.") && text.contains("Introduction"), "{text}");
+}
+
+/// A table cell holding `s`.
+fn text_cell(s: &str) -> Vec<Arc<Block>> {
+    vec![para_block(Paragraph::with_text(s, CharProps::default()))]
+}
+
+/// A table is a Table: its header row in THead with TH cells scoped to their column, the other
+/// rows in TBody with TD cells, merged cells one cell with their span, empty cells kept.
+#[test]
+fn tables_are_tagged_with_header_rows_merges_and_empty_cells() {
+    use wordcraft_doc::props::VMerge;
+    let mut d = Document::new();
+    let mut t = Table::new(4, 3, 450.0);
+    t.rows[0].props.header = true;
+    for (c, s) in ["Name", "Role", "Year"].into_iter().enumerate() {
+        t.rows[0].cells[c].blocks = text_cell(s);
+    }
+    // Row 1: "Wide" across the first two columns.
+    t.rows[1].cells.remove(1);
+    t.rows[1].cells[0].props.span = 2;
+    t.rows[1].cells[0].blocks = text_cell("Wide");
+    t.rows[1].cells[1].blocks = text_cell("2024");
+    // Rows 2 and 3: "Tall" down the first column; row 3's last cell is empty.
+    t.rows[2].cells[0].props.vmerge = VMerge::Restart;
+    t.rows[2].cells[0].blocks = text_cell("Tall");
+    t.rows[3].cells[0].props.vmerge = VMerge::Continue;
+    t.rows[2].cells[1].blocks = text_cell("Lead");
+    t.rows[2].cells[2].blocks = text_cell("2025");
+    t.rows[3].cells[1].blocks = text_cell("Chair");
+    d.body = vec![
+        para_block(Paragraph::with_text("Before", CharProps::default())),
+        Arc::new(Block::Table(t)),
+        para_block(Paragraph::with_text("After", CharProps::default())),
+    ];
+    let bytes = export(&d, &PdfOptions { compress: false, tagged: true, ..Default::default() }).unwrap();
+    let tree = structure(&bytes);
+    let expected = "P Table(THead(TR(TH(P) TH(P) TH(P))) TBody(TR(TD(P) TD(P)) TR(TD(P) TD(P) TD(P)) TR(TD(P) TD))) P";
+    assert!(tree.contains(expected), "{tree}");
+    let raw = String::from_utf8_lossy(&bytes);
+    let has = |k: &str, v: &str| raw.contains(&format!("/{k} /{v}")) || raw.contains(&format!("/{k}/{v}")) || raw.contains(&format!("/{k} {v}"));
+    assert!(has("Scope", "Column"), "header cells are scoped to their column");
+    assert!(has("ColSpan", "2"), "the wide cell spans two columns");
+    assert!(has("RowSpan", "2"), "the tall cell spans two rows");
+    let text = squash(&extract_text(&bytes).concat());
+    for w in ["Name", "Wide", "Tall", "Chair", "After"] {
+        assert!(text.contains(w), "{w} missing from {text}");
+    }
+}
+
+/// A header row repeated at the top of each page is drawn on each page but read once, and a row
+/// whose cell runs onto the next page is still one row.
+#[test]
+fn a_table_across_pages_reads_its_header_once_and_keeps_its_rows_whole() {
+    let mut d = Document::new();
+    let mut t = Table::new(3, 2, 400.0);
+    t.rows[0].props.header = true;
+    t.rows[0].cells[0].blocks = text_cell("Item");
+    t.rows[0].cells[1].blocks = text_cell("Note");
+    t.rows[1].cells[0].blocks = (0..80).map(|i| para_block(Paragraph::with_text(&format!("Line {i}"), CharProps::default()))).collect();
+    t.rows[1].cells[1].blocks = text_cell("Beside");
+    t.rows[2].cells[0].blocks = text_cell("Last");
+    t.rows[2].cells[1].blocks = text_cell("End");
+    d.body = vec![Arc::new(Block::Table(t))];
+    let bytes = export(&d, &PdfOptions { compress: false, tagged: true, ..Default::default() }).unwrap();
+    let text = squash(&extract_text(&bytes).concat());
+    assert!(text.matches("Item").count() >= 2, "the header row is repeated on the next page: {text}");
+    let tree = structure(&bytes);
+    assert_eq!(tree.matches("THead").count(), 1, "{tree}");
+    assert_eq!(tree.matches("TH(").count(), 2, "the repeated header is an artifact: {tree}");
+    assert_eq!(tree.matches("TR(").count(), 3, "the long row is one row: {tree}");
+    assert_eq!(tree.matches("TD(").count(), 4, "{tree}");
+}
+
+/// What a cell holds stays in the cell: a list, a picture inline in its text, a nested table.
+#[test]
+fn lists_pictures_and_tables_in_a_cell_stay_in_the_cell() {
+    let mut d = Document::new();
+    let list = d.numbering.add_list(ListKind::Numbered);
+    let media = d.add_media(red_right_half_emf(), "emf");
+    let item = |s: &str| {
+        let mut p = Paragraph::with_text(s, CharProps::default()).styled("ListParagraph");
+        p.props.numbering = Some(NumRef { num: list, level: 0 });
+        para_block(p)
+    };
+    let mut pictured = Paragraph::with_text("See: ", CharProps::default());
+    let n = pictured.len();
+    let obj = InlineObject::Image { media, w: 30.0, h: 30.0, alt: "A red square".into(), float: Default::default(), crop: [0.0; 4], ole: None };
+    pictured.insert_object(n, obj, &CharProps::default()).unwrap();
+    let mut inner = Table::new(1, 1, 120.0);
+    inner.rows[0].cells[0].blocks = text_cell("Inner");
+    let mut t = Table::new(1, 3, 450.0);
+    t.rows[0].cells[0].blocks = vec![item("First"), item("Second")];
+    t.rows[0].cells[1].blocks = vec![para_block(pictured)];
+    t.rows[0].cells[2].blocks = vec![Arc::new(Block::Table(inner)), para_block(Paragraph::new())];
+    d.body = vec![Arc::new(Block::Table(t))];
+    let bytes = export(&d, &PdfOptions { compress: false, tagged: true, ..Default::default() }).unwrap();
+    let tree = structure(&bytes);
+    let expected = "Table(TBody(TR(TD(L(LI(Lbl LBody) LI(Lbl LBody))) TD(P Div(Figure)) TD(Table(TBody(TR(TD(P))))))))";
+    assert!(tree.contains(expected), "{tree}");
 }
