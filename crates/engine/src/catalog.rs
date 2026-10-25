@@ -57,6 +57,7 @@ Home|Font|Bold|format.bold
 Home|Font|Italic|format.italic
 Home|Font|Underline|format.underline
 Home|Font|Double Underline|format.doubleUnderline
+Home|Font|Underline Color|format.underlineColor
 Home|Font|Strikethrough|format.strikethrough
 Home|Font|Subscript|format.subscript
 Home|Font|Superscript|format.superscript
@@ -278,9 +279,13 @@ Mailings|Write & Insert Fields|Match Fields|mailings.matchFields
 Mailings|Preview Results|Preview Results|mailings.preview
 Mailings|Preview Results|Next Record|mailings.next
 Mailings|Preview Results|Previous Record|mailings.previous
+Mailings|Preview Results|First Record|mailings.first
+Mailings|Preview Results|Last Record|mailings.last
+Mailings|Preview Results|Go to Record|mailings.goToRecord
 Mailings|Preview Results|Find Recipient|mailings.findRecipient
 Mailings|Preview Results|Check for Errors|mailings.checkErrors
 Mailings|Finish|Finish & Merge|mailings.finish
+Mailings|Finish|Print Documents|mailings.printDocuments
 Review|Proofing|Spelling & Grammar|review.spelling
 Review|Proofing|Thesaurus|review.thesaurus
 Review|Proofing|Word Count|review.wordCount
@@ -477,6 +482,7 @@ Editing|Keyboard|New Paragraph|text.newParagraph
 Editing|Keyboard|Line Break|text.lineBreak
 Editing|Keyboard|Column Break|text.columnBreak
 Editing|Keyboard|Tab|text.tab
+Editing|Keyboard|Tab Character|text.insertTab
 Editing|Keyboard|Backspace|text.backspace
 Editing|Keyboard|Delete|text.delete
 Editing|Keyboard|Delete Previous Word|text.deleteWordBack

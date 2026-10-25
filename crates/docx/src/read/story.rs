@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use wordcraft_doc::connector::{ConnEnd, ShapeExtra};
-use wordcraft_doc::control::{ContentControl, ControlKind, ControlWrap};
+use wordcraft_doc::control::{ContentControl, ControlWrap};
 use wordcraft_doc::effects::{Glow, Shadow, ShapeEffects};
 use wordcraft_doc::graphic::{Embedded, Graphic, GraphicItem, GraphicKind};
 use wordcraft_doc::para::{AltText, Anchor, Float, FloatAlign, NoteKind, PTabAlign, PTabBase, ShapeKind, Wrap, WrapText, cap_alt};
@@ -99,6 +99,69 @@ fn enclosure(f: &FieldState) -> Option<wordcraft_doc::eq::Enclosure> {
 /// several paragraphs (TOCs and citation managers' `ADDIN` fields).
 fn is_range_instr(instr: &str) -> bool {
     super::is_toc(instr) || instr.trim_start().get(..5).is_some_and(|k| k.eq_ignore_ascii_case("ADDIN"))
+}
+
+/// Where a `HYPERLINK` field goes, as a `w:hyperlink` reads: `url`, `url#bookmark` (`\l`) or
+/// `#bookmark`. None for any other field, or one with no target.
+fn hyperlink_target(instr: &str) -> Option<String> {
+    // Only a `HYPERLINK` code is split up (a field's code may run to megabytes).
+    if !instr.split_whitespace().next().is_some_and(|k| k.eq_ignore_ascii_case("HYPERLINK")) {
+        return None;
+    }
+    let args = field_args(instr);
+    let mut args = args.iter();
+    if !args.next().is_some_and(|(k, quoted)| !quoted && k.eq_ignore_ascii_case("HYPERLINK")) {
+        return None;
+    }
+    let (mut url, mut anchor) = (None, None);
+    while let Some((a, quoted)) = args.next() {
+        if *quoted || !a.starts_with('\\') {
+            url = url.or(Some(a.as_str()));
+            continue;
+        }
+        // `\l` names a bookmark, `\o` a tooltip and `\t` a target frame; `\m` and `\n` take none.
+        let value = matches!(a.to_ascii_lowercase().as_str(), "\\l" | "\\o" | "\\t").then(|| args.next()).flatten();
+        if a.eq_ignore_ascii_case("\\l") {
+            anchor = value.map(|(v, _)| v.as_str());
+        }
+    }
+    let (url, anchor) = (url.map(str::trim).filter(|u| !u.is_empty()), anchor.map(str::trim).filter(|a| !a.is_empty()));
+    match (url, anchor) {
+        (Some(u), Some(a)) => Some(format!("{u}#{a}")),
+        (Some(u), None) => Some(u.to_string()),
+        (None, Some(a)) => Some(format!("#{a}")),
+        (None, None) => None,
+    }
+}
+
+/// A field code's words: the field's name, its switches and its arguments, each with whether
+/// it was quoted. In quotes, `\"` is a quote and `\\` a backslash.
+fn field_args(instr: &str) -> Vec<(String, bool)> {
+    let mut out = Vec::new();
+    let mut chars = instr.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c.is_whitespace() {
+            continue;
+        }
+        let mut word = String::new();
+        if c == '"' {
+            while let Some(c) = chars.next() {
+                match c {
+                    '"' => break,
+                    '\\' if matches!(chars.peek(), Some('"' | '\\')) => word.extend(chars.next()),
+                    _ => word.push(c),
+                }
+            }
+            out.push((word, true));
+        } else {
+            word.push(c);
+            while let Some(c) = chars.next_if(|c| !c.is_whitespace() && *c != '"') {
+                word.push(c);
+            }
+            out.push((word, false));
+        }
+    }
+    out
 }
 
 /// The last paragraph of a block list: its last block, or inside a final table the last
@@ -265,10 +328,9 @@ impl Reader<'_> {
         ctl.run_props = e.child("w:sdtPr").and_then(|pr| pr.child("w:rPr")).map(|r| self.pc.rpr(r));
         let mut inner = Blocks::new();
         self.read_blocks(sc, content, rels, &mut inner, depth + 1);
-        // A table of contents' control belongs to the TOC: the writer puts it back around the
-        // TOC field and its entries, which References › Update Table rebuilds.
-        let toc = matches!(&ctl.kind, ControlKind::Gallery { list: false, gallery, .. } if gallery == "Table of Contents");
-        if inner.is_empty() || toc {
+        // A table of contents' control is handed to the TOC later, when the writer puts it back
+        // (`toc_control_to_toc`).
+        if inner.is_empty() {
             out.extend(inner);
             return;
         }
@@ -702,8 +764,12 @@ impl Reader<'_> {
                 }
             }
             "w:pict" => {
-                for o in self.read_vml_all(sc, k, rels) {
+                if let Some(o) = self.read_signature_line(sc, k, rels) {
                     self.emit_obj(sc, pb, o, props);
+                } else {
+                    for o in self.read_vml_all(sc, k, rels) {
+                        self.emit_obj(sc, pb, o, props);
+                    }
                 }
             }
             "w:object" => {
@@ -889,6 +955,19 @@ impl Reader<'_> {
             self.emit_obj(sc, pb, InlineObject::FieldEnd, &f.props);
             return;
         }
+        // A `HYPERLINK` field is a link, as a `w:hyperlink` is: its result stays ordinary content
+        // carrying the link, so a tab in it reaches its tab stop and the `PAGEREF` in a table of
+        // contents entry (Word for the web writes them this way) stays a field of its own (#2174).
+        if !nested_in_instr && let Some(target) = hyperlink_target(&f.instr) {
+            for (it, mut p) in f.buf {
+                p.link.get_or_insert_with(|| target.clone());
+                match it {
+                    Item::Text(t) => self.emit_text(sc, pb, &t, &p),
+                    Item::Obj(o) => self.emit_obj(sc, pb, *o, &p),
+                }
+            }
+            return;
+        }
         // A cached result holding a picture, chart or shape (`INCLUDEPICTURE`'s embedded
         // picture) can't be a text result: keep the field as a range around it so the picture
         // stays in the document and is saved again. The linked source is never read.
@@ -987,6 +1066,10 @@ impl Reader<'_> {
 
     // ---- drawings ----
 
+    /// Read a `w:drawing` frame and dispatch its payload to the picture, shape or graphic reader.
+    /// Frame dimensions are converted from EMUs to bounded point values; placement, alternative
+    /// text and drawing ids are carried into the object. Returns `None` when the frame or payload
+    /// cannot be read. Ink written by WordCraft keeps its tool's caps rather than an outline cap.
     fn read_drawing(&mut self, sc: &mut StoryCtx, d: &El, rels: &Rels) -> Option<InlineObject> {
         let (c, anchored) = match d.child("wp:inline") {
             Some(c) => (c, false),
@@ -1048,23 +1131,31 @@ impl Reader<'_> {
             float.effect = float.effect.map(|e| e.max(0.0));
             return Some(InlineObject::Graphic { w, h, alt, float, graphic });
         }
+        // A textbox may contain a picture; its descendant blip is not the outer payload.
+        let direct_shape = gd.child("wps:wsp").filter(|shape| {
+            // Picture fills still use the image fallback; the shape model has no image fill.
+            shape.child("wps:spPr").and_then(|props| props.child("a:blipFill")).is_none()
+        });
         let mut obj = if let Some(c) = gd.child("wpc:wpc") {
             self.read_canvas(sc, c, rels, w, h, float)
         } else if let Some(g) = gd.child("wpg:wgp") {
             self.read_group(sc, g, rels, w, h, float)?
-        } else if gd.find("a:blip").is_some() {
+        } else if direct_shape.is_none() && gd.find("a:blip").is_some() {
             self.read_pic(gd, rels, w, h, alt.clone(), float)?
         } else {
-            let wsp = gd.find("wps:wsp")?;
+            let wsp = direct_shape.or_else(|| gd.find("wps:wsp"))?;
             let mut obj = self.read_wsp(sc, wsp, rels, w, h, float);
             // A freeform: whether it's ink WordCraft wrote.
-            if let InlineObject::Shape { freeform: Some(f), .. } = &mut obj
+            if let InlineObject::Shape { freeform: Some(f), extra, .. } = &mut obj
                 && let Some(name) = c.child("wp:docPr").and_then(|p| p.attr("name"))
                 && let Some(tool) = super::freeform::ink_tool(name)
             {
                 let f = Arc::make_mut(f);
                 f.ink = Some(tool);
                 f.order = super::freeform::ink_order(name);
+                // Ink's round ends belong to its tool, not the optional shape outline. Keep
+                // its canonical model unchanged when reading the round cap the writer adds.
+                extra.cap = Default::default();
             }
             obj
         };
@@ -1377,6 +1468,10 @@ impl Reader<'_> {
         }
     }
 
+    /// Build a shape from `wps:wsp`, using frame dimensions `w` and `h` in points and the caller's
+    /// placement. Reads geometry, paint, effects and connector ends, and creates a text-box story
+    /// when present within the nesting limit. Explicit outline caps are preserved; missing or
+    /// unknown caps use flat ends, without resolving theme-inherited caps.
     fn read_wsp(&mut self, sc: &mut StoryCtx, wsp: &El, rels: &Rels, w: f32, h: f32, mut float: Float) -> InlineObject {
         let sppr = wsp.child("wps:spPr");
         float.set_spin(xfrm_spin(sppr));
@@ -1449,7 +1544,12 @@ impl Reader<'_> {
         {
             part.body.auto_color = Some(rgb);
         }
-        let mut extra = ShapeExtra { dash: super::shape_style::line_dash(ln), outline_fill: paint.outline_fill, ..ShapeExtra::default() };
+        let mut extra = ShapeExtra {
+            dash: super::shape_style::line_dash(ln),
+            cap: wordcraft_doc::connector::LineCap::from_ooxml(ln.and_then(|e| e.attr("cap")).unwrap_or("flat")),
+            outline_fill: paint.outline_fill,
+            ..ShapeExtra::default()
+        };
         // A rounded rectangle's own corner (`adj`, ECMA-376 §20.1.10.56); other presets drawn as
         // rounded rectangles keep the default.
         if prst == "roundRect" {
@@ -1635,10 +1735,24 @@ impl Reader<'_> {
         let type_id = shape.attr("type").map(|t| t.trim().trim_start_matches('#'));
         let shapetype = type_id.and_then(|id| pict.els().find(|e| e.name == "v:shapetype" && e.attr("id") == Some(id)));
         let attr = |name: &str| shape.attr(name).or_else(|| shapetype.and_then(|t| t.attr(name)));
-        let on = |name: &str| attr(name).is_none_or(|v| !matches!(v, "f" | "false" | "0"));
+        let on = |name: &str| {
+            attr(name).is_none_or(|v| {
+                let t = v.trim();
+                !t.eq_ignore_ascii_case("f") && !t.eq_ignore_ascii_case("false") && t != "0"
+            })
+        };
         let stroke = on("stroked").then(|| attr("strokecolor").map_or(Some(Rgb::BLACK), vml_color)).flatten();
         let stroke_width = attr("strokeweight").and_then(|v| measure(v, 1.0)).unwrap_or(0.75).clamp(0.0, 100.0);
         let fill = vml_fill(shape, shapetype);
+        let endcap = shape
+            .child("v:stroke")
+            .and_then(|s| s.attr("endcap"))
+            .or_else(|| shapetype.and_then(|t| t.child("v:stroke")).and_then(|s| s.attr("endcap")));
+        let cap = match endcap {
+            Some("square") => wordcraft_doc::connector::LineCap::Square,
+            Some("round") => wordcraft_doc::connector::LineCap::Round,
+            _ => wordcraft_doc::connector::LineCap::Flat,
+        };
         let kind = match shape.local() {
             "line" => Some(ShapeKind::Line),
             "rect" => Some(ShapeKind::Rectangle),
@@ -1662,7 +1776,7 @@ impl Reader<'_> {
             let font = tp
                 .attr("style")
                 .and_then(|s| vml_style(s, "font-family"))
-                .map(|f| f.trim_matches(|c: char| c == '"' || c == '\'' || c.is_whitespace()).chars().take(100).collect::<String>())
+                .map(|f| css_string(f).chars().take(100).collect::<String>())
                 .filter(|f| !f.is_empty());
             // The shapetype's WordArt shape (`o:spt` 136-175) bends the text like DrawingML's warp.
             let warp = vml_spt(shape, shapetype, type_id)
@@ -1713,14 +1827,17 @@ impl Reader<'_> {
                 }
                 part.body.inset = (inset != wordcraft_doc::TEXT_BOX_INSET).then_some(inset);
                 // Resize shape to fit text (DrawingML's `a:spAutoFit`).
-                let fit = vml_style(tb.attr("style").unwrap_or(""), "mso-fit-shape-to-text");
+                let fit = vml_style(tb.attr("style").unwrap_or(""), "mso-fit-shape-to-text").or_else(|| vml_style(style, "mso-fit-shape-to-text"));
                 part.body.auto_fit = fit.is_some_and(|v| v.eq_ignore_ascii_case("t") || v.eq_ignore_ascii_case("true"));
                 // Where the text sits between the box's top and bottom (DrawingML's `anchor`).
-                if let Some(a) = vml_style(style, "v-text-anchor") {
-                    part.body.anchor = match a {
-                        a if a.starts_with("middle") => wordcraft_doc::props::VAlign::Center,
-                        a if a.starts_with("bottom") => wordcraft_doc::props::VAlign::Bottom,
-                        _ => wordcraft_doc::props::VAlign::Top,
+                if let Some(a) = vml_style(tb.attr("style").unwrap_or(""), "v-text-anchor").or_else(|| vml_style(style, "v-text-anchor")) {
+                    let al = a.trim().to_ascii_lowercase();
+                    part.body.anchor = if al.starts_with("middle") || al == "center" {
+                        wordcraft_doc::props::VAlign::Center
+                    } else if al.starts_with("bottom") {
+                        wordcraft_doc::props::VAlign::Bottom
+                    } else {
+                        wordcraft_doc::props::VAlign::Top
                     };
                 }
             }
@@ -1738,7 +1855,7 @@ impl Reader<'_> {
                 story,
                 freeform: None,
                 effects: Default::default(),
-                extra: Default::default(),
+                extra: ShapeExtra { cap, ..Default::default() },
             });
         }
         // A freeform: its `path`, in its `coordsize` space; a `v:fill` with no opacity
@@ -1767,11 +1884,11 @@ impl Reader<'_> {
                 story: None,
                 freeform: Some(Arc::new(f)),
                 effects: Default::default(),
-                extra: Default::default(),
+                extra: ShapeExtra { cap, ..Default::default() },
             });
         }
         let kind = kind?;
-        let mut extra = ShapeExtra::default();
+        let mut extra = ShapeExtra { cap, ..Default::default() };
         if kind == ShapeKind::Line {
             // Arrowheads (`v:stroke` startarrow / endarrow): any but `none` is drawn.
             let arrow = |name: &str| shape.child("v:stroke").and_then(|s| s.attr(name)).is_some_and(|v| v != "none");
@@ -1826,6 +1943,23 @@ impl Reader<'_> {
         };
         if let InlineObject::Image { ole, .. } = &mut o {
             *ole = self.keep_embedded(obj, rels, &[]);
+        }
+        Some(o)
+    }
+
+    /// A Word signature line (Insert › Signature Line): a `w:pict` whose one VML picture carries
+    /// an `o:signatureline` (the suggested signer, title, e-mail and instructions). Shown as its
+    /// picture, and kept whole like an OLE object so saving writes the signature line back,
+    /// still signable in Word, not a plain picture. `None` for any other `w:pict`.
+    fn read_signature_line(&mut self, sc: &mut StoryCtx, pict: &El, rels: &Rels) -> Option<InlineObject> {
+        let mut drawings = pict.els().filter(|e| e.name.starts_with("v:") && e.local() != "shapetype");
+        let shape = drawings.next().filter(|s| s.name == "v:shape")?;
+        if drawings.next().is_some() || shape.child("o:signatureline").is_none() {
+            return None;
+        }
+        let mut o = self.read_vml_shape(sc, pict, shape, rels, None)?;
+        if let InlineObject::Image { ole, .. } = &mut o {
+            *ole = self.keep_embedded(pict, rels, &[]);
         }
         Some(o)
     }
@@ -1951,7 +2085,10 @@ fn nv_alt(p: Option<&El>) -> (String, AltText) {
 }
 
 fn anchor_float(c: &El) -> Float {
-    let mut f = Float { wrap: Wrap::Square, ..Float::default() };
+    // `relativeHeight`: the stacking order Word draws floating objects in (higher on top), which
+    // need not be their order in the file.
+    let z = c.attr("relativeHeight").and_then(|v| v.trim().parse::<u32>().ok()).unwrap_or(0);
+    let mut f = Float { wrap: Wrap::Square, z, ..Float::default() };
     let behind = on_off_attr(c, "behindDoc");
     // Word wraps a position relative to the page's size (`wp14:pctPosVOffset`) in
     // `mc:AlternateContent`; its Fallback gives the same position as an offset (#743).
@@ -2119,6 +2256,49 @@ fn vml_style<'a>(style: &'a str, key: &str) -> Option<&'a str> {
     style.rsplit(';').filter_map(|d| d.split_once(':')).find(|(k, _)| k.trim().eq_ignore_ascii_case(key)).map(|(_, v)| v.trim())
 }
 
+/// A `v:textpath` style value with one pair of surrounding quotes removed and the writer's CSS
+/// escapes mapped back: `\` + up to six hex digits + one optional space is that character, and
+/// `\x` is `x` (#3994; `write::watermark::run` writes them). Only the surrounding pair goes, so a
+/// font name that starts or ends with an apostrophe keeps it. Word writes font names raw, and a
+/// lone trailing `\` none of CSS would accept stays literal.
+fn css_string(v: &str) -> String {
+    let v = v.trim();
+    let v = ['"', '\''].into_iter().find_map(|q| v.strip_prefix(q)?.strip_suffix(q)).unwrap_or(v).trim();
+    let mut out = String::with_capacity(v.len());
+    let mut chars = v.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        let mut hex = String::new();
+        while hex.len() < 6 {
+            match chars.clone().next() {
+                Some(h) if h.is_ascii_hexdigit() => {
+                    hex.push(h);
+                    chars.next();
+                }
+                _ => break,
+            }
+        }
+        if hex.is_empty() {
+            match chars.next() {
+                Some(e) => out.push(e),
+                None => out.push('\\'),
+            }
+        } else {
+            if let Some(d) = u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
+                out.push(d);
+            }
+            // One whitespace after the escape is its terminator, not part of the value.
+            if chars.clone().next().is_some_and(|w| w.is_whitespace()) {
+                chars.next();
+            }
+        }
+    }
+    out
+}
+
 /// Placement of a VML shape (ECMA-376 Part 4, VML): `position:absolute` in its style makes it
 /// float, offset by `left`/`margin-left` and `top`/`margin-top` from the area named by
 /// `mso-position-horizontal-relative` / `mso-position-vertical-relative` (unless aligned with
@@ -2137,37 +2317,43 @@ fn vml_float(shape: &El, style: &str, in_hf: bool) -> Float {
     let off = |k: &str| get(k).and_then(|v| measure(v, 1.0)).unwrap_or(0.0);
     let max = crate::units::MAX_LEN_PT;
     let behind = get("z-index").and_then(int).is_some_and(|z| z < 0);
-    let wrap = match shape.child("w10:wrap").and_then(|w| w.attr("type")).unwrap_or("none") {
-        "square" => Wrap::Square,
-        "tight" => Wrap::Tight,
-        "through" => Wrap::Through,
-        "topAndBottom" => Wrap::TopAndBottom,
+    let wrap_el = shape.child("w10:wrap");
+    let wrap_type = wrap_el.and_then(|w| w.attr("type")).unwrap_or("none");
+    let wrap = match wrap_type {
+        t if t.eq_ignore_ascii_case("square") => Wrap::Square,
+        t if t.eq_ignore_ascii_case("tight") => Wrap::Tight,
+        t if t.eq_ignore_ascii_case("through") => Wrap::Through,
+        t if t.eq_ignore_ascii_case("topAndBottom") || t.eq_ignore_ascii_case("top-and-bottom") => Wrap::TopAndBottom,
         _ if behind => Wrap::BehindText,
         _ => Wrap::InFrontOfText,
     };
-    let h_rel = match get("mso-position-horizontal-relative").unwrap_or("text") {
-        "page" => Anchor::Page,
-        "margin" => Anchor::Margin,
-        "char" => Anchor::Character,
-        "left-margin-area" => Anchor::LeftMargin,
-        "right-margin-area" => Anchor::RightMargin,
-        "inner-margin-area" => Anchor::InsideMargin,
-        "outer-margin-area" => Anchor::OutsideMargin,
+    let wrap_text = wrap_el.and_then(|w| w.attr("side")).and_then(wordcraft_doc::para::WrapText::from_ooxml).unwrap_or_default();
+    let h_rel_str = get("mso-position-horizontal-relative").unwrap_or("text");
+    let h_rel = match h_rel_str {
+        s if s.eq_ignore_ascii_case("page") => Anchor::Page,
+        s if s.eq_ignore_ascii_case("margin") => Anchor::Margin,
+        s if s.eq_ignore_ascii_case("char") => Anchor::Character,
+        s if s.eq_ignore_ascii_case("left-margin-area") => Anchor::LeftMargin,
+        s if s.eq_ignore_ascii_case("right-margin-area") => Anchor::RightMargin,
+        s if s.eq_ignore_ascii_case("inner-margin-area") => Anchor::InsideMargin,
+        s if s.eq_ignore_ascii_case("outer-margin-area") => Anchor::OutsideMargin,
         _ => Anchor::Column,
     };
-    let v_rel = match get("mso-position-vertical-relative").unwrap_or("text") {
-        "page" => Anchor::Page,
-        "margin" => Anchor::Margin,
-        "line" => Anchor::Line,
-        "top-margin-area" => Anchor::TopMargin,
-        "bottom-margin-area" => Anchor::BottomMargin,
-        "inner-margin-area" => Anchor::InsideMargin,
-        "outer-margin-area" => Anchor::OutsideMargin,
+    let v_rel_str = get("mso-position-vertical-relative").unwrap_or("text");
+    let v_rel = match v_rel_str {
+        s if s.eq_ignore_ascii_case("page") => Anchor::Page,
+        s if s.eq_ignore_ascii_case("margin") => Anchor::Margin,
+        s if s.eq_ignore_ascii_case("line") => Anchor::Line,
+        s if s.eq_ignore_ascii_case("top-margin-area") => Anchor::TopMargin,
+        s if s.eq_ignore_ascii_case("bottom-margin-area") => Anchor::BottomMargin,
+        s if s.eq_ignore_ascii_case("inner-margin-area") => Anchor::InsideMargin,
+        s if s.eq_ignore_ascii_case("outer-margin-area") => Anchor::OutsideMargin,
         _ => Anchor::Paragraph,
     };
     let dist = |k: &str| get(k).and_then(|v| measure(v, 1.0)).unwrap_or(0.0).clamp(0.0, 1584.0);
     let mut f = Float {
         wrap,
+        wrap_text,
         h_rel,
         v_rel,
         x: (off("left") + off("margin-left")).clamp(-max, max),
@@ -2214,12 +2400,15 @@ fn vml_watermark(shape: &El) -> Option<wordcraft_doc::Watermark> {
     let font = tp
         .attr("style")
         .and_then(|s| vml_style(s, "font-family"))
-        .map(|f| f.trim_matches(|c: char| c == '"' || c == '\'' || c.is_whitespace()).chars().take(100).collect::<String>())
+        .map(|f| css_string(f).chars().take(100).collect::<String>())
         .filter(|f| !f.is_empty())
         .unwrap_or(default.font);
     let color = shape.attr("fillcolor").and_then(vml_color).unwrap_or(default.color);
     let opacity = shape.child("v:fill").and_then(|f| f.attr("opacity")).and_then(vml_opacity).unwrap_or(1.0);
-    Some(wordcraft_doc::Watermark { text, font, color, diagonal: vml_spin(style).deg != 0.0, semitransparent: opacity < 1.0 })
+    // The box the text is stretched to (`fitshape`).
+    let len = |k: &str| vml_style(style, k).and_then(|v| measure(v, 1.0)).filter(|v| v.is_finite() && *v > 0.0).map(|v| v.min(4000.0));
+    let size = len("width").zip(len("height")).map(|(w, h)| [w, h]);
+    Some(wordcraft_doc::Watermark { text, font, color, diagonal: vml_spin(style).deg != 0.0, semitransparent: opacity < 1.0, size })
 }
 
 /// A VML `opacity`, 0..=1.

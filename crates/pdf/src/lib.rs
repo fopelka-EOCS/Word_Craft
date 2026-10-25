@@ -27,7 +27,6 @@ use std::num::NonZeroU16;
 use std::sync::Arc;
 
 use craft_pdf::write::{self, Metadata, WriteError, Writer, backend as krilla};
-use krilla::action::{Action, LinkAction};
 use krilla::annotation::{Annotation, LinkAnnotation, Target};
 use krilla::color::rgb;
 use krilla::destination::XyzDestination;
@@ -50,7 +49,7 @@ use wordcraft_geom::Rect;
 use wordcraft_layout::display::Paint;
 use wordcraft_layout::display::{DisplayOptions, Draw, Stroke as LineStyle, page_display};
 use wordcraft_layout::para::{ClKind, LineEnd};
-use wordcraft_layout::{DocLayout, LayoutCache, LayoutOptions, Page, Placed, layout};
+use wordcraft_layout::{DocLayout, LayoutCache, LayoutOptions, NumeralMode, Page, Placed, layout};
 use wordcraft_metafile::{Picture, PlacedItem};
 
 /// Largest page side we write (200", the PDF limit).
@@ -95,11 +94,24 @@ pub struct PdfOptions {
     /// is scaled to fit and centred, the paper turned to the page's orientation (Scale to paper
     /// size, #2108). `None` keeps the document's page sizes.
     pub paper: Option<(f32, f32)>,
+    /// How [`export`] shows digits (the Numeral setting; callers resolve `System`, see
+    /// [`NumeralMode::resolve`]). [`export_layout`] keeps the layout it is given.
+    pub numeral: NumeralMode,
 }
 
 impl Default for PdfOptions {
     fn default() -> Self {
-        PdfOptions { pages: None, title: None, author: None, tagged: true, include_markup: false, comments: false, compress: true, paper: None }
+        PdfOptions {
+            pages: None,
+            title: None,
+            author: None,
+            tagged: true,
+            include_markup: false,
+            comments: false,
+            compress: true,
+            paper: None,
+            numeral: NumeralMode::Arabic,
+        }
     }
 }
 
@@ -108,7 +120,7 @@ impl Default for PdfOptions {
 /// markup area with the comment balloons.
 pub fn export(doc: &Document, opts: &PdfOptions) -> Result<Vec<u8>, PdfError> {
     write::guard(|| {
-        let lo = LayoutOptions { hide_deleted: !opts.include_markup, comment_balloons: opts.comments, ..Default::default() };
+        let lo = LayoutOptions { hide_deleted: !opts.include_markup, comment_balloons: opts.comments, numeral: opts.numeral, ..Default::default() };
         let lay = layout(doc, &mut LayoutCache::new(), &lo);
         export_layout_inner(doc, &lay, opts)
     })
@@ -350,8 +362,15 @@ fn visual_order(text: &str, glyphs: &[(u32, f32, f32)], clusters: &[std::ops::Ra
             _ => groups.push((*x, vec![i])),
         }
     }
-    // Stable: clusters at the same x keep their order, as do glyphs sharing their text.
-    groups.sort_by(|a, b| a.0.total_cmp(&b.0));
+    // Clusters at the same x go in text order, reversed when right to left: some fonts draw
+    // lam-alef as a lam and a zero-width alef at one x, and a right-to-left run whose ranges
+    // don't decrease loses its reading order (#2310). Stable for glyphs sharing their text.
+    let tie = |idx: &[usize]| -> i64 {
+        let Some(r) = idx.first().and_then(|&g| clusters.get(g)) else { return 0 };
+        let start = i64::try_from(r.start).unwrap_or(i64::MAX);
+        if text.get(r.clone()).is_some_and(|t| t.chars().any(wordcraft_fonts::is_rtl)) { -start } else { start }
+    };
+    groups.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| tie(&a.1).cmp(&tie(&b.1))));
     groups
         .into_iter()
         .flat_map(|(_, mut idx)| {
@@ -377,6 +396,23 @@ fn baseline(glyphs: &[(u32, f32, f32)]) -> Option<f32> {
 /// A chart's or diagram's alt text: its own, else what it is ("chart", "diagram").
 fn graphic_alt(alt: &str, kind: GraphicKind) -> &str {
     if alt.trim().is_empty() { kind.noun() } else { alt }
+}
+
+/// A picture, or a rotation holding one at any depth (a rotated group's turned members).
+fn holds_picture(d: &Draw) -> bool {
+    match d {
+        Draw::Image { .. } => true,
+        Draw::Rotated { items, .. } => items.iter().any(holds_picture),
+        _ => false,
+    }
+}
+
+/// The alt text of an inline figure: a graphic's (see [`graphic_alt`]) or a described shape's.
+fn figure_alt(alt: &str, kind: Option<GraphicKind>) -> &str {
+    match kind {
+        Some(k) => graphic_alt(alt, k),
+        None => alt,
+    }
 }
 
 /// Add the segments of a kurbo path to a krilla path.
@@ -443,14 +479,14 @@ fn parse_iso(s: &str) -> Option<Civil> {
 
 /// The system clock, or the browser's on the web.
 fn now_unix() -> Option<i64> {
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
     {
         use std::time::{SystemTime, UNIX_EPOCH};
         let secs = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
         i64::try_from(secs).ok()
     }
     // `SystemTime::now()` panics on wasm32-unknown-unknown, so ask the browser's clock.
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
     {
         let ms = js_sys::Date::now();
         (ms.is_finite() && ms > 0.0).then(|| (ms / 1000.0) as i64)
@@ -655,20 +691,10 @@ fn shape_path(kind: ShapeKind, r: &Rect, corner: Option<u32>) -> Option<Path> {
             pb.move_to(x0, y0);
             pb.line_to(x1, y1);
         }
-        ShapeKind::Arrow => {
-            let h = r.h;
-            poly(
-                &mut pb,
-                &[
-                    (x0, cy - h * 0.2),
-                    (x1 - h * 0.5, cy - h * 0.2),
-                    (x1 - h * 0.5, y0),
-                    (x1, cy),
-                    (x1 - h * 0.5, y1),
-                    (x1 - h * 0.5, cy + h * 0.2),
-                    (x0, cy + h * 0.2),
-                ],
-            )
+        ShapeKind::Arrow | ShapeKind::ArrowLeft | ShapeKind::ArrowUp | ShapeKind::ArrowDown => {
+            let pts: Vec<(f32, f32)> =
+                wordcraft_doc::wrap::arrow_outline(kind, r.w, r.h).iter().map(|&(u, v)| (x0 + u * r.w, y0 + v * r.h)).collect();
+            poly(&mut pb, &pts)
         }
         ShapeKind::Star => {
             let pts: Vec<(f32, f32)> = (0..10)
@@ -837,6 +863,33 @@ impl Exporter<'_> {
         }
     }
 
+    /// A rotated inline picture or group: turned as a whole, with each picture in it tagged on its
+    /// own, so a decorative picture is an artifact while the others stay figures with their alt
+    /// text. A described shape's figure keeps its description; anything else is an artifact.
+    fn rotated_pictures(&mut self, s: &mut Surface, d: &Draw) {
+        match d {
+            Draw::Rotated { cx, cy, spin, items } => {
+                if !ok(*cx) || !ok(*cy) {
+                    return;
+                }
+                let [a, b, c, d, e, f] = spin.matrix(*cx, *cy);
+                s.push_transform(&Transform::from_row(a, b, c, d, e, f));
+                for it in items {
+                    self.rotated_pictures(s, it);
+                }
+                s.pop();
+            }
+            Draw::Image { decorative: true, .. } => self.tagged(s, Role::Artifact(ArtifactType::Other), None, |me, s| me.draw(s, d)),
+            Draw::Image { alt, .. } => self.tagged(s, Role::Figure, Some(alt), |me, s| me.draw(s, d)),
+            Draw::Figure { alt, draws, .. } => self.tagged(s, Role::Figure, Some(alt), |me, s| {
+                for d in draws {
+                    me.draw(s, d);
+                }
+            }),
+            _ => self.tagged(s, Role::Artifact(ArtifactType::Other), None, |me, s| me.draw(s, d)),
+        }
+    }
+
     fn page(&mut self, s: &mut Surface, page: &Page, w: f32, h: f32) {
         if let Some(c) = self.doc.settings.page_color
             && let Some(p) = rect_path(&Rect::new(0.0, 0.0, w, h))
@@ -854,7 +907,8 @@ impl Exporter<'_> {
         if let Some(wm) = self.doc.settings.watermark.clone()
             && !wm.text.trim().is_empty()
         {
-            self.tagged(s, Role::Artifact(ArtifactType::Watermark), None, |me, s| me.watermark(s, &wm, w, h));
+            let area = page.body;
+            self.tagged(s, Role::Artifact(ArtifactType::Watermark), None, |me, s| me.watermark(s, &wm, w, h, area));
         }
         let dopts = DisplayOptions {
             marks: false,
@@ -880,14 +934,14 @@ impl Exporter<'_> {
                     for d in &draws {
                         match d {
                             Draw::Glyphs { .. } | Draw::Turned { .. } => self.tagged(s, Role::Para(idx), None, |me, s| me.draw(s, d)),
+                            // A picture marked decorative: an artifact screen readers skip.
+                            Draw::Image { decorative: true, .. } => self.tagged(s, Role::Artifact(ArtifactType::Other), None, |me, s| me.draw(s, d)),
                             Draw::Image { alt, .. } => self.tagged(s, Role::Figure, Some(alt), |me, s| me.draw(s, d)),
-                            // A rotated inline picture.
-                            Draw::Rotated { items, .. } if items.iter().any(|i| matches!(i, Draw::Image { .. })) => {
-                                let alt = items.iter().find_map(|i| if let Draw::Image { alt, .. } = i { Some(alt.as_str()) } else { None });
-                                self.tagged(s, Role::Figure, alt, |me, s| me.draw(s, d))
-                            }
-                            // An inline chart or diagram: its text is part of the figure, not the paragraph.
-                            Draw::Figure { alt, kind, draws: inner } => self.tagged(s, Role::Figure, Some(graphic_alt(alt, *kind)), |me, s| {
+                            // A rotated inline picture, or a rotated group holding pictures: turned as a
+                            // whole, each picture tagged on its own (see `rotated_pictures`).
+                            Draw::Rotated { items, .. } if items.iter().any(holds_picture) => self.rotated_pictures(s, d),
+                            // An inline chart, diagram or described shape: its text is part of the figure, not the paragraph.
+                            Draw::Figure { alt, kind, draws: inner } => self.tagged(s, Role::Figure, Some(figure_alt(alt, *kind)), |me, s| {
                                 for d in inner {
                                     me.draw(s, d);
                                 }
@@ -897,16 +951,24 @@ impl Exporter<'_> {
                     }
                 }
                 Placed::Image { story, path, off, .. } => {
-                    let alt = match self.doc.para(*story, path).and_then(|p| p.object_at(*off)) {
+                    let obj = self.doc.para(*story, path).and_then(|p| p.object_at(*off));
+                    let role = if obj.is_some_and(InlineObject::is_decorative) { Role::Artifact(ArtifactType::Other) } else { Role::Figure };
+                    let alt = match obj {
                         Some(InlineObject::Image { alt, .. }) => alt.clone(),
                         _ => String::new(),
                     };
-                    self.tagged(s, Role::Figure, Some(&alt), |me, s| {
+                    self.tagged(s, role, Some(&alt), |me, s| {
                         for d in &draws {
                             me.draw(s, d);
                         }
                     });
                 }
+                // A floating shape with a description: a figure (see `shape_figure_alt`).
+                Placed::Shape { alt, .. } if !alt.is_empty() => self.tagged(s, Role::Figure, Some(alt), |me, s| {
+                    for d in &draws {
+                        me.draw(s, d);
+                    }
+                }),
                 Placed::Graphic { story, path, off, graphic, .. } => {
                     let alt = match self.doc.para(*story, path).and_then(|p| p.object_at(*off)) {
                         Some(InlineObject::Graphic { alt, .. }) => graphic_alt(alt, graphic.kind).to_string(),
@@ -980,6 +1042,10 @@ impl Exporter<'_> {
         tree
     }
 
+    /// Paint one display item on the PDF surface in its current point-coordinate system.
+    /// Nested clips and turns are pushed and popped around their child items. Shape and path
+    /// outlines set their own dash and cap state, then clear their fill and stroke; ink retains
+    /// round caps independently of the optional shape-outline setting.
     fn draw(&mut self, s: &mut Surface, d: &Draw) {
         match d {
             Draw::Figure { draws, .. } => {
@@ -987,8 +1053,19 @@ impl Exporter<'_> {
                     self.draw(s, d);
                 }
             }
-            Draw::Glyphs { face, size, glyphs, color, alpha, synth_bold, synth_italic, text, link, ranges, .. } => {
-                self.glyphs(s, face, *size, glyphs, *color, *alpha, *synth_bold, *synth_italic, text, ranges);
+            Draw::Glyphs { face, size, glyphs, color, alpha, synth_bold, synth_italic, text, link, ranges, x_scale, .. } => {
+                match glyphs.first().map(|g| g.1).filter(|_| x_scale.is_finite() && *x_scale > 0.0 && (x_scale - 1.0).abs() > 1e-4) {
+                    // Scaled letters (`w:w`): drawn stretched across from the run's start, their
+                    // positions brought back so the stretch puts each where the layout has it.
+                    Some(x0) => {
+                        let k = *x_scale;
+                        let moved: Vec<(u32, f32, f32)> = glyphs.iter().map(|&(g, x, y)| (g, x0 + (x - x0) / k, y)).collect();
+                        s.push_transform(&Transform::from_row(k, 0.0, 0.0, 1.0, x0 * (1.0 - k), 0.0));
+                        self.glyphs(s, face, *size, &moved, *color, *alpha, *synth_bold, *synth_italic, text, ranges);
+                        s.pop();
+                    }
+                    None => self.glyphs(s, face, *size, glyphs, *color, *alpha, *synth_bold, *synth_italic, text, ranges),
+                }
                 if let Some(l) = link {
                     self.link_rect(face, *size, glyphs, l);
                 }
@@ -1003,7 +1080,7 @@ impl Exporter<'_> {
             }
             Draw::Line { x0, y0, x1, y1, width, color, stroke, alpha, .. } => self.line(s, (*x0, *y0, *x1, *y1), *width, *color, *stroke, *alpha),
             Draw::Image { rect, media, crop, alpha, .. } => self.picture(s, rect, media, crop, *alpha),
-            Draw::Path { segs, fill: f, stroke, stroke_width, dash } => {
+            Draw::Path { segs, fill: f, stroke, stroke_width, dash, cap } => {
                 let mut pb = PathBuilder::new();
                 append_path(&mut pb, &wordcraft_layout::display::seg_path(segs));
                 let Some(p) = pb.finish() else { return };
@@ -1013,6 +1090,7 @@ impl Exporter<'_> {
                     // Width 0 (or none) is a hairline.
                     width: if stroke_width.is_finite() && *stroke_width > 0.0 { stroke_width.clamp(0.25, 200.0) } else { 0.75 },
                     dash: (!dash.is_empty()).then(|| StrokeDash { array: dash.clone(), offset: 0.0 }),
+                    line_cap: pdf_line_cap(*cap),
                     ..Default::default()
                 }));
                 if f.is_some() || stroke.is_some() {
@@ -1051,7 +1129,7 @@ impl Exporter<'_> {
                 s.draw_path(&p);
                 s.set_stroke(None);
             }
-            Draw::Shape { rect, kind, fill: f, stroke, stroke_width, effects, corner, dash } => {
+            Draw::Shape { rect, kind, fill: f, stroke, stroke_width, effects, corner, dash, cap } => {
                 let Some(p) = shape_path(*kind, rect, *corner) else { return };
                 let can_fill = *kind != ShapeKind::Line;
                 let fx = effects.sanitized();
@@ -1076,6 +1154,7 @@ impl Exporter<'_> {
                     paint: rgb::Color::new(c.0, c.1, c.2).into(),
                     width: if stroke_width.is_finite() { stroke_width.clamp(0.25, 200.0) } else { 0.75 },
                     dash: (!dash.is_empty()).then(|| StrokeDash { array: dash.clone(), offset: 0.0 }),
+                    line_cap: pdf_line_cap(*cap),
                     ..Default::default()
                 }));
                 if f.is_some() && can_fill || stroke.is_some() {
@@ -1173,12 +1252,9 @@ impl Exporter<'_> {
                 s.set_stroke(Some(stroke(w, None, LineCap::Butt)));
                 seg(s, 0.0, 0.0);
             }
-            LineStyle::Dotted => {
-                s.set_stroke(Some(stroke(w, Some(StrokeDash { array: vec![w, w * 2.0], offset: 0.0 }), LineCap::Butt)));
-                seg(s, 0.0, 0.0);
-            }
-            LineStyle::Dashed => {
-                s.set_stroke(Some(stroke(w, Some(StrokeDash { array: vec![w * 4.0, w * 2.0], offset: 0.0 }), LineCap::Butt)));
+            LineStyle::Dotted | LineStyle::Dashed | LineStyle::BorderDotted | LineStyle::BorderDashed | LineStyle::BorderDotDash => {
+                let array = style.dashes().unwrap_or(&[]).iter().map(|k| k * w).collect();
+                s.set_stroke(Some(stroke(w, Some(StrokeDash { array, offset: 0.0 }), LineCap::Butt)));
                 seg(s, 0.0, 0.0);
             }
             LineStyle::Double => {
@@ -1267,7 +1343,7 @@ impl Exporter<'_> {
     fn picture(&mut self, s: &mut Surface, rect: &Rect, media: &str, crop: &[f32; 4], alpha: f32) {
         let Some(clip) = rect_path(rect) else { return };
         if let Some(v) = self.vector(media) {
-            vector_picture(s, &v, rect, crop, &clip, alpha);
+            vector_picture(self, s, &v, rect, crop, &clip, alpha);
             return;
         }
         let Some(img) = self.image(media) else {
@@ -1277,9 +1353,7 @@ impl Exporter<'_> {
             s.set_fill(None);
             return;
         };
-        let [cl, ct, cr, cb] = crop.map(|v| if v.is_finite() { v.clamp(0.0, 0.95) } else { 0.0 });
-        let vis_w = (1.0 - cl - cr).max(0.05);
-        let vis_h = (1.0 - ct - cb).max(0.05);
+        let [cl, ct, vis_w, vis_h] = wordcraft_metafile::crop_window(*crop).map(|v| v as f32);
         let (fw, fh) = (rect.w / vis_w, rect.h / vis_h);
         let Some(size) = Size::from_wh(fw.max(0.01), fh.max(0.01)) else { return };
         let fade = alpha < 0.999;
@@ -1526,11 +1600,11 @@ impl Exporter<'_> {
                     None => continue,
                 }
             } else {
-                let url = target.trim();
-                if url.is_empty() {
-                    continue;
+                // Unsafe targets (javascript:, file:, shares, other schemes) get no link; the text stays.
+                match write::uri_target(target) {
+                    Some(t) => t,
+                    None => continue,
                 }
-                Target::Action(Action::Link(LinkAction::new(url.to_string())))
             };
             v.push(Annotation::new_link(LinkAnnotation::new(rect, t), Some(target.clone())));
         }
@@ -1606,7 +1680,63 @@ impl Exporter<'_> {
         Some(o)
     }
 
-    fn watermark(&mut self, s: &mut Surface, wm: &wordcraft_doc::Watermark, w: f32, h: f32) {
+    /// Draws a metafile text run as PDF text (outlines when the font cannot be embedded). `tf` maps
+    /// the run's own space (see [`PlacedItem::Text`]) to the page.
+    fn vector_text(&mut self, s: &mut Surface, t: &wordcraft_metafile::Text, tf: kurbo::Affine) {
+        let face = wordcraft_fonts::word::resolve(&t.font, t.bold, t.italic).face;
+        let shaped = wordcraft_fonts::shape(&face, &t.text, &[], |c| c);
+        let glyphs: Vec<_> = shaped.iter().map(|g| (g.cluster, f64::from(g.x_advance), f64::from(g.x_offset), f64::from(g.y_offset))).collect();
+        let Some(lay) = t.layout(face.upem, face.ascent, face.descent, &glyphs) else { return };
+        let font = self.font(&face);
+        if font.is_none() && !self.outlined.contains(&face.id()) {
+            return;
+        }
+        let em = lay.em as f32;
+        let c = tf.as_coeffs().map(|v| v as f32);
+        if !c.iter().all(|v| v.is_finite()) || !em.is_finite() {
+            return;
+        }
+        let (paint, opacity) = paint_of(t.color);
+        s.push_transform(&Transform::from_row(c[0], c[1], c[2], c[3], c[4], c[5]));
+        s.set_stroke(None);
+        s.set_fill(Some(Fill { paint: paint.into(), opacity, rule: FillRule::NonZero }));
+        match font {
+            Some(font) => {
+                let upem = face.upem.max(1.0) as f32;
+                let kg: Vec<KrillaGlyph> = shaped
+                    .iter()
+                    .enumerate()
+                    .map(|(i, g)| {
+                        let end = shaped.iter().skip(i + 1).map(|n| n.cluster).find(|cl| *cl > g.cluster).unwrap_or(t.text.len());
+                        let start = g.cluster.min(end);
+                        let x = lay.glyphs.get(i).map_or(0.0, |p| p.0);
+                        let adv = match lay.glyphs.get(i + 1) {
+                            Some(n) => ((n.0 - x) / lay.em) as f32,
+                            None => g.x_advance as f32 / upem,
+                        };
+                        let dy = lay.glyphs.get(i).map_or(0.0, |p| ((lay.baseline - p.1) / lay.em) as f32);
+                        KrillaGlyph::new(GlyphId::new(g.gid), adv, 0.0, dy, 0.0, start..end, None)
+                    })
+                    .collect();
+                let x0 = lay.glyphs.first().map_or(0.0, |p| p.0) as f32;
+                s.draw_glyphs(Point::from_xy(x0, lay.baseline as f32), &kg, font, &t.text, em, false);
+            }
+            None => {
+                let pen: Vec<(u32, f32, f32)> = shaped.iter().zip(&lay.glyphs).map(|(g, (x, y))| (g.gid, *x as f32, *y as f32)).collect();
+                if let Some(path) = glyph_outlines(&face, em, &pen) {
+                    s.draw_path(&path);
+                }
+            }
+        }
+        s.set_fill(None);
+        s.pop();
+    }
+
+    /// The watermark text stretched over its box (Word's `v:textpath fitshape`): its advance across
+    /// the box's width, its em down the box's height with the em's foot (the font's descent below
+    /// the baseline) on the box's bottom; the box centred on the margins (`area`, else the page)
+    /// and, when diagonal, turned 45° counterclockwise.
+    fn watermark(&mut self, s: &mut Surface, wm: &wordcraft_doc::Watermark, w: f32, h: f32, area: Rect) {
         let r = wordcraft_fonts::word::resolve(&wm.font, false, false);
         let face = r.face;
         let text: String = wm.text.chars().take(200).collect();
@@ -1616,13 +1746,14 @@ impl Exporter<'_> {
         if raw_w <= 0.0 || !raw_w.is_finite() {
             return;
         }
-        let hh = h.min(2000.0);
-        let diag = if wm.diagonal { (w * w + hh * hh).sqrt() } else { w };
-        let size = (diag * 0.7 / raw_w).min(300.0);
-        let angle = if wm.diagonal { -(hh / w.max(1.0)).atan() } else { 0.0 };
+        let [bw, bh] = wm.frame(w, h);
+        let size = bh.min(2000.0);
+        let stretch = bw / (raw_w * size);
+        let descent = (wordcraft_fonts::word::line_metrics(&face).1 / face.upem.max(1.0)) as f32;
+        let angle = if wm.diagonal { -std::f32::consts::FRAC_PI_4 } else { 0.0 };
         let (c, sn) = (angle.cos(), angle.sin());
-        let (dx, dy) = (-raw_w * size / 2.0, size * 0.35);
-        let (cx, cy) = (w / 2.0, hh / 2.0);
+        let (dx, dy) = (-bw / 2.0, bh / 2.0 - descent.clamp(0.0, 1.0) * bh);
+        let (cx, cy) = if area.w > 0.0 && area.h > 0.0 { (area.x + area.w / 2.0, area.y + area.h / 2.0) } else { (w / 2.0, h.min(2000.0) / 2.0) };
         let font = self.font(&face);
         if font.is_none() && !self.outlined.contains(&face.id()) {
             return;
@@ -1644,7 +1775,7 @@ impl Exporter<'_> {
                 )
             })
             .collect();
-        s.push_transform(&Transform::from_row(c, sn, -sn, c, c * dx - sn * dy + cx, sn * dx + c * dy + cy));
+        s.push_transform(&Transform::from_row(c * stretch, sn * stretch, -sn, c, c * dx - sn * dy + cx, sn * dx + c * dy + cy));
         s.set_stroke(None);
         s.set_fill(Some(fill(wm.color, if wm.semitransparent { 0.5 } else { 1.0 })));
         match font {
@@ -1698,8 +1829,9 @@ const HAIRLINE: f64 = 0.25;
 
 /// Draws a metafile picture into the clip (the picture frame): paths are filled and stroked in page
 /// space (strokes keep their width under non-uniform scaling), bitmaps stretched, all faded by `alpha`.
-/// Every path sets its fill and stroke, so none carries over; strokes have round caps and joins.
-fn vector_picture(s: &mut Surface, v: &Vector, r: &Rect, crop: &[f32; 4], clip: &Path, alpha: f32) {
+/// Every path sets its fill and stroke, so none carries over; strokes have round caps and joins. Text
+/// runs are drawn as text.
+fn vector_picture(ex: &mut Exporter, s: &mut Surface, v: &Vector, r: &Rect, crop: &[f32; 4], clip: &Path, alpha: f32) {
     let target = kurbo::Rect::new(f64::from(r.x), f64::from(r.y), f64::from(r.x + r.w), f64::from(r.y + r.h));
     let fade = alpha < 0.999;
     if fade {
@@ -1737,6 +1869,11 @@ fn vector_picture(s: &mut Surface, v: &Vector, r: &Rect, crop: &[f32; 4], clip: 
                 s.draw_image(img.clone(), size);
                 s.pop();
             }
+            PlacedItem::Text { index, tf } => {
+                if let Some(wordcraft_metafile::Item::Text(t)) = v.pic.items.get(index) {
+                    ex.vector_text(s, t, tf);
+                }
+            }
         }
     }
     s.set_fill(None);
@@ -1757,6 +1894,10 @@ fn path_from(b: &kurbo::BezPath) -> Option<Path> {
 /// Decode a picture for embedding (validated with the `image` crate first, so a broken file
 /// can't fail the whole export).
 fn load_image(data: &Arc<Vec<u8>>) -> Option<Image> {
+    // The shared probe also charges what the decoder holds beside its output (#3644).
+    if !wordcraft_geom::picture::probe(data).is_ok_and(|p| p.fits(wordcraft_geom::MAX_DECODED_BYTES)) {
+        return None;
+    }
     load_image_within(data, wordcraft_geom::MAX_DECODED_BYTES)
 }
 
@@ -1783,6 +1924,15 @@ fn load_image_within(data: &Arc<Vec<u8>>, budget: u64) -> Option<Image> {
         return Image::from_jpeg(data.clone().into(), true).ok();
     }
     Some(Image::from_rgba8(dec.into_rgba8().into_raw(), w, h))
+}
+
+/// Map the document cap to the PDF backend for both shape and path outlines.
+fn pdf_line_cap(cap: wordcraft_doc::connector::LineCap) -> LineCap {
+    match cap {
+        wordcraft_doc::connector::LineCap::Flat => LineCap::Butt,
+        wordcraft_doc::connector::LineCap::Square => LineCap::Square,
+        wordcraft_doc::connector::LineCap::Round => LineCap::Round,
+    }
 }
 
 #[cfg(test)]
