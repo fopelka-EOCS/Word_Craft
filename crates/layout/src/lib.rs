@@ -4266,6 +4266,23 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
                 continue;
             }
         }
+        // Floats held back from here whose anchor came back once they were out of the way: placed
+        // here as before, with the text wrapping around them, rather than over it. Before the
+        // notes of these lines are kept: the wrap can push their references on.
+        let back = if l0 == 0 && !forced.is_empty() { late.due(p, &pl, 0..l1) } else { Vec::new() };
+        if back.iter().any(|oi| forced.contains(oi)) {
+            // The others are still held back.
+            forced.retain(|oi| !back.contains(oi));
+            let keep = std::mem::take(&mut forced);
+            let (y0, before) = (pb.y, pb.y - anchor_y);
+            let late_ids;
+            (float_rects, pl, rel, late_ids) =
+                again(ctx, eq_start, |ctx| anchor_floats(ctx, pb, p, block, y0, before, excl_mark, &label, true, &keep));
+            late = LateFloats::new(&late_ids);
+            (laid_page, laid_width) = (pb.number, pb.col_w());
+            n = pl.lines.len();
+            continue;
+        }
         // Keep only the notes of the lines that are placed.
         let placed_end = pl.lines.get(l1.saturating_sub(1)).map(|l| l.c1).unwrap_or(0);
         new_notes.retain(|n| notes.iter().any(|(ci, nid)| *nid == n.id && *ci < placed_end));
@@ -4303,18 +4320,6 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
         }
         let end = push_para(&mut items, StoryRef::Body, &[block as u32], &pl, l0, l1, x, y, width, edges);
         pb.para_end = Some((pb.pages.len(), pb.col, end));
-        // Floats held back from here whose anchor came back once they were out of the way: placed
-        // here as before, with the text wrapping around them, rather than over it.
-        if l0 == 0 && !forced.is_empty() && late.due(p, &pl, 0..l1).iter().any(|oi| forced.contains(oi)) {
-            forced.clear();
-            let (y0, before) = (pb.y, pb.y - anchor_y);
-            let late_ids;
-            (float_rects, pl, rel, late_ids) = again(ctx, eq_start, |ctx| anchor_floats(ctx, pb, p, block, y0, before, excl_mark, &label, true, &[]));
-            late = LateFloats::new(&late_ids);
-            (laid_page, laid_width) = (pb.number, pb.col_w());
-            n = pl.lines.len();
-            continue;
-        }
         // Late floats whose anchor line came here after all are placed with these lines.
         late.piece = spot(pb);
         if !pb.web && !late.placed.is_empty() {
