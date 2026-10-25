@@ -7,6 +7,7 @@ Recovery discovery no longer interrupts an explicitly created or opened document
 
 Group connectors (gap 10): re-routing preserves displayed rotated and flipped free endpoints after unit, uniform or nonuniform group scaling, including ends whose target shape or site cannot be resolved. Glued endpoints still use their existing connection-site path. Degenerate display scales that cannot be inverted, or fallback spans exceeding the renderer's 4000 pt child-size cap, leave connectors needing fallback endpoints unchanged; fully resolved connectors still reroute. Invalid child extents retain the renderer's unit-scale fallback. Model and engine regressions cover this geometry and guard against nonfinite coordinate writes and repeated shrinkage at the display cap; routing around shapes remains missing, with no new native Word comparison.
 
+
 > **Printing update:** 2026-10-12 · direct desktop printing through craft-print; details below.
 
 The work list. One entry per shortfall, ranked by how much it stops a Word user from switching
@@ -141,6 +142,8 @@ Small follow-ups from the 2026-10-25 field, table and AutoFormat batch (#4232):
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-16 | trivial | Inline drawings in text boxes retain their declared dimensions. Synthetic regressions. |
+
 | 2026-10-25 | trivial | Small follow-ups from the field, table and AutoFormat batch (#4232) |
 | 2026-10-25 | trivial | Highlight decisions include fully selected paragraph marks in whole cells and ordinary ranges, including empty paragraphs; partial text columns exclude unselected marks (#4085). |
 | 2026-10-25 | trivial | Highlight toggle checks the full target beyond 10,000 runs without collecting resolved formatting; mixed and inherited tails and Undo/Redo covered (#4085). |
