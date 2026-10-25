@@ -681,6 +681,7 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | 2026-10-19 | trivial | A right, centre or decimal tab whose text doesn't fit, or a left tab past the right indent, starts the next line with its text instead of ending the line (a TOC entry's page number keeps its leader); a left tab still past the right indent there takes no room (#1840) |
 | 2026-10-19 | trivial | Progress log: a picture dragged near the bottom of a page lands there (#3169) |
 | 2026-10-19 | trivial | Progress log: a Thai run with Latin finds one installed font covering it all on Linux too (#1549) |
+| 2026-10-15 | trivial | Body paragraphs and tables avoid positioned header objects; original regressions cover continuation, first/even selection and nonwrapping pictures |
 | 2026-10-19 | trivial | Progress log: forms protection keeps its content controls: no inserting, Properties or Remove Content Control |
 | 2026-10-19 | trivial | Progress log: text typed into a content control takes the control's formatting; localized placeholder styles recognised |
 | 2026-10-17 | trivial | Progress log: #2048 entry covers anchors pushed onto the next page |

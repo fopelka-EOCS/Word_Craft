@@ -175,6 +175,7 @@ Small follow-ups from the 2026-10-25 field, table and AutoFormat batch (#4232):
 | 2026-10-19 | trivial | #7: Format Page Numbers dialog (#1113), 60 modal dialogs |
 | 2026-10-19 | trivial | The text context menu includes the existing two-row formatting mini toolbar, at a caret or over selected text (#2959); formatting and its dropdowns preserve the selection, regular menu commands and dismissal still close the popup. Paste options remain in separate PR #2599. |
 | 2026-10-18 | trivial | Gap 8 narrowed: German text hyphenates by the TeX German patterns (reformed spelling); German spelling and grammar remain |
+| 2026-10-15 | trivial | Body paragraphs and tables avoid positioned header objects; original regressions cover continuation, first/even selection and nonwrapping pictures |
 | 2026-10-19 | trivial | Restrict Editing: with Filling in forms enforced, inserting content controls, their Properties and Remove Content Control are refused, as in Word (it greys them out), so a form's fields stay as they are and only their content is filled in |
 | 2026-10-19 | trivial | Content controls: text typed over a placeholder takes the control's own run properties (`w:sdtPr/w:rPr`, ECMA-376 §17.5.2.27), as in Word, and the placeholder style is recognised by its built-in name "Placeholder Text" whatever its localized id (German Word: `Platzhaltertext`), so entries in forms from localized Word no longer stay grey |
 | 2026-10-18 | trivial | Font list starts at its first row after clearing a no-match query; recent heading remains visible (#2068) |
