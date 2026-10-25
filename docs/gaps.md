@@ -141,6 +141,7 @@ Small follow-ups from the 2026-10-25 field, table and AutoFormat batch (#4232):
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-19 | trivial | Footer drawings overlapping the reserved band cap body clearance; mid-page top-and-bottom drawings retain body flow above and below, including pinned footer-cell drawings and body table rows. Synthetic controls; no new native Word comparison. |
 | 2026-10-25 | trivial | Small follow-ups from the field, table and AutoFormat batch (#4232) |
 | 2026-10-25 | trivial | Highlight decisions include fully selected paragraph marks in whole cells and ordinary ranges, including empty paragraphs; partial text columns exclude unselected marks (#4085). |
 | 2026-10-25 | trivial | Highlight toggle checks the full target beyond 10,000 runs without collecting resolved formatting; mixed and inherited tails and Undo/Redo covered (#4085). |
@@ -218,6 +219,8 @@ Small follow-ups from the 2026-10-25 field, table and AutoFormat batch (#4232):
 | 2026-10-17 | trivial | Footer page tables preserve text height and wrap intersecting body lines |
 | 2026-10-17 | minor | File › Print's Scale to paper size (#2108): pick Letter, Legal, A4 or any Layout › Size paper and every page is scaled to it and centred, the paper turned to each page's orientation, in the preview, the print job (with the spooler's media) and Save these pages as PDF; the document keeps its page size. `paper` param on `ui.print`/`file.printPdf` |
 | 2026-10-17 | trivial | Non-overlapping body floating tables clear header tables; overlapping tables keep their requested position |
+| 2026-10-15 | trivial | Top-and-bottom wrapped footer drawings keep body rows above their positioned wrap area; nonwrapping drawings retain their placement |
+| 2026-10-19 | trivial | Page-anchored top-and-bottom drawings outside footer table cells reserve their wrap bounds and distance from text; nonwrapping controls keep body clearance. |
 | 2026-10-16 | trivial | #8: English is three proofing languages — American, British spelling (en-GB, en-AU, en-NZ, en-IE, en-ZA, en-IN…) and Canadian — each flagging the other's spellings (#1281, #1045) |
 | 2026-10-16 | trivial | #10 narrowed: pictures and shapes without text stories preview rotation while dragging (#2277); remaining object gaps and estimates unchanged |
 | 2026-10-14 | trivial | Row table border exceptions fixed; other row table exceptions remain unsupported |
