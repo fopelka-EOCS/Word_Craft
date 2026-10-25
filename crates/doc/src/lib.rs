@@ -846,6 +846,11 @@ pub struct Document {
     /// Embedded media (images) by key. Native JSON writes each as base64 (`byte_store.rs`).
     #[serde(skip_serializing_if = "BTreeMap::is_empty", with = "byte_store")]
     pub media: BTreeMap<String, Arc<Vec<u8>>>,
+    /// SVG pictures' PNG fallbacks (#1910): SVG media key → the media key of the PNG stored with it
+    /// (Word's own, read from a file, or one made on an earlier save), written back as it is so
+    /// a save neither draws it again nor loses what only the PNG shows.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub svg_fallbacks: BTreeMap<String, String>,
     /// Source-format parts we keep verbatim for round-trip (e.g. custom XML), by part name.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", with = "byte_store")]
     pub passthrough: BTreeMap<String, Arc<Vec<u8>>>,
@@ -878,6 +883,7 @@ impl Document {
             footnote_separators: NoteSeparators::default(),
             endnote_separators: NoteSeparators::default(),
             media: BTreeMap::new(),
+            svg_fallbacks: BTreeMap::new(),
             passthrough: BTreeMap::new(),
             glossary: Vec::new(),
         }
@@ -955,6 +961,7 @@ impl Document {
             media,
             passthrough,
             glossary,
+            svg_fallbacks,
         } = self;
         let Document {
             body: other_body,
@@ -973,6 +980,7 @@ impl Document {
             media: other_media,
             passthrough: other_passthrough,
             glossary: other_glossary,
+            svg_fallbacks: other_fallbacks,
         } = other;
         same_blocks(body, other_body)
             && same_parts(parts, other_parts)
@@ -990,6 +998,7 @@ impl Document {
             && same_bytes(media, other_media)
             && same_bytes(passthrough, other_passthrough)
             && same_glossary(glossary, other_glossary)
+            && svg_fallbacks == other_fallbacks
     }
 
     pub fn story(&self, s: StoryRef) -> Option<&Blocks> {

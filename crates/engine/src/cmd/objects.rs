@@ -212,11 +212,8 @@ pub fn specs() -> Vec<CommandSpec> {
             } else {
                 return Err(CmdError::Params("`path` or `data` required".into()));
             };
-            wordcraft_geom::picture::probe(&bytes).map_err(|e| match e {
-                wordcraft_geom::picture::Refusal::Unsupported(why) => CmdError::Failed(why.into()),
-                _ => CmdError::Failed("not a supported image".into()),
-            })?;
-            let key = s.doc.add_media(bytes.clone(), super::insert::image_ext(&bytes));
+            let (_, _, ext) = super::insert::picture_size(&bytes)?;
+            let key = super::insert::add_picture_media(s, bytes, ext);
             with_obj(s, |o| {
                 if let InlineObject::Image { media, .. } = o {
                     *media = key.clone();
@@ -1096,7 +1093,10 @@ pub fn original_size(s: &Session, media: &str) -> Option<OriginalSize> {
     if let Some((pw, ph)) = wordcraft_render::image_size(bytes) {
         return Some(OriginalSize { w: pw as f32 * 0.75, h: ph as f32 * 0.75, pixels: Some((pw, ph)) });
     }
-    let (w, h, _) = wordcraft_render::metafile_size(bytes)?;
+    if let Some((w, h, _)) = wordcraft_render::metafile_size(bytes) {
+        return Some(OriginalSize { w, h, pixels: None });
+    }
+    let (w, h) = wordcraft_svg::natural_size(bytes)?;
     Some(OriginalSize { w, h, pixels: None })
 }
 
@@ -1196,6 +1196,9 @@ fn adjust(s: &mut Session, f: impl Fn(image::DynamicImage) -> Result<image::Dyna
 /// Picture keeps working.
 fn adjust_media(s: &mut Session, base: &str, f: impl Fn(image::DynamicImage) -> Result<image::DynamicImage, CmdError>) -> CmdResult {
     let bytes = s.doc.media.get(base).cloned().ok_or_else(|| CmdError::Failed("picture data missing".into()))?;
+    if wordcraft_svg::is_svg(&bytes) {
+        return Err(CmdError::Failed("This picture is an SVG; colour and correction edits work on bitmap pictures".into()));
+    }
     // Within the budget pictures are drawn within, checked from the header first (#3644, #3647).
     let img = wordcraft_geom::picture::decode(&bytes, wordcraft_geom::MAX_DECODED_BYTES).map_err(|e| match e {
         wordcraft_geom::picture::Refusal::TooLarge { .. } => too_large(),
