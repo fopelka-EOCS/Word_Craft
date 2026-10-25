@@ -318,6 +318,7 @@ Installed static fonts also resolve by their OpenType PostScript name (name ID 6
 | 2026-10-15 | trivial | Triple borders draw three lines (screen and PDF), not two (#1740) |
 | 2026-10-17 | trivial | A Symbol or Wingdings run without the font keeps that font's line height: a Symbol bullet's line is 15.1 pt in Calibri 11 pt at 1.08 spacing, as in Word (was 14.5 pt). On a 251-document corpus checked against Word PDFs, page breaks at the same word 45.4% → 50.1% |
 | 2026-10-14 | trivial | Row table border exceptions draw without leaking into other rows |
+| 2026-10-18 | trivial | Exact-cell hits, carets, selections and equation overlays use the same physical ancestor clips as text paint |
 | 2026-10-14 | trivial | Consistent cell widths override a stale table grid |
 | 2026-10-14 | trivial | Paragraphs inside complex-field instructions take no flow height; empty result paragraphs keep their line. |
 | 2026-10-14 | trivial | A list paragraph containing only a page break has no visible label; it still advances the list counter. Ordinary empty list items keep their label. |
@@ -404,3 +405,11 @@ and balloon layout while supplying explicit cell identity at every box call. The
 probes above are historical; this rebase has no new native or other-platform measurement.
 
 Repeated table-cell control, 12 October 2026: four same-style contextual paragraphs with 6 pt before/after and exactly 24 pt lines retain zero extra gap at every boundary. The body control uses the same fixture. This is an original specification-based regression; no new native Word table comparison was run.
+
+Exact-cell clipping, 18 October 2026: owning-story text stays in the PDF text layer,
+including fully hidden lines. Partial glyph ink is clipped at the cell edge. Embedded
+text boxes retain complete-line fitting. Original bundled-font controls cover nested
+clips, repeated headers, fragments, carets, selections and equation overlays. Exported
+PDF controls check glyph outlines against active clips with tagged output on and off.
+Equation layout stays intrinsic; the canvas clips padding and animated carets and
+clamps IME geometry. Native Word editing behavior has not been observed.
