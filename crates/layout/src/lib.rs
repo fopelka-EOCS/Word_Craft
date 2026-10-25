@@ -1328,7 +1328,14 @@ fn layout_box(
                 prev_end = push_para(&mut items, story, &path, &pl, 0, pl.lines.len(), 0.0, y + lead, width, edges);
                 // Pictures, shapes and text boxes: drawn, their areas and text boxes' text.
                 if !p.objects.is_empty() {
-                    let at = ObjFrame { page: frame, col: (0.0, width), para_y: para_top, table_chr: table.map(|t| &t.chr), pinned: Some(&pinned) };
+                    let at = ObjFrame {
+                        page: frame,
+                        col: (0.0, width),
+                        para_y: para_top,
+                        table_chr: table.map(|t| &t.chr),
+                        pinned: Some(&pinned),
+                        late: None,
+                    };
                     let (back, front) = place_objects(ctx, story, &path, p, &pl, (0, pl.lines.len()), (0.0, y + lead), &at, &floats, depth);
                     for placed in back.iter().chain(front.iter()) {
                         if let Placed::Object { rect, spin, wrap, .. } = placed
@@ -3329,7 +3336,8 @@ fn group_members(o: &InlineObject, rect: Rect) -> Vec<(Rect, &InlineObject)> {
 /// page's wrap areas (its area as placed now). Without `place` (a later piece of the paragraph
 /// broken again for another column) the floats stay where its first piece placed and drew them:
 /// they aren't placed again in the new column, and their record for the page they are drawn on
-/// ([`EarlyFloats`]) stands.
+/// ([`EarlyFloats`]) stands. Floats anchored on a later page ([`late_floats`]), and those in
+/// `force`, aren't placed here: the paragraph is laid out without them, and they're returned.
 #[allow(clippy::too_many_arguments)]
 fn anchor_floats(
     ctx: &mut Ctx,
@@ -3341,8 +3349,129 @@ fn anchor_floats(
     excl_mark: usize,
     label: &Option<(String, Level)>,
     place: bool,
-) -> (HashMap<usize, Rect>, Arc<ParaLayout>, Vec<para::Exclusion>) {
+    force: &[usize],
+) -> (HashMap<usize, Rect>, Arc<ParaLayout>, Vec<para::Exclusion>, Vec<usize>) {
     ctx.fields.page = pb.number;
+    // Each layout of it here counts its automatic equation numbers from the same place.
+    let eq0 = ctx.eq_count;
+    let (rects, pl, rel) = anchor_floats_but(ctx, pb, p, block, (y0, before), excl_mark, label, place, force);
+    if !place || pb.web || p.objects.is_empty() {
+        return (rects, pl, rel, force.to_vec());
+    }
+    // Not those left out, nor those the page started with (#2048 settled them here).
+    let page = pb.pages.len().saturating_sub(1);
+    let seeded: Vec<usize> =
+        pb.early.get(&page).map(|v| v.iter().take(pb.seeded).filter(|(b, ..)| *b == block).map(|(_, k, _)| *k).collect()).unwrap_or_default();
+    let (bottom, more, col_top) = (pb.bottom, pb.cols.len().saturating_sub(pb.col + 1), pb.top);
+    let fit = |pl: &ParaLayout| fitting(pl, 0, y0 + pl.lines.first().map_or(0.0, |l| l.top.max(0.0)), bottom, (more, col_top));
+    let left_out = left_out_objects(ctx.doc, p, None, ctx.opts.show_hidden, ctx.hide_deleted);
+    let mut late: Vec<usize> =
+        late_floats(p, &pl, fit(&pl)).into_iter().chain(force.iter().copied()).filter(|oi| !left_out(*oi) && !seeded.contains(oi)).collect();
+    late.sort_unstable();
+    late.dedup();
+    if late.as_slice() == force {
+        return (rects, pl, rel, late);
+    }
+    ctx.eq_count = eq0;
+    let (rects, pl, rel) = anchor_floats_but(ctx, pb, p, block, (y0, before), excl_mark, label, place, &late);
+    // Without them in the way more of the paragraph may fit, and some of their anchors with it.
+    let still = late_floats(p, &pl, fit(&pl));
+    let fewer: Vec<usize> = late.iter().copied().filter(|oi| force.binary_search(oi).is_ok() || still.binary_search(oi).is_ok()).collect();
+    if fewer.len() == late.len() {
+        return (rects, pl, rel, late);
+    }
+    ctx.eq_count = eq0;
+    let (rects, pl, rel) = anchor_floats_but(ctx, pb, p, block, (y0, before), excl_mark, label, place, &fewer);
+    (rects, pl, rel, fewer)
+}
+
+/// The floating objects of `p` (laid out as `pl`) whose anchor line ([`anchor_lines`]) is at or
+/// after `fit`, in order: Word draws them on the page their anchor line is on (#4250).
+fn late_floats(p: &Paragraph, pl: &ParaLayout, fit: usize) -> Vec<usize> {
+    let lines = anchor_lines(p, pl);
+    let late =
+        |(oi, o): (usize, &InlineObject)| (floating(o).is_some() && lines.get(oi).copied().flatten().is_some_and(|li| li >= fit)).then_some(oi);
+    p.objects.iter().enumerate().filter_map(late).collect()
+}
+
+/// The end of the lines of `pl` from `l0` that fit on the page: line `l0`'s top at `top` in the
+/// column, whose bottom is at `bottom`, then `more` columns from `col_top` (at least one line; a
+/// page break ends them, a column break its column).
+fn fitting(pl: &ParaLayout, l0: usize, top: f32, bottom: f32, (mut more, col_top): (usize, f32)) -> usize {
+    let Some(first) = pl.lines.get(l0) else { return l0 };
+    // A line's place in its column: `shift` plus its top.
+    let (mut shift, mut start, mut fit) = (top - first.top, l0, l0 + 1);
+    for (li, l) in pl.lines.iter().enumerate().skip(l0) {
+        if li > start && shift + l.top + l.height > bottom + 0.01 {
+            if more == 0 {
+                break;
+            }
+            (more, start, shift) = (more - 1, li, col_top - l.top);
+        }
+        fit = li + 1;
+        match l.end {
+            LineEnd::PageBreak => break,
+            LineEnd::ColumnBreak if more == 0 => break,
+            LineEnd::ColumnBreak => {
+                more -= 1;
+                start = li + 1;
+                shift = pl.lines.get(start).map_or(shift, |n| col_top - n.top);
+            }
+            _ => {}
+        }
+    }
+    fit
+}
+
+/// Place late float `oi` of body paragraph `p` ([`LateFloats`]) in the current column,
+/// positioned from `top`, where the paragraph continues; its wrap area joins the page's.
+fn place_late(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, oi: usize, top: f32, late: &mut LateFloats) {
+    let Some(o) = p.objects.get(oi) else { return };
+    let Some((w, h, float)) = floating(o) else { return };
+    let frame = PageFrame { sect: pb.sect, origin: (0.0, 0.0), number: pb.number, mirror: ctx.mirror };
+    let rect = float_rect(Some(frame), (pb.col_x(), pb.col_w()), top, w, h, float);
+    let outline = ctx.wrap_outline(o);
+    if let Some(area) = wrap_area(rect, float, outline.as_deref().map(|v| v.as_slice())) {
+        pb.excl.push(area);
+    }
+    late.placed.insert(oi, Some(LatePlace { rect, top, spot: (pb.pages.len(), pb.col), drawn: false }));
+}
+
+/// The line of `pl` each object of `p` goes with (by object index; None if it isn't laid out):
+/// the one holding its anchor, or for an anchor right after a page or column break (only other
+/// anchors before it on its line), the break's: Word keeps it on the page before (a cover page's
+/// title box, #1632).
+fn anchor_lines(p: &Paragraph, pl: &ParaLayout) -> Vec<Option<usize>> {
+    let mut out = vec![None; p.objects.len()];
+    for (li, l) in pl.lines.iter().enumerate() {
+        // Still only anchors from the start of a line after a break.
+        let mut lead = li.checked_sub(1).and_then(|k| pl.lines.get(k)).is_some_and(|l| matches!(l.end, LineEnd::PageBreak | LineEnd::ColumnBreak));
+        for c in pl.clusters.get(l.c0..l.c1).unwrap_or_default() {
+            let para::ClKind::Object(oi) = c.kind else {
+                lead = false;
+                continue;
+            };
+            if let Some(slot) = out.get_mut(oi).filter(|s| s.is_none()) {
+                *slot = Some(if lead { li - 1 } else { li });
+            }
+        }
+    }
+    out
+}
+
+/// [`anchor_floats`], leaving out the floats in `late` (in order).
+#[allow(clippy::too_many_arguments)]
+fn anchor_floats_but(
+    ctx: &mut Ctx,
+    pb: &mut PageBuilder,
+    p: &Paragraph,
+    block: usize,
+    (y0, before): (f32, f32),
+    excl_mark: usize,
+    label: &Option<(String, Level)>,
+    place: bool,
+    late: &[usize],
+) -> (HashMap<usize, Rect>, Arc<ParaLayout>, Vec<para::Exclusion>) {
     let (col_x, width) = (pb.col_x(), pb.col_w());
     let mut rects = HashMap::new();
     if !pb.web && place {
@@ -3360,6 +3489,10 @@ fn anchor_floats(
         for (oi, o) in p.objects.iter().enumerate() {
             let Some((w, h, float)) = floating(o) else { continue };
             if left_out(oi) {
+                continue;
+            }
+            if late.binary_search(&oi).is_ok() {
+                ctx.floats_above.remove(&(block, oi));
                 continue;
             }
             // Positions relative to the paragraph start above its space before (Word for Windows).
@@ -3473,6 +3606,74 @@ struct ObjFrame<'a> {
     /// Floats placed on the page from a header or footer cell (by object index, in page
     /// coordinates): their items go to [`Ctx::pin`].
     pinned: Option<&'a HashMap<usize, Rect>>,
+    /// A body paragraph's floats that go on a later page or column than its first piece.
+    late: Option<&'a LateFloats>,
+}
+
+/// Where a late float ([`LateFloats`]) was placed: its rect, the top it's positioned from, the
+/// page and column, `(pages, col)`, and whether it's drawn.
+#[derive(Clone, Copy)]
+struct LatePlace {
+    rect: Rect,
+    top: f32,
+    spot: (usize, usize),
+    drawn: bool,
+}
+
+/// A body paragraph's floating objects anchored on a later page than its first line
+/// ([`late_floats`]): Word draws them there, positioned from where the paragraph continues
+/// (#4250). Each is placed when the paragraph gets there, and drawn with that piece.
+struct LateFloats {
+    /// By object index, where it was placed, once it is.
+    placed: HashMap<usize, Option<LatePlace>>,
+    /// The page and column of the piece being placed.
+    piece: (usize, usize),
+    /// [`anchor_lines`], and the paragraph layout they're for.
+    lines: Option<(Arc<ParaLayout>, Vec<Option<usize>>)>,
+}
+
+impl LateFloats {
+    fn new(late: &[usize]) -> Self {
+        LateFloats { placed: late.iter().map(|oi| (*oi, None)).collect(), piece: (0, 0), lines: None }
+    }
+
+    /// Those to place with this piece: not placed yet, or placed for a column the paragraph then
+    /// didn't go into, with their anchor line in `lines`, in order.
+    fn due(&mut self, p: &Paragraph, pl: &Arc<ParaLayout>, lines: std::ops::Range<usize>) -> Vec<usize> {
+        if !self.lines.as_ref().is_some_and(|(of, _)| Arc::ptr_eq(of, pl)) {
+            self.lines = Some((pl.clone(), anchor_lines(p, pl)));
+        }
+        let anchor = |oi: usize| self.lines.as_ref().and_then(|(_, v)| v.get(oi).copied().flatten());
+        let mut due: Vec<usize> = self
+            .placed
+            .iter()
+            .filter(|(_, at)| at.is_none_or(|a| a.spot != self.piece && !a.drawn))
+            .filter(|(oi, _)| anchor(**oi).is_some_and(|li| lines.contains(&li)))
+            .map(|(oi, _)| *oi)
+            .collect();
+        due.sort_unstable();
+        due
+    }
+
+    /// Late float `oi` if it's drawn with this piece.
+    fn here(&self, oi: usize) -> Option<LatePlace> {
+        self.placed.get(&oi).copied().flatten().filter(|a| a.spot == self.piece && !a.drawn)
+    }
+
+    /// The lines holding the anchors of those drawn with this piece (an anchor right after a
+    /// break is on the line after its [`anchor_lines`] one).
+    fn lines_here(&self) -> Vec<usize> {
+        let anchor = |oi: &usize| self.lines.as_ref().and_then(|(_, v)| v.get(*oi).copied().flatten());
+        self.placed.keys().filter(|oi| self.here(**oi).is_some()).filter_map(anchor).flat_map(|li| [li, li + 1]).collect()
+    }
+
+    /// Those drawn with this piece are drawn.
+    fn drew(&mut self) {
+        let piece = self.piece;
+        for a in self.placed.values_mut().flatten().filter(|a| a.spot == piece) {
+            a.drawn = true;
+        }
+    }
 }
 
 /// The pictures, shapes and text boxes in lines `l0..l1` of paragraph `p` (story `story`, at
@@ -3502,15 +3703,15 @@ fn place_objects(
     let Some(fl) = pl.lines.get(l0) else { return (Vec::new(), Vec::new()) };
     // Objects left out of the layout (hidden, or deleted in the final text) aren't placed.
     let left_out = left_out_objects(ctx.doc, p, at.table_chr, ctx.opts.show_hidden, ctx.hide_deleted);
-    // A floating object belongs to its paragraph, not to its line: Word puts it on the page the
-    // paragraph starts on (a cover page is a paragraph holding a page break and then the text
-    // box with the title; the box stays on the cover). So the paragraph's first piece places
-    // every floating object, whichever of its lines holds the anchor, and later pieces none;
-    // inline objects go with their own line.
+    // The paragraph's first piece draws its floating objects, whichever of its lines holds the
+    // anchor, except those anchored on a later page (`at.late`): the piece there draws them
+    // (#4250). Inline objects go with their own line.
     let first = l0 == 0;
+    let late = at.late.filter(|l| !l.placed.is_empty());
+    let late_lines = late.map(LateFloats::lines_here).unwrap_or_default();
     for li in 0..pl.lines.len() {
         let in_piece = (l0..l1).contains(&li);
-        if !in_piece && !first {
+        if !in_piece && !first && !late_lines.contains(&li) {
             continue;
         }
         let Some(line) = pl.lines.get(li) else { continue };
@@ -3523,12 +3724,22 @@ fn place_objects(
             let Some(obj) = p.objects.get(oi) else { continue };
             let Some((w, h, float)) = obj.frame() else { continue };
             let floating = float.wrap != Wrap::Inline;
-            if if floating { !first } else { !in_piece } {
+            let is_late = floating && late.is_some_and(|l| l.placed.contains_key(&oi));
+            let late_here = late.and_then(|l| l.here(oi)).filter(|_| floating);
+            if if is_late {
+                late_here.is_none()
+            } else if floating {
+                !first
+            } else {
+                !in_piece
+            } {
                 continue;
             }
             let pinned = at.pinned.and_then(|m| m.get(&oi)).copied().filter(|_| floating);
             let rect = if let Some(r) = pinned {
                 r
+            } else if let Some(l) = late_here {
+                l.rect
             } else if floating {
                 floats.get(&oi).copied().unwrap_or_else(|| float_rect(at.page, at.col, at.para_y, w, h, float))
             } else {
@@ -3557,7 +3768,7 @@ fn place_objects(
                 off: c.start,
                 text_box: shown,
                 wrap: float.wrap,
-                origin: Point::new(at.col.0, at.para_y),
+                origin: Point::new(at.col.0, late_here.map_or(at.para_y, |l| l.top)),
             });
             // Its text (a group: its text boxes', each where the group's turn carries it; the
             // text itself stays upright), unless the box budget says no (a box inside itself,
@@ -3722,7 +3933,11 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     let mut page_map: Vec<(usize, u32)> = Vec::new();
     // Where its automatic equation numbers start: each layout of it again counts from here.
     let eq_start = ctx.eq_count;
-    let (mut float_rects, mut pl, mut rel) = anchor_floats(ctx, pb, p, block, guess, space_before, excl_mark, &label, true);
+    let (mut float_rects, mut pl, mut rel, late_ids) = anchor_floats(ctx, pb, p, block, guess, space_before, excl_mark, &label, true, &[]);
+    let mut late = LateFloats::new(&late_ids);
+    // Whether the floats past the first piece were checked ([`late_floats`]), and those it held
+    // back.
+    let (mut rechecked, mut forced) = (false, Vec::new());
     // The page its fields were laid out for (and the width), and how many times it was laid out again for a later
     // page (bounded: a paragraph over hundreds of pages keeps the last number it got).
     let (mut laid_page, mut laid_width) = (pb.number, pb.col_w());
@@ -3815,7 +4030,10 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     // A different top only matters when there is something to wrap around.
     if spot(pb) != placed_at || ((pb.y - guess).abs() > 0.01 && !pb.excl.is_empty()) {
         let y0 = pb.y;
-        (float_rects, pl, rel) = again(ctx, eq_start, |ctx| anchor_floats(ctx, pb, p, block, y0, applied_before, excl_mark, &label, true));
+        let late_ids;
+        (float_rects, pl, rel, late_ids) =
+            again(ctx, eq_start, |ctx| anchor_floats(ctx, pb, p, block, y0, applied_before, excl_mark, &label, true, &[]));
+        late = LateFloats::new(&late_ids);
         (laid_page, laid_width) = (pb.number, pb.col_w());
         anchor_y = y0 - applied_before;
     }
@@ -3824,6 +4042,14 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     let mut after_on_page: Option<f32> = None;
     let mut l0 = 0;
     while l0 < n {
+        // Late floats anchored in the lines that fit in this column are placed here, so these
+        // lines are broken again around them below.
+        if l0 > 0 && !pb.web && !late.placed.is_empty() {
+            late.piece = spot(pb);
+            for oi in late.due(p, &pl, l0..fitting(&pl, l0, pb.y, pb.bottom, (0, pb.top))) {
+                place_late(ctx, pb, p, oi, pb.y, &mut late);
+            }
+        }
         // The lines going into a new column (or page) were broken around the wrap areas where the
         // paragraph started: break them again around this column's (the lines before stay as they
         // were, and so do the paragraph's own floating objects), when they differ (#1374).
@@ -4006,13 +4232,56 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
                 pb.advance(block, body_top);
                 if l0 == 0 {
                     let y0 = pb.y;
-                    (float_rects, pl, rel) = again(ctx, eq_start, |ctx| anchor_floats(ctx, pb, p, block, y0, 0.0, excl_mark, &label, true));
+                    let late_ids;
+                    (float_rects, pl, rel, late_ids) =
+                        again(ctx, eq_start, |ctx| anchor_floats(ctx, pb, p, block, y0, 0.0, excl_mark, &label, true, &[]));
+                    late = LateFloats::new(&late_ids);
                     (laid_page, laid_width) = (pb.number, pb.col_w());
                     anchor_y = y0;
                     n = pl.lines.len();
                 }
                 continue;
             }
+        }
+        // Floats anchored past the first piece's lines, on the next page, though `anchor_floats`
+        // thought they would fit here (footnotes, widow control…): held back after all, once.
+        if l0 == 0 && l1 < n && !rechecked && !pb.web && pb.col + 1 >= pb.cols.len() {
+            rechecked = true;
+            let lines = anchor_lines(p, &pl);
+            let past = |(oi, o): (usize, &InlineObject)| {
+                (floating(o).is_some() && !late.placed.contains_key(&oi) && lines.get(oi).copied().flatten().is_some_and(|li| li >= l1)).then_some(oi)
+            };
+            forced = p.objects.iter().enumerate().filter_map(past).collect();
+            if !forced.is_empty() {
+                let mut force = forced.clone();
+                force.extend(late.placed.keys());
+                force.sort_unstable();
+                let (y0, before) = (pb.y, pb.y - anchor_y);
+                let late_ids;
+                (float_rects, pl, rel, late_ids) =
+                    again(ctx, eq_start, |ctx| anchor_floats(ctx, pb, p, block, y0, before, excl_mark, &label, true, &force));
+                late = LateFloats::new(&late_ids);
+                (laid_page, laid_width) = (pb.number, pb.col_w());
+                n = pl.lines.len();
+                continue;
+            }
+        }
+        // Floats held back from here whose anchor came back once they were out of the way: placed
+        // here as before, with the text wrapping around them, rather than over it. Before the
+        // notes of these lines are kept: the wrap can push their references on.
+        let back = if l0 == 0 && !forced.is_empty() { late.due(p, &pl, 0..l1) } else { Vec::new() };
+        if back.iter().any(|oi| forced.contains(oi)) {
+            // The others are still held back.
+            forced.retain(|oi| !back.contains(oi));
+            let keep = std::mem::take(&mut forced);
+            let (y0, before) = (pb.y, pb.y - anchor_y);
+            let late_ids;
+            (float_rects, pl, rel, late_ids) =
+                again(ctx, eq_start, |ctx| anchor_floats(ctx, pb, p, block, y0, before, excl_mark, &label, true, &keep));
+            late = LateFloats::new(&late_ids);
+            (laid_page, laid_width) = (pb.number, pb.col_w());
+            n = pl.lines.len();
+            continue;
         }
         // Keep only the notes of the lines that are placed.
         let placed_end = pl.lines.get(l1.saturating_sub(1)).map(|l| l.c1).unwrap_or(0);
@@ -4051,6 +4320,13 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
         }
         let end = push_para(&mut items, StoryRef::Body, &[block as u32], &pl, l0, l1, x, y, width, edges);
         pb.para_end = Some((pb.pages.len(), pb.col, end));
+        // Late floats whose anchor line came here after all are placed with these lines.
+        late.piece = spot(pb);
+        if !pb.web && !late.placed.is_empty() {
+            for oi in late.due(p, &pl, 0..l1) {
+                place_late(ctx, pb, p, oi, if l0 == 0 { anchor_y } else { y }, &mut late);
+            }
+        }
         // Pictures, shapes and text boxes in these lines (web view: floats placed by this piece).
         let at = ObjFrame {
             page: Some(PageFrame { sect: pb.sect, origin: (0.0, 0.0), number: pb.number, mirror: ctx.mirror }),
@@ -4058,8 +4334,10 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
             para_y: if pb.web { y } else { anchor_y },
             table_chr: None,
             pinned: None,
+            late: Some(&late),
         };
         let (behind, front) = place_objects(ctx, StoryRef::Body, &[block as u32], p, &pl, (l0, l1), (x, y), &at, &float_rects, 0);
+        late.drew();
         items.extend(front);
         // Line numbers in the left margin.
         if let Some(ln) = pb.sect.line_numbers.clone().filter(|_| !pb.web && pl.rp.style != "Header" && !pl.rp.suppress_line_numbers)
@@ -4129,8 +4407,8 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
                 {
                     let y0 = pb.y;
                     // The floats were placed and drawn with the first piece: they stay there.
-                    let (rects, relaid, relaid_rel) = with_page_map(ctx, &mut page_map, |ctx| {
-                        again(ctx, eq_start, |ctx| anchor_floats(ctx, pb, p, block, y0, 0.0, excl_mark, &label, false))
+                    let (rects, relaid, relaid_rel, _) = with_page_map(ctx, &mut page_map, |ctx| {
+                        again(ctx, eq_start, |ctx| anchor_floats(ctx, pb, p, block, y0, 0.0, excl_mark, &label, false, &[]))
                     });
                     if let Some(k) = relaid.lines.iter().position(|l| l.start == resume) {
                         (float_rects, pl, rel) = (rects, relaid, relaid_rel);
@@ -4206,6 +4484,7 @@ fn place_outline_para(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
         para_y: y,
         table_chr: None,
         pinned: None,
+        late: None,
     };
     let (behind, front) = place_objects(ctx, StoryRef::Body, &[block as u32], &q, &pl, (0, l1), (x, y), &at, &HashMap::new(), 0);
     items.extend(front);
