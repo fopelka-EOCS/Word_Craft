@@ -975,12 +975,17 @@ fn modify_style(s: &mut Session, v: &Value) -> CmdResult {
         v.get("para").map(|c| serde_json::from_value(c.clone())).transpose().map_err(|e| CmdError::Params(e.to_string()))?;
     let next = p::str(v, "next").map(str::to_string);
     let name = p::str(v, "name").map(str::to_string);
+    let (eff_b, eff_b_cs, eff_i, eff_i_cs) = s.doc.styles.chain(&id).into_iter().fold((None, None, None, None), |(b, b_cs, i, i_cs), st| {
+        (st.chr.bold.or(b), st.chr.bold_cs.or(b_cs), st.chr.italic.or(i), st.chr.italic_cs.or(i_cs))
+    });
     let st = s.doc.styles.get_mut(&id).ok_or_else(|| CmdError::Params("no such style".into()))?;
     if let Some(mut c) = chr {
-        let keep_b = st.chr.bold_cs.filter(|&cs| Some(cs) != st.chr.bold);
-        let keep_i = st.chr.italic_cs.filter(|&cs| Some(cs) != st.chr.italic);
-        c.bold_cs = c.bold_cs.or(keep_b).or(c.bold);
-        c.italic_cs = c.italic_cs.or(keep_i).or(c.italic);
+        if eff_b_cs.filter(|&cs| Some(cs) != eff_b).is_none() {
+            c.bold_cs = c.bold_cs.or(c.bold);
+        }
+        if eff_i_cs.filter(|&cs| Some(cs) != eff_i).is_none() {
+            c.italic_cs = c.italic_cs.or(c.italic);
+        }
         st.chr.overlay(&c);
     }
     if let Some(pp) = para {

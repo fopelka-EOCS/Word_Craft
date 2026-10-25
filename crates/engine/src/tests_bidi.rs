@@ -348,4 +348,7 @@ fn arabic_table_header_row_and_modified_styles_carry_complex_script_bold_and_ita
     run(&mut s, "styles.modify", json!({"style": "Heading 1", "chr": {"bold": true}}));
     let h1 = s.doc.styles.get("Heading1").unwrap();
     assert_eq!((h1.chr.bold, h1.chr.bold_cs), (Some(true), Some(false)), "omitted boldCs keeps a distinct complex-script override");
+    run(&mut s, "styles.modify", json!({"style": "TOC Heading", "chr": {"font": "Georgia", "bold": true}}));
+    let toc = s.doc.styles.get("TOCHeading").unwrap();
+    assert_eq!(toc.chr.bold_cs, None, "child style keeps inheriting parent's distinct complex-script override");
 }
