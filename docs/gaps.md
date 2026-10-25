@@ -15,7 +15,7 @@ wall-clock estimate, and which parity document tracks it. Agents: pick from the 
 first (`gh pr list`), and update this file and the parity doc when a gap closes.
 
 Native save reliability: synthetic cases on macOS reproduced loss through the predictable temporary-file name. Saves now use owned, exclusively created siblings, synchronize before replacement and clean up on failure; originals survive pre-replacement errors. This narrows save-path reliability under gap #3; the listed field failures and broader stability work remain open. See [save-path guarantees](file-format-parity.md#native-save-path-guarantees).
-Row table border exceptions (`w:tblPrEx/w:tblBorders`) are read, drawn and saved. Other row table exceptions, including widths and cell margins, remain unsupported.
+Row table border and cell margin exceptions are read, applied and saved. Omitted margin sides inherit table defaults, and explicit cell margins win. Other row table exceptions, including widths and alignment, remain unsupported.
 
 Floating tables count exact contact with a line's bottom edge (#3977); shapes keep strict overlap. Original synthetic regressions cover the boundary and narrow-strip word skipping in modes 11/12/14/15, based on the reporter's Word measurements. Exact-spacing table checks use the specified height even when paragraph-mark metrics differ, including when a word skips a narrow strip. This narrows gap #4; wrapping earlier text around a later table remains #3790's scope.
 
@@ -218,6 +218,7 @@ Small follow-ups from the 2026-10-25 field, table and AutoFormat batch (#4232):
 | 2026-10-17 | trivial | Footer page tables preserve text height and wrap intersecting body lines |
 | 2026-10-17 | minor | File › Print's Scale to paper size (#2108): pick Letter, Legal, A4 or any Layout › Size paper and every page is scaled to it and centred, the paper turned to each page's orientation, in the preview, the print job (with the spooler's media) and Save these pages as PDF; the document keeps its page size. `paper` param on `ui.print`/`file.printPdf` |
 | 2026-10-17 | trivial | Non-overlapping body floating tables clear header tables; overlapping tables keep their requested position |
+| 2026-10-16 | trivial | Row table cell margins override table defaults; omitted sides inherit and explicit cell margins win |
 | 2026-10-16 | trivial | #8: English is three proofing languages — American, British spelling (en-GB, en-AU, en-NZ, en-IE, en-ZA, en-IN…) and Canadian — each flagging the other's spellings (#1281, #1045) |
 | 2026-10-16 | trivial | #10 narrowed: pictures and shapes without text stories preview rotation while dragging (#2277); remaining object gaps and estimates unchanged |
 | 2026-10-14 | trivial | Row table border exceptions fixed; other row table exceptions remain unsupported |
