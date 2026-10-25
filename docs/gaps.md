@@ -123,6 +123,10 @@ The Language dialog reads effective character formatting, including document def
 
 Footer page-table height and body wrapping are corrected. Other pagination gaps remain open.
 
+## Explicit SAVEDATE updates
+
+An explicit field update formats `docProps/core.xml` Modified metadata for SAVEDATE, including its date picture and capitalization switches. UTC `Z` timestamps with optional fractional seconds are supported. Missing, invalid or other-offset timestamps, unsupported calendar switches and locked fields retain cached text. Without a picture, the existing `M/d/yyyy` default remains. Opening and ordinary PDF conversion keep SAVEDATE cached. Local timezone and locale inference remain unsupported.
+
 Small follow-ups from the 2026-10-25 field, table and AutoFormat batch (#4232):
 
 - Convert Table to Text has no "Convert nested tables" check box; nested tables always stay tables, which is Word's default (#4155).
@@ -141,6 +145,7 @@ Small follow-ups from the 2026-10-25 field, table and AutoFormat batch (#4232):
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-23 | trivial | Explicit SAVEDATE updates use valid UTC Modified metadata; unsupported timestamps and calendars retain cache. Default PDF conversion is unchanged. |
 | 2026-10-25 | trivial | Small follow-ups from the field, table and AutoFormat batch (#4232) |
 | 2026-10-25 | trivial | Highlight decisions include fully selected paragraph marks in whole cells and ordinary ranges, including empty paragraphs; partial text columns exclude unselected marks (#4085). |
 | 2026-10-25 | trivial | Highlight toggle checks the full target beyond 10,000 runs without collecting resolved formatting; mixed and inherited tails and Undo/Redo covered (#4085). |

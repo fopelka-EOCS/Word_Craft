@@ -249,12 +249,17 @@ Original binary fixtures and actual WordApp/Session file I/O cover Save, toolbar
 
 Imported text fields use the first nonempty cached result run's formatting on their paragraph span, including character styles. Empty results retain begin-marker formatting. Synthetic fixtures cover simple and complex fields, default inheritance and repeated saves. Mixed-format results remain represented by one span; field refresh policy is unchanged.
 
+## Explicit SAVEDATE updates
+
+An explicit field update formats `docProps/core.xml` Modified metadata for SAVEDATE, including its date picture and capitalization switches. UTC `Z` timestamps with optional fractional seconds are supported. Missing, invalid or other-offset timestamps, unsupported calendar switches and locked fields retain cached text. Without a picture, the existing `M/d/yyyy` default remains. Opening and ordinary PDF conversion keep SAVEDATE cached. Local timezone and locale inference remain unsupported.
+
 ## Revision history
 
 > 2026-10-23 · cu20we: DrawingML flat, square and round line caps are imported, saved, displayed and exported to PDF; absent or unknown caps default to flat. VML end caps (including shapetype inheritance) are preserved through DOCX save. Ink and metafile stroke handling remain separate. Synthetic DOCX, raster and PDF regressions cover the change; no new native Word comparison.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-23 | trivial | Explicit SAVEDATE updates use valid UTC Modified metadata; unsupported timestamps and calendars retain cache. Default PDF conversion is unchanged. |
 | 2026-10-23 | trivial | cu20we: preserve and render outline caps across DOCX/VML, screen and PDF; synthetic regressions; readiness estimates unchanged |
 | 2026-10-23 | trivial | A relationship the markup names without the prefix is read as it wrote: an unqualified `id` on an element that carries a relationship names that relationship, and the writer keeps the attribute with the id the new package holds the part under; an ordinary `id` — a VML shape's, a drawing's — names no part (#3411 follow-up) |
 | 2026-10-21 | trivial | The reader takes the relationship ids the markup refers to from the relationship attributes of the main document it has already parsed, so a document with many relationships opens in the time its part takes, and an id that only appears as text is not a reference (#3411) |
