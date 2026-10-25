@@ -46,12 +46,16 @@ fn home_borders_follow_table_design_for_caret_and_selected_cells() {
             assert_eq!(table(&home), table(&design), "{selection:?}: {kind}");
             assert_eq!(home.sel, selection_before);
             no_paragraph_borders(&home);
-            assert_eq!(home.undo_depth(), depth + 1, "one undo step");
-            let after = table(&home).clone();
-            run(&mut home, "edit.undo", json!({}));
-            assert_eq!(table(&home), &before);
-            run(&mut home, "edit.redo", json!({}));
-            assert_eq!(table(&home), &after);
+            // A command that changes nothing (e.g. clearing borders a cell never had) adds no undo step.
+            let changed = table(&home) != &before;
+            assert_eq!(home.undo_depth(), depth + usize::from(changed), "{selection:?}: {kind}: one undo step, none for a no-op");
+            if changed {
+                let after = table(&home).clone();
+                run(&mut home, "edit.undo", json!({}));
+                assert_eq!(table(&home), &before);
+                run(&mut home, "edit.redo", json!({}));
+                assert_eq!(table(&home), &after);
+            }
         }
     }
 }
