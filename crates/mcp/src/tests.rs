@@ -228,3 +228,51 @@ fn type_text_paragraphs_reports_a_refusal_and_types_nothing_after_it() {
     assert_eq!(calls[0].0, "text.insert");
     assert_eq!(calls[0].1["text"], "one\rtwo", "the line break is a paragraph break");
 }
+
+/// #2242: `insert_table` fills a table in one call; the header row and style survive a DOCX round trip.
+#[test]
+fn insert_table_fills_a_table_and_survives_docx() {
+    let mut s = Server::new(Box::new(Headless::default()));
+    tool(&mut s, "new_document", json!({}));
+    tool(&mut s, "insert_table", json!({"values": [["Month", "Cases"], ["January", 12], ["February", 7]], "header": true, "style": "TableGrid"}));
+    let path = std::env::temp_dir().join(format!("wordcraft-mcp-table-{}.docx", std::process::id()));
+    let path_str = path.to_str().expect("utf-8 path").to_string();
+    tool(&mut s, "save_document", json!({"path": path_str}));
+    let mut s2 = Server::new(Box::new(Headless::default()));
+    tool(&mut s2, "open_document", json!({"path": path_str}));
+    let doc = tool(&mut s2, "inspect_document", json!({}));
+    let table = doc["blocks"].as_array().unwrap().iter().find(|b| b["type"] == "table").expect("a table");
+    let text = table.to_string();
+    for cell in ["Month", "Cases", "January", "12", "February", "7"] {
+        assert!(text.contains(cell), "{cell} missing in {text}");
+    }
+    assert!(text.contains("TableGrid"), "{text}");
+    // The header flag is not in `inspect_document`; read it from the reopened document.
+    let mut h = Headless::default();
+    h.session.run("file.open", &json!({"path": path_str})).expect("reopened");
+    let _ = std::fs::remove_file(&path);
+    let table = h.session.doc.body.iter().find_map(|b| match &**b {
+        wordcraft_doc::Block::Table(t) => Some(t.clone()),
+        _ => None,
+    });
+    let table = table.expect("a table");
+    assert!(table.rows[0].props.header && !table.rows[1].props.header);
+}
+
+/// #2242: malformed `insert_table` arguments are tool errors, not panics.
+#[test]
+fn insert_table_rejects_hostile_values() {
+    let mut s = Server::new(Box::new(Headless::default()));
+    let wide: Vec<Value> = (0..64).map(|i| json!(i)).collect();
+    for args in [
+        json!({}),
+        json!({"values": "x"}),
+        json!({"values": [["a", "b"], ["c"]]}),
+        json!({"values": [wide]}),
+        json!({"values": [[{"a": 1}]]}),
+        json!({"values": []}),
+    ] {
+        let r = call(&mut s, 12, "tools/call", json!({"name": "insert_table", "arguments": args}));
+        assert_eq!(r["result"]["isError"], true, "{args}: {r}");
+    }
+}
