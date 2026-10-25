@@ -21,7 +21,7 @@ use serde_json::Value;
 use wordcraft_doc::edit::Fragment;
 use wordcraft_doc::props::CharProps;
 use wordcraft_doc::{Document, PartKind, Path, Pos, StoryRef, Table};
-use wordcraft_layout::{DocLayout, LayoutCache, LayoutOptions, NumeralMode, ViewMode};
+use wordcraft_layout::{DocLayout, LayoutCache, LayoutOptions, NumeralMode, ViewMode, VisualPos};
 
 use crate::{CmdError, Registry};
 
@@ -398,6 +398,8 @@ pub struct Session {
     pub goal_x: Option<f32>,
     /// Page the caret was last on (headers/footers repeat on many pages).
     pub page_hint: usize,
+    visual_anchor: Option<VisualPos>,
+    visual_focus: Option<VisualPos>,
     pub registry: Arc<Registry>,
     /// Author name for comments and tracked changes.
     pub author: String,
@@ -711,6 +713,8 @@ impl Session {
             find: FindState::default(),
             goal_x: None,
             page_hint: 0,
+            visual_anchor: None,
+            visual_focus: None,
             registry,
             author: "WordCraft User".into(),
             initials: String::new(),
@@ -835,6 +839,8 @@ impl Session {
         self.document_id
     }
     pub fn touch(&mut self) {
+        self.visual_anchor = None;
+        self.visual_focus = None;
         self.rev = self.rev.wrapping_add(1);
         self.dirty = true;
     }
@@ -951,6 +957,8 @@ impl Session {
             filepath: filepath.clone(),
         };
         let l = Arc::new(wordcraft_layout::layout(&self.doc, &mut self.cache, &opts));
+        self.visual_anchor = None;
+        self.visual_focus = None;
         self.layout = Some((self.rev, width, height, mode, spacing, l.clone(), self.view.proofing, outline, deleted, self.view.numeral, typing));
         l
     }
@@ -1027,7 +1035,8 @@ impl Session {
         layout.map(|l| (copy.doc, copy.sel, l))
     }
 
-    /// A layout for output (PDF, images, print): no proofing marks, print view.
+    /// Cached field results in print view, without proofing marks. Physical exports evaluate
+    /// local cross-references in a temporary copy before layout.
     pub fn export_layout(&self) -> Arc<DocLayout> {
         self.export_layout_with(false)
     }
@@ -1049,6 +1058,8 @@ impl Session {
 
     /// Invalidate the cached layout (fonts changed etc.).
     pub fn relayout(&mut self) {
+        self.visual_anchor = None;
+        self.visual_focus = None;
         self.layout = None;
         self.cache.clear();
     }
@@ -1298,6 +1309,8 @@ impl Session {
 
     /// Replace the document (open/new).
     pub fn set_document(&mut self, doc: Document) {
+        self.visual_anchor = None;
+        self.visual_focus = None;
         self.autocap = None;
         self.document_id = self.document_id.wrapping_add(1);
         self.bib_style = doc_bib_style(&doc);
@@ -1362,6 +1375,8 @@ impl Session {
             find: _,
             goal_x: _,
             page_hint: _,
+            visual_anchor: _,
+            visual_focus: _,
             registry: _,
             author: _,
             initials: _,
@@ -1642,6 +1657,7 @@ impl Session {
         {
             self.pending_move = None;
         }
+        let visual_before = (self.visual_anchor.clone(), self.visual_focus.clone());
         let sel_before = self.sel.clone();
         // A rejected command must not persist a new proofing default, including a rejection
         // by the protected-region check after its handler has succeeded. Undo stays document-only.
@@ -1747,6 +1763,10 @@ impl Session {
                     self.also_selected.clear();
                 }
                 self.note_typing(id, before_doc.as_ref().map(|b| &b.0), &sel_before);
+                if (!id.starts_with("caret.") && self.sel != sel_before) || matches!(id, "edit.undo" | "edit.undoTo" | "edit.redo") {
+                    self.visual_anchor = None;
+                    self.visual_focus = None;
+                }
             }
             Err(e) => {
                 self.autocap = None;
@@ -1789,7 +1809,56 @@ impl Session {
                 self.status = e.to_string();
             }
         }
+        if result.is_err() {
+            self.visual_anchor = visual_before.0.filter(|hint| hint.position() == &self.sel.anchor);
+            self.visual_focus = visual_before.1.filter(|hint| hint.position() == &self.sel.focus);
+        }
         result
+    }
+
+    /// Geometry for a session endpoint, including valid transient visual affinity.
+    /// Preview layouts and stale hints fall back to canonical position geometry.
+    pub fn caret_geometry(&self, layout: &Arc<DocLayout>, pos: &Pos) -> Option<wordcraft_layout::hit::Caret> {
+        let hint = if *pos == self.sel.focus {
+            self.visual_focus.as_ref()
+        } else if *pos == self.sel.anchor {
+            self.visual_anchor.as_ref()
+        } else {
+            None
+        };
+        layout.caret_visual(pos, hint, self.page_hint)
+    }
+
+    /// Whether a pointer target is already the current visual insertion point.
+    pub fn visual_matches(&self, target: &VisualPos) -> bool {
+        target.position() == &self.sel.focus && self.visual_focus.as_ref() == Some(target)
+    }
+
+    /// Attach an opaque hit after a successful caret command. Source selection is authoritative.
+    /// Stale snapshot owners are rejected when geometry is resolved.
+    pub fn retain_visual(&mut self, target: VisualPos) {
+        if target.position() != &self.sel.focus {
+            return;
+        }
+        if self.sel.is_collapsed() && self.visual_anchor.is_none() {
+            self.visual_anchor = Some(target.clone());
+        }
+        self.visual_focus = Some(target);
+    }
+
+    pub(crate) fn visual_hint(&self) -> Option<&VisualPos> {
+        self.visual_focus.as_ref().filter(|hint| hint.position() == &self.sel.focus)
+    }
+
+    pub(crate) fn drop_visual(&mut self, mode: crate::cmd::caret::SelectionMode) {
+        if mode == crate::cmd::caret::SelectionMode::Extend {
+            if self.sel.is_collapsed() && self.visual_anchor.is_none() {
+                self.visual_anchor = self.visual_focus.clone();
+            }
+        } else {
+            self.visual_anchor = None;
+        }
+        self.visual_focus = None;
     }
 
     /// The paragraph path the caret is in.
