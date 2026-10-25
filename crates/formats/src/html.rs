@@ -1754,14 +1754,42 @@ fn trim_num(v: f32) -> String {
 }
 
 fn para_attrs(p: &Para) -> String {
-    let mut css: Vec<&str> = Vec::new();
+    let mut css: Vec<String> = Vec::new();
     if let Some(a) = align_css(p.align) {
-        css.push(a);
+        css.push(a.to_string());
     }
     if p.page_break {
-        css.push("break-before:page;page-break-before:always");
+        css.push("break-before:page;page-break-before:always".to_string());
     }
+    css.extend(spacing_css(&p.spacing));
     if css.is_empty() { String::new() } else { format!(" style=\"{}\"", css.join(";")) }
+}
+
+/// A paragraph's spacing, line spacing and indents as CSS, in points; Word reads its
+/// `mso-line-height-rule` for exact and at-least line spacing. Multiple spacing is a unitless
+/// `line-height`, which spans inherit as a factor: a percentage would be computed once from the
+/// paragraph's font size and leave a larger font in a span too little room.
+fn spacing_css(sp: &model::Spacing) -> Vec<String> {
+    use wordcraft_doc::props::LineSpacing;
+    let n = |v: f32| {
+        let s = format!("{:.2}", v);
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    };
+    let mut css = Vec::new();
+    for (name, v) in
+        [("margin-top", sp.before), ("margin-bottom", sp.after), ("margin-left", sp.left), ("margin-right", sp.right), ("text-indent", sp.first)]
+    {
+        if let Some(v) = v.filter(|v| v.is_finite()) {
+            css.push(format!("{name}:{}pt", n(v)));
+        }
+    }
+    match sp.line {
+        Some(LineSpacing::Multiple(m)) if m.is_finite() && m > 0.0 => css.push(format!("line-height:{}", n(m))),
+        Some(LineSpacing::Exactly(v)) if v.is_finite() && v > 0.0 => css.push(format!("line-height:{}pt;mso-line-height-rule:exactly", n(v))),
+        Some(LineSpacing::AtLeast(v)) if v.is_finite() && v > 0.0 => css.push(format!("line-height:{}pt;mso-line-height-rule:at-least", n(v))),
+        _ => {}
+    }
+    css
 }
 
 fn para_html(p: &Para) -> String {
@@ -1927,7 +1955,8 @@ pub fn export(doc: &Document) -> String {
 }
 
 /// `doc`'s content as an HTML fragment (no head or style sheet): what a copy puts on the system
-/// clipboard beside its text, equations as MathML (#816).
+/// clipboard beside its text, equations as MathML (#816). Its paragraphs carry their spacing, line
+/// spacing and indents, since the program it is pasted into has none of our styles.
 pub fn export_fragment(doc: &Document) -> String {
     let flow = model::from_doc(doc);
     let mut out = String::from("<meta charset=\"utf-8\">");
@@ -1952,9 +1981,30 @@ pub fn export_flow(flow: &Flow, lang: &str) -> String {
          table{border-collapse:collapse;margin:0.5em 0}\nblockquote{margin:0.5em 2em;font-style:italic;color:#404040}\n\
          pre{background:#f5f5f5;padding:0.5em;font-family:'Courier New',monospace;font-size:10pt}\n</style>\n</head>\n<body>\n",
     );
-    blocks_html(&flow.blocks, &mut out, 0);
+    // A saved page keeps its paragraphs plain under its own style sheet: per-paragraph spacing is
+    // for the clipboard's fragment ([`export_fragment`]).
+    blocks_html(&without_spacing(&flow.blocks), &mut out, 0);
     out.push_str("</body>\n</html>\n");
     out
+}
+
+/// `blocks` with no paragraph spacing, line spacing or indents of their own (tables included).
+fn without_spacing(blocks: &[FBlock]) -> Vec<FBlock> {
+    blocks
+        .iter()
+        .map(|b| match b {
+            FBlock::Para(p) => FBlock::Para(Para { spacing: model::Spacing::default(), ..p.clone() }),
+            FBlock::Table(t) => {
+                let mut t = t.clone();
+                for row in &mut t.rows {
+                    for c in row {
+                        c.blocks = without_spacing(&c.blocks);
+                    }
+                }
+                FBlock::Table(t)
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
