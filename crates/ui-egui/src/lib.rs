@@ -2150,14 +2150,17 @@ impl WordApp {
     /// Document title for the title bar (and the suggested file name). An untitled document is
     /// named in the interface language, as `Document1` is in English.
     pub fn title_stem(&self) -> String {
-        match &self.session.path {
+        let mut title = match &self.session.path {
             Some(p) => p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| tl!("Document1").into()),
             None => match &self.session.file_name {
                 Some(name) => name.clone(),
                 None if self.session.doc.core.title.is_empty() => tl!("Document1").into(),
                 None => self.session.doc.core.title.clone(),
             },
-        }
+        };
+        // X11 converts window titles to C strings, which cannot contain NUL.
+        title.retain(|c| c != '\0');
+        if title.is_empty() { tl!("Document1").into() } else { title }
     }
 
     /// Terminal feedback also reaches the normal window when printing starts through control.
@@ -3041,6 +3044,49 @@ mod tests {
         assert_eq!(titles(&mut app), 0);
         app.session.dirty = true;
         assert_eq!(titles(&mut app), 1);
+    }
+
+    #[test]
+    fn window_title_with_nul_is_safe_for_x11() {
+        let ctx = egui::Context::default();
+        let mut app = app();
+        let fallback = app.title_stem();
+        app.run("file.properties", json!({"title": "\u{0}"})).unwrap();
+        let mut titles = Vec::new();
+        for _ in 0..4 {
+            let out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                app.logic(ui.ctx());
+                app.ui(ui);
+            });
+            for command in out.viewport_output.values().flat_map(|v| &v.commands) {
+                if let egui::ViewportCommand::Title(title) = command {
+                    titles.push(title.clone());
+                }
+            }
+            out.drop_without_applying_deltas();
+        }
+        assert_eq!(titles.len(), 1);
+        assert!(std::ffi::CString::new(titles[0].as_str()).is_ok(), "X11 needs a title without NUL: {:?}", titles[0]);
+        assert_eq!(app.title_stem(), fallback);
+        assert_eq!(app.default_save_name(), format!("{fallback}.docx"));
+        assert_eq!(app.session.doc.core.title, "\u{0}");
+    }
+
+    #[test]
+    fn title_stem_omits_nul_from_each_title_source() {
+        let mut app = app();
+        let fallback = app.title_stem();
+        for title in ["Résumé\u{0} notes", "\u{0}"] {
+            let expected = if title == "\u{0}" { fallback.as_str() } else { "Résumé notes" };
+            app.session.doc.core.title = title.into();
+            assert_eq!(app.title_stem(), expected);
+            app.session.file_name = Some(title.into());
+            assert_eq!(app.title_stem(), expected);
+            app.session.path = Some(std::path::PathBuf::from(format!("{title}.docx")));
+            assert_eq!(app.title_stem(), expected);
+            app.session.path = None;
+            app.session.file_name = None;
+        }
     }
 
     /// #1678: Focus and Full Screen View put the window in full screen, asked of the system once
