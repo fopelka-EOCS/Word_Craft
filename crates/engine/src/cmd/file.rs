@@ -79,6 +79,7 @@ fn rename(s: &mut Session, v: &Value) -> CmdResult {
     Ok(json!({"name": name, "path": s.path}))
 }
 
+/// Register document lifecycle commands and their UI and automation contracts.
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("file.rename", "Rename Document", "File › Info", rename).params(r#"{"name": string (document name; its extension is kept, so the name may be given with or without it)}"#).pure(),
@@ -224,7 +225,7 @@ fn normal_document(s: &Session) -> Document {
     d
 }
 
-/// Open a document, using the saved proofing default only for plain text and Markdown.
+/// Open a document, applying the opening zoom and the proofing default for plain text and Markdown.
 fn open(s: &mut Session, v: &Value) -> CmdResult {
     let Some(path) = p::str(v, "path") else {
         s.push_ui_request(json!({"open": "openFile"}));
@@ -253,9 +254,7 @@ fn open(s: &mut Session, v: &Value) -> CmdResult {
         doc.styles.default_chr.lang = Some(lang.clone());
     }
     s.set_document(doc);
-    if let Some(z) = s.doc.settings.zoom {
-        super::view::restore_zoom(s, z);
-    }
+    s.apply_document_zoom();
     s.path = Some(path.into());
     // Like Word, a document opened with a password is saved with it again.
     if encrypted {
