@@ -91,6 +91,8 @@ pub(crate) struct Revisions {
     index: HashMap<(bool, String, String), u32>,
     /// The same by raw (kind, author index, DTTM), so a tracked character costs no allocation.
     raw: HashMap<(bool, u16, u32), u32>,
+    /// The first insertion and deletion, which take new changes once the list is full.
+    first: [Option<u32>; 2],
 }
 
 impl Revisions {
@@ -125,13 +127,15 @@ impl Revisions {
         if let Some(i) = self.index.get(&key) {
             return Some(*i);
         }
-        let kind = if delete { RevisionKind::Delete } else { RevisionKind::Insert };
+        let first = &mut self.first[usize::from(delete)];
         if self.list.len() >= MAX_REVISIONS {
             // Full: the change still shows, under the first revision of its kind.
-            return self.list.iter().position(|r| r.kind == kind).and_then(|i| u32::try_from(i).ok());
+            return *first;
         }
         let i = u32::try_from(self.list.len()).ok()?;
+        let kind = if delete { RevisionKind::Delete } else { RevisionKind::Insert };
         self.list.push(Revision::new(kind, key.1.clone(), key.2.clone()));
+        first.get_or_insert(i);
         self.index.insert(key, i);
         Some(i)
     }
@@ -144,14 +148,15 @@ impl Revisions {
 
 /// A DTTM ([MS-DOC] §2.9.70) as an ISO 8601 UTC timestamp, the form `w:date` uses: bits
 /// 0–5 minute, 6–10 hour, 11–15 day, 16–19 month, 20–28 years since 1900, 29–31 weekday.
-/// Zero (no date) and impossible dates give an empty string.
+/// Zero (no date) and impossible dates (30 February too) give an empty string.
 pub(crate) fn date(dttm: u32) -> String {
     let minute = dttm & 0x3F;
     let hour = (dttm >> 6) & 0x1F;
     let day = (dttm >> 11) & 0x1F;
     let month = (dttm >> 16) & 0x0F;
     let year = 1900 + ((dttm >> 20) & 0x1FF);
-    if dttm == 0 || minute > 59 || hour > 23 || !(1..=31).contains(&day) || !(1..=12).contains(&month) {
+    let real = i32::try_from(year).ok().and_then(|y| chrono::NaiveDate::from_ymd_opt(y, month, day)).is_some();
+    if dttm == 0 || minute > 59 || hour > 23 || !real {
         return String::new();
     }
     format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:00Z")
@@ -176,6 +181,9 @@ mod tests {
         assert_eq!(date(0), "");
         assert_eq!(date(dttm(2015, 13, 1, 0, 0)), "");
         assert_eq!(date(dttm(2015, 1, 0, 0, 0)), "");
+        assert_eq!(date(dttm(2015, 2, 29, 0, 0)), "", "2015 isn't a leap year");
+        assert_eq!(date(dttm(2015, 4, 31, 0, 0)), "");
+        assert_eq!(date(dttm(2016, 2, 29, 0, 0)), "2016-02-29T00:00:00Z");
         assert_eq!(date(u32::MAX), "");
     }
 

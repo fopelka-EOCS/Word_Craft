@@ -2470,3 +2470,25 @@ fn tracked_changes_from_a_piece_prc_without_an_author_table() {
     assert_eq!((c.ins, c.del), (None, Some(0)));
     assert_eq!(doc.revisions.first().map(|r| (r.kind, r.author.as_str(), r.date.as_str())), Some((wordcraft_doc::RevisionKind::Delete, "", "")));
 }
+
+#[test]
+fn tracked_changes_from_a_piece_prm0() {
+    // A Prm0 ([MS-DOC] §2.9.215) holds isprm 0x42 (sprmCFRMarkIns) or 0x41 (sprmCFRMarkDel) in
+    // bits 1–7 and the operand in bits 8–15; it has no room for an author or a date.
+    let run = |prm: u16, chpx: Vec<u8>| {
+        let spec = RichSpec {
+            text: "text\r",
+            styles: vec![(1, 0x0FFF, "Normal", Vec::new(), Vec::new())],
+            fonts: vec!["Times New Roman"],
+            chpx_runs: vec![(0, chpx)],
+            papx_entries: vec![(0, 0, Vec::new())],
+        };
+        let doc = read(&rich_doc_with(&spec, &RichExtra { prm, ..Default::default() })).expect("opens");
+        let p = para0(&doc);
+        let c = p.props_of_char(0);
+        (c.ins.is_some(), c.del.is_some(), doc.revisions.len())
+    };
+    assert_eq!(run(0x42 << 1 | 1 << 8, Vec::new()), (true, false, 1), "Prm0 insertion");
+    assert_eq!(run(0x41 << 1 | 1 << 8, grpprl(&[(0x0801, &[0x01])])), (true, true, 2), "Prm0 deletion of an insertion");
+    assert_eq!(run(0x42 << 1, grpprl(&[(0x0801, &[0x01])])), (false, false, 0), "Prm0 insertion off overrides the CHPX");
+}

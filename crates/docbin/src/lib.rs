@@ -757,10 +757,19 @@ fn push_formatted(pb: &mut ParaBuild, cp: u32, c: char, ctx: &WalkCtx, field: Op
 /// and the piece's Prm (which applies after it).
 fn revise(ctx: &WalkCtx, props: &mut CharProps, grpprl: &[u8], prm: PrmRef<'_>) {
     let mut marks = revision::Marks::of(grpprl);
-    if let PrmRef::Grpprl(Some(g)) = prm {
-        for prl in sprm::iter(g) {
-            marks.apply(&prl);
+    match prm {
+        // Only the insertion and deletion flags fit a Prm0; author and date need a Prc.
+        PrmRef::Sprm0 { isprm, val } => {
+            if let Some(op) = sprm::from_prm0(isprm) {
+                marks.apply(&Prl { op, operand: &[val] });
+            }
         }
+        PrmRef::Grpprl(Some(g)) => {
+            for prl in sprm::iter(g) {
+                marks.apply(&prl);
+            }
+        }
+        PrmRef::Grpprl(None) | PrmRef::None => {}
     }
     // Never contended (walks are sequential); a failed borrow only loses the marks.
     if let Ok(mut revs) = ctx.revs.try_borrow_mut() {
