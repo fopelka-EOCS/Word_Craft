@@ -1291,11 +1291,21 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                     mi(ui, app, "Remove Space After Paragraph", "para.removeSpaceAfter", json!({}));
                     mi(ui, app, "Line Spacing Options…", "para.dialog", json!({}));
                 });
-                split(ui, app, "shading", "Shading", "para.shading", json!({"color": app.canvas.last_shading.clone()}), false, None, |ui, app| {
-                    mi(ui, app, "No Color", "para.shading", json!({"color": null}));
-                    let theme = app.session.doc.settings.theme_colors.clone();
-                    crate::colors::menu(ui, app, &theme, Target::cmd("para.shading").remember(Remember::Shading));
-                });
+                split(
+                    ui,
+                    app,
+                    "shading",
+                    "Shading",
+                    "para.shading",
+                    json!({"color": app.canvas.last_shading.clone()}),
+                    false,
+                    wordcraft_doc::Rgb::parse(&app.canvas.last_shading).map(crate::theme::c32),
+                    |ui, app| {
+                        mi(ui, app, "No Color", "para.shading", json!({"color": null}));
+                        let theme = app.session.doc.settings.theme_colors.clone();
+                        crate::colors::menu(ui, app, &theme, Target::cmd("para.shading").remember(Remember::Shading));
+                    },
+                );
                 split(ui, app, "borders", "Borders", "para.borders", json!({"kind": "bottom"}), false, None, |ui, app| {
                     for (l, k) in [
                         ("Bottom Border", "bottom"),
@@ -1532,7 +1542,9 @@ fn draw(app: &mut WordApp, ui: &mut Ui) {
         big_toggle(ui, app, "eraser", "Eraser", "draw.eraser", mode == DrawMode::Eraser);
         big_toggle(ui, app, "pen", "Pen", "draw.pen", mode == DrawMode::Pen(InkTool::Pen) && custom.is_none());
         big_toggle(ui, app, "pencil", "Pencil", "draw.pencil", mode == DrawMode::Pen(InkTool::Pencil) && custom.is_none());
-        big_toggle(ui, app, "highlight", "Highlighter", "draw.highlighter", mode == DrawMode::Pen(InkTool::Highlighter) && custom.is_none());
+        let hl_ink = crate::theme::c32(app.session.view.draw.settings(InkTool::Highlighter).color);
+        let hl_on = mode == DrawMode::Pen(InkTool::Highlighter) && custom.is_none();
+        crate::widgets::big_toggle_swatch(ui, app, "highlight", "Highlighter", "draw.highlighter", hl_on, hl_ink);
         // Pens added with Add Pen; right-click one to remove it.
         let pens = app.session.view.draw.pens.clone();
         for (i, pen) in pens.iter().enumerate() {
@@ -1615,7 +1627,7 @@ fn gallery_pen(ui: &mut Ui, app: &mut WordApp, i: usize, pen: wordcraft_engine::
         InkTool::Highlighter => "highlight",
     };
     let color = crate::theme::c32(pen.color);
-    icons::paint(ui.painter(), Rect::from_center_size(pos2(r.center().x, r.min.y + 20.0), vec2(28.0, 28.0)), icon, t.icon, color);
+    icons::paint_state(ui.painter(), Rect::from_center_size(pos2(r.center().x, r.min.y + 20.0), vec2(28.0, 28.0)), icon, t.icon, color, false);
     let bar = (pen.width * 0.6).clamp(1.5, 8.0);
     let y = r.min.y + 46.0;
     ui.painter().line_segment([pos2(r.min.x + 6.0, y), pos2(r.max.x - 6.0, y)], Stroke::new(bar, color));
@@ -2587,15 +2599,27 @@ fn shape_format(app: &mut WordApp, ui: &mut Ui) {
         Some((_, o)) => (None, None, o.canvas_style().and_then(|c| c.fill.clone())),
         _ => (None, None, None),
     };
+    // Shape Fill's bar shows the current fill; no fill, no bar.
+    let fill_sw = fill.as_ref().map_or(egui::Color32::TRANSPARENT, |f| crate::theme::c32(f.main_color()));
     let theme = app.session.doc.settings.theme_colors.clone();
     group(ui, "Shape Styles", None, app, |ui, app| {
         stack(ui, |ui| {
-            menu_button(ui, app, "shading", Some("Shape Fill"), "Shape Fill", false, "shape.fill", |ui, app| {
-                mi(ui, app, "No Color", "shape.fill", json!({"color": null}));
-                crate::colors::menu(ui, app, &theme, Target::cmd("shape.fill"));
-                ui.separator();
-                ui.menu_button(tl!("Gradient"), |ui| gradient_menu(ui, app, fill.as_ref()));
-            });
+            crate::widgets::menu_button_swatch(
+                ui,
+                app,
+                "shading",
+                Some("Shape Fill"),
+                "Shape Fill",
+                false,
+                "shape.fill",
+                Some(fill_sw),
+                |ui, app| {
+                    mi(ui, app, "No Color", "shape.fill", json!({"color": null}));
+                    crate::colors::menu(ui, app, &theme, Target::cmd("shape.fill"));
+                    ui.separator();
+                    ui.menu_button(tl!("Gradient"), |ui| gradient_menu(ui, app, fill.as_ref()));
+                },
+            );
             menu_button(ui, app, "pen", Some("Shape Outline"), "Shape Outline", false, "shape.outline", |ui, app| {
                 mi(ui, app, "No Color", "shape.outline", json!({"color": null}));
                 crate::colors::menu(ui, app, &theme, Target::cmd("shape.outline"));
@@ -2988,11 +3012,21 @@ fn table_design(app: &mut WordApp, ui: &mut Ui) {
                     ui.close();
                 }
             });
-            split(ui, app, "shading", "Shading", "table.shading", json!({"color": app.canvas.last_shading.clone()}), false, None, |ui, app| {
-                mi(ui, app, "No Color", "table.shading", json!({"color": null}));
-                let theme = app.session.doc.settings.theme_colors.clone();
-                crate::colors::menu(ui, app, &theme, Target::cmd("table.shading").remember(Remember::Shading));
-            });
+            split(
+                ui,
+                app,
+                "shading",
+                "Shading",
+                "table.shading",
+                json!({"color": app.canvas.last_shading.clone()}),
+                false,
+                wordcraft_doc::Rgb::parse(&app.canvas.last_shading).map(crate::theme::c32),
+                |ui, app| {
+                    mi(ui, app, "No Color", "table.shading", json!({"color": null}));
+                    let theme = app.session.doc.settings.theme_colors.clone();
+                    crate::colors::menu(ui, app, &theme, Target::cmd("table.shading").remember(Remember::Shading));
+                },
+            );
         });
     });
     group(ui, "Borders", None, app, |ui, app| {
@@ -3136,7 +3170,7 @@ fn table_layout(app: &mut WordApp, ui: &mut Ui) {
                 [("bottomLeft", "Align Bottom Left"), ("bottomCenter", "Align Bottom Center"), ("bottomRight", "Align Bottom Right")],
             ] {
                 for (v, tip) in row {
-                    small(ui, app, "cellAlign", None, tip, "table.cellAlign", json!({"value": v}), false);
+                    small(ui, app, &format!("cellAlign.{v}"), None, tip, "table.cellAlign", json!({"value": v}), false);
                 }
                 ui.end_row();
             }
