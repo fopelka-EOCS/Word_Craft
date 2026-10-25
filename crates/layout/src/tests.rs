@@ -622,7 +622,26 @@ fn a_megabyte_long_word_lays_out_quickly() {
 
 /// A cluster with the given advance and kind, for the tests that measure a word by hand.
 fn word_cluster(kind: para::ClKind, adv: f32, break_after: bool) -> para::Cluster {
-    para::Cluster { start: 0, end: 1, adv, kind, style: 0, g0: 0, g1: 1, break_after, obj_h: 0.0, obj_d: 0.0, dot: false }
+    // Seed once through layout so private shaping metadata stays valid in the synthetic controls.
+    static SEED: std::sync::OnceLock<para::Cluster> = std::sync::OnceLock::new();
+    let mut cluster = SEED
+        .get_or_init(|| {
+            lay(&Document::from_text("a"))
+                .pages
+                .iter()
+                .flat_map(|page| &page.items)
+                .find_map(|item| match item {
+                    Placed::Lines { para, .. } => para.clusters.first().cloned(),
+                    _ => None,
+                })
+                .unwrap()
+        })
+        .clone();
+    assert_eq!((cluster.start, cluster.end, cluster.g0, cluster.g1), (0, 1, 0, 1));
+    cluster.adv = adv;
+    cluster.kind = kind;
+    cluster.break_after = break_after;
+    cluster
 }
 
 /// A word that a negative advance makes narrower still fits beside a float: the width of a word
@@ -4540,20 +4559,131 @@ fn picture(w: f32, h: f32, float: wordcraft_doc::para::Float) -> InlineObject {
 }
 
 #[test]
-fn line_spacing_does_not_scale_pictures() {
+fn picture_auto_spacing_leading() {
+    use wordcraft_doc::props::LineSpacing;
+    // Word Mac: single, 1.15 and double spacing add only the font's extra leading.
+    for (multiple, manual_break) in [1.0, 1.15, 2.0].into_iter().flat_map(|m| [false, true].map(|b| (m, b))) {
+        let mut d = Document::from_text("");
+        let p = d.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+        p.props.line_spacing = Some(LineSpacing::Multiple(multiple));
+        let chr = wordcraft_doc::CharProps { font: Some("Arial".into()), size: Some(10.0), ..Default::default() };
+        p.insert_object(0, picture(144.0, 144.0, Default::default()), &chr).unwrap();
+        if manual_break {
+            p.insert_text(p.len(), &wordcraft_doc::para::LINE_BREAK.to_string(), &chr).unwrap();
+        }
+        let l = lay(&d);
+        let Some(Placed::Lines { para, .. }) = l.pages[0].items.iter().find(|i| matches!(i, Placed::Lines { .. })) else { panic!() };
+        let line = &para.lines[0];
+        assert_eq!(line.end, if manual_break { para::LineEnd::LineBreak } else { para::LineEnd::Para });
+        let style = &para.styles[para.clusters[0].style as usize];
+        let natural = style.ascent + style.descent;
+        let expected = (144.0 + natural * (multiple - 1.0)).max(natural * multiple);
+        assert!((line.height - expected).abs() < 0.01, "{multiple}: {} vs {expected}", line.height);
+        assert!((line.baseline - line.top - 144.0).abs() < 0.01, "the picture stands on the baseline");
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum NonPicture {
+    CheckBox,
+    TextBox,
+}
+
+fn check_non_picture_floor(kind: NonPicture) {
+    use wordcraft_doc::props::LineSpacing;
+    let mut failures = Vec::new();
+    for multiple in [1.0, 1.15, 2.0] {
+        for with_picture in [false, true] {
+            let mut d = Document::from_text("");
+            let object = match kind {
+                NonPicture::CheckBox => InlineObject::Field {
+                    instr: "FORMCHECKBOX".into(),
+                    result: String::new(),
+                    locked: false,
+                    dirty: false,
+                    code: false,
+                    form: r#"<w:ffData><w:checkBox><w:size w:val="72"/></w:checkBox></w:ffData>"#.into(),
+                },
+                NonPicture::TextBox => {
+                    let id = d.add_part(
+                        wordcraft_doc::PartKind::TextBox,
+                        vec![wordcraft_doc::para_block(wordcraft_doc::Paragraph::with_text("Box text", Default::default()))],
+                    );
+                    let mut object = picture(90.0, 144.0, Default::default());
+                    if let InlineObject::Shape { kind, story, .. } = &mut object {
+                        *kind = wordcraft_doc::para::ShapeKind::TextBox;
+                        *story = Some(id);
+                    }
+                    object
+                }
+            };
+            let chr = wordcraft_doc::CharProps { font: Some("Arial".into()), size: Some(10.0), ..Default::default() };
+            let p = d.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+            p.props.line_spacing = Some(LineSpacing::Multiple(multiple));
+            p.insert_object(0, object, &chr).unwrap();
+            if with_picture {
+                p.insert_object(p.len(), picture(90.0, 144.0, Default::default()), &chr).unwrap();
+            }
+            let l = lay(&d);
+            let para = l.pages[0]
+                .items
+                .iter()
+                .find_map(|i| match i {
+                    Placed::Lines { story: StoryRef::Body, para, .. } => Some(para),
+                    _ => None,
+                })
+                .unwrap();
+            let line = &para.lines[0];
+            let style = &para.styles[para.clusters[0].style as usize];
+            let tallest = para.clusters.iter().map(|c| c.obj_h).fold(0.0f32, f32::max);
+            assert!(tallest > style.ascent, "the fixture must exceed the text ascent");
+            assert!(line.height.is_finite());
+            // Non-picture objects retain text descent, alone or beside a picture.
+            let expected = (tallest + style.descent).max((style.ascent + style.descent) * multiple);
+            if (line.height - expected).abs() >= 0.01 {
+                failures.push(format!("{kind:?}, picture={with_picture}, spacing={multiple}: {} vs {expected}", line.height));
+            }
+            assert!((line.baseline - line.top - tallest).abs() < 0.01);
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn checkbox_keeps_line_descent() {
+    check_non_picture_floor(NonPicture::CheckBox);
+}
+
+#[test]
+fn textbox_keeps_line_descent() {
+    check_non_picture_floor(NonPicture::TextBox);
+}
+
+#[test]
+fn picture_skips_hidden_box() {
     use wordcraft_doc::props::LineSpacing;
     let mut d = Document::from_text("");
-    if let Some(wordcraft_doc::Block::Para(p)) = d.body.get_mut(0).map(std::sync::Arc::make_mut) {
-        p.props.line_spacing = Some(LineSpacing::Multiple(1.15));
-        p.insert_object(0, picture(144.0, 144.0, Default::default()), &Default::default()).unwrap();
+    let id = d.add_part(wordcraft_doc::PartKind::TextBox, vec![]);
+    let mut anchor = picture(90.0, 144.0, wordcraft_doc::para::Float { hidden: true, ..Default::default() });
+    if let InlineObject::Shape { kind, story, .. } = &mut anchor {
+        *kind = wordcraft_doc::para::ShapeKind::TextBox;
+        *story = Some(id);
     }
+    let chr = wordcraft_doc::CharProps { font: Some("Arial".into()), size: Some(10.0), ..Default::default() };
+    let p = d.para_mut(StoryRef::Body, &Path::top(0)).unwrap();
+    p.props.line_spacing = Some(LineSpacing::Multiple(1.0));
+    p.insert_object(0, anchor, &chr).unwrap();
+    p.insert_object(p.len(), picture(90.0, 144.0, Default::default()), &chr).unwrap();
     let l = lay(&d);
-    let Some(Placed::Lines { para, .. }) = l.pages[0].items.iter().find(|i| matches!(i, Placed::Lines { .. })) else { panic!() };
-    let line = &para.lines[0];
-    let desc = para.styles[0].descent;
-    // Word: the picture plus the font's descent, not (picture + descent) x 1.15.
-    assert!((line.height - (144.0 + desc)).abs() < 0.01, "line {} for a 144pt picture (descent {desc})", line.height);
-    assert!((line.baseline - line.top - 144.0).abs() < 0.01, "the picture stands on the baseline");
+    let para = l.pages[0]
+        .items
+        .iter()
+        .find_map(|i| match i {
+            Placed::Lines { story: StoryRef::Body, para, .. } => Some(para),
+            _ => None,
+        })
+        .unwrap();
+    assert!((para.lines[0].height - 144.0).abs() < 0.01, "hidden anchors take no font height");
 }
 
 #[test]
