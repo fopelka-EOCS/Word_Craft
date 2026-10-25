@@ -82,6 +82,7 @@ pub mod table_pen;
 pub mod table_resize;
 pub mod table_ruler;
 pub mod theme;
+pub mod updates_ui;
 pub mod widgets;
 pub mod window_close;
 pub mod window_geometry;
@@ -554,6 +555,7 @@ pub struct WordApp {
     pub mac_titlebar: chrome::MacTitleBar,
     /// Focus (#1678): the ribbon is dropped down from the Focus bar, over the page.
     pub(crate) focus_ribbon: bool,
+    pub(crate) updates_rt: updates_ui::Runtime,
     control_rx: Option<std::sync::mpsc::Receiver<ControlRequest>>,
     shot_token: u64,
     queued_shots: Vec<(u64, f64, u32)>,
@@ -704,6 +706,7 @@ impl WordApp {
             integrated_titlebar: false,
             mac_titlebar: chrome::MacTitleBar::default(),
             focus_ribbon: false,
+            updates_rt: updates_ui::Runtime::default(),
             control_rx: None,
             shot_token: 0,
             queued_shots: Vec::new(),
@@ -1543,6 +1546,10 @@ impl WordApp {
     fn ui_command(&mut self, id: &str, p: &Value) -> Option<Result<Value, String>> {
         let s = |k: &str| p.get(k).and_then(Value::as_str);
         Some(Ok(match id {
+            "app.checkForUpdates" | "help.checkForUpdates" => {
+                crate::updates_ui::check(self);
+                Value::Null
+            }
             "ui.tab" => {
                 let tab = s("tab").unwrap_or("Home").to_string();
                 if tab == "File" {
@@ -2139,6 +2146,7 @@ impl WordApp {
 
     /// Per-frame logic before layout: control requests, screenshots, shortcuts, file drops.
     pub fn logic(&mut self, ctx: &egui::Context) {
+        updates_ui::tick(self, ctx);
         let lang = i18n::Lang::from_pref(&self.ui.language);
         i18n::set_current(lang);
         // New documents are written in the interface's language when WordCraft can proof it
@@ -2461,6 +2469,7 @@ impl WordApp {
         }
         content_controls::popup(self, &ctx);
         dialogs::show(self, &ctx);
+        updates_ui::show(self, &ctx);
         #[cfg(not(target_arch = "wasm32"))]
         file_browser::show(self, &ctx);
         colors::show(self, &ctx);
@@ -2864,6 +2873,7 @@ pub(crate) fn works_without_document(id: &str) -> bool {
             | "ui.discord"
             | "ui.caretAnimation"
             | "ui.startScreen"
+            | "app.checkForUpdates"
     ) || id.starts_with("help.")
 }
 
