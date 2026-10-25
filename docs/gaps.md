@@ -91,6 +91,8 @@ Text context menus now include the existing formatting mini toolbar (#2959), inc
 blocking gaps, and closing them lifts file formats, layout, stability and UI enough to take the
 full number from ~60% to ~75%. Everything else is depth on the way to full parity.
 
+The explicit-page-break/empty-section-mark case has bounded numbering evidence from Word for Mac 16.113.2 (26092012) for Page, Section and Continuous modes. Original synthetic controls pin the printed sequences and ordinary-empty/nonempty exclusions. Native caret placement and general numbering policy remain outside that evidence.
+
 ## By kind
 
 List toggles now recognise numbering inherited from paragraph styles (related to #3459). This closes that command-level case; the broader issue and readiness estimates are unchanged. See [typing-parity.md](typing-parity.md) for the original-fixture and round-trip coverage.
@@ -175,6 +177,8 @@ Small follow-ups from the 2026-10-25 field, table and AutoFormat batch (#4232):
 | 2026-10-19 | trivial | #7: Format Page Numbers dialog (#1113), 60 modal dialogs |
 | 2026-10-19 | trivial | The text context menu includes the existing two-row formatting mini toolbar, at a caret or over selected text (#2959); formatting and its dropdowns preserve the selection, regular menu commands and dismissal still close the popup. Paste options remain in separate PR #2599. |
 | 2026-10-18 | trivial | Gap 8 narrowed: German text hyphenates by the TeX German patterns (reformed spelling); German spelling and grammar remain |
+| 2026-10-20 | trivial | Original controls pin the Page, Section and Continuous print sequences. An absorbed terminal mark no longer adds a second break-line number; ordinary empty lines still count. Bookmark-only structural targets retain their markers on the preceding page. Native caret ownership remains unmeasured. |
+| 2026-10-15 | trivial | An empty section mark after a page break stays on the preceding page, so the following next-page section leaves no blank page; its caret remains available |
 | 2026-10-19 | trivial | Restrict Editing: with Filling in forms enforced, inserting content controls, their Properties and Remove Content Control are refused, as in Word (it greys them out), so a form's fields stay as they are and only their content is filled in |
 | 2026-10-19 | trivial | Content controls: text typed over a placeholder takes the control's own run properties (`w:sdtPr/w:rPr`, ECMA-376 §17.5.2.27), as in Word, and the placeholder style is recognised by its built-in name "Placeholder Text" whatever its localized id (German Word: `Platzhaltertext`), so entries in forms from localized Word no longer stay grey |
 | 2026-10-18 | trivial | Font list starts at its first row after clearing a no-match query; recent heading remains visible (#2068) |

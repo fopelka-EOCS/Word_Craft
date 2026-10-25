@@ -166,6 +166,7 @@ Ranked, to beta (detail and remaining milestones in [docs/roadmap.md](docs/roadm
 - 2026-10-24: Track Changes: the border-line (`---` and the others) and `+---+` table AutoFormats mark the typed characters deleted instead of removing them, so Reject All brings them back. Characters the same author typed with tracking on are removed, as a tracked Backspace removes them. A border at the top of a story is a tracked formatting change too, as the border on the paragraph above already was. The table is inserted untracked, as Insert › Table inserts one. A line that holds a tracked deletion no longer triggers either AutoFormat.
 
 Four geometry-dependent layout controls request Source Sans 3 explicitly. Installed substitute fonts no longer choose their line breaks. Assertions and renderer font fallback policy are unchanged.
+Original numbered layout controls cover a page-break paragraph followed by an empty section-ending paragraph before a next-page section. Native Page/Section/Continuous print controls show no extra visible structural count; ordinary empty and nonempty targets each count once. Existing caret behavior is unchanged and is not newly qualified by print evidence.
 
 Imported Word 97–2003 `.doc`/`.dot` files now ask for a supported DOCX target on interactive Save (#2445). Save before Close waits for that write; cancel or failure keeps the draft and original file. This does not add binary Word output. Late Save As answers are rejected before writing if automation has replaced the document.
 
@@ -681,6 +682,8 @@ Footer page-table height and body wrapping are corrected. Other pagination gaps 
 | 2026-10-19 | trivial | A right, centre or decimal tab whose text doesn't fit, or a left tab past the right indent, starts the next line with its text instead of ending the line (a TOC entry's page number keeps its leader); a left tab still past the right indent there takes no room (#1840) |
 | 2026-10-19 | trivial | Progress log: a picture dragged near the bottom of a page lands there (#3169) |
 | 2026-10-19 | trivial | Progress log: a Thai run with Latin finds one installed font covering it all on Linux too (#1549) |
+| 2026-10-20 | trivial | Original controls pin the Page, Section and Continuous print sequences. An absorbed terminal mark no longer adds a second break-line number; ordinary empty lines still count. Bookmark-only structural targets retain their markers on the preceding page. Native caret ownership remains unmeasured. |
+| 2026-10-15 | trivial | An empty section mark after a page break stays on the preceding page, so the following next-page section leaves no blank page; its caret remains available |
 | 2026-10-19 | trivial | Progress log: forms protection keeps its content controls: no inserting, Properties or Remove Content Control |
 | 2026-10-19 | trivial | Progress log: text typed into a content control takes the control's formatting; localized placeholder styles recognised |
 | 2026-10-17 | trivial | Progress log: #2048 entry covers anchors pushed onto the next page |
