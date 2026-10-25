@@ -92,6 +92,6 @@ mod tests {
 
     #[test]
     fn nosuggest_stems_and_forms_are_never_offered() {
-        crate::affix::tests::assert_nosuggest_is_honoured(|d, w, max| suggest_in(d, w, max, ProofLang::Es));
+        crate::affix_fixtures::assert_nosuggest_is_honoured(|d, w, max| suggest_in(d, w, max, ProofLang::Es));
     }
 }
