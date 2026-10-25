@@ -1601,7 +1601,10 @@ fn joined(doc: &Document, blocks: &Blocks, i: usize, j: Option<usize>, table: Op
 /// The room a paragraph's top or bottom border takes in the text flow: its distance from the
 /// text plus its width (Word).
 fn border_room(b: Option<Border>) -> f32 {
-    b.filter(Border::is_visible).map_or(0.0, |b| b.space + b.width)
+    b.filter(Border::is_visible).map_or(0.0, |b| {
+        let extent = b.space + b.width;
+        if extent.is_finite() { extent.max(0.0) } else { 0.0 }
+    })
 }
 
 /// How a piece of a paragraph meets the paragraphs around it: the room taken by its top and
@@ -3801,7 +3804,14 @@ fn place_para_in_flow(ctx: &mut Ctx, pb: &mut PageBuilder, p: &Paragraph, block:
     // Keep lines together: if it doesn't fit but would on an empty column, move it. Keep with
     // next alone moves a paragraph only when it would fit here by itself (Word for Windows): one
     // that doesn't breaks as usual, its last lines going over with the next paragraph.
-    let height = pl.height + top_room + bottom_room;
+    // A terminal page-break mark stays with the break and draws no bottom border there.
+    let break_mark = !pb.web
+        && pl.lines.len() >= 2
+        && pl
+            .lines
+            .get(pl.lines.len() - 2)
+            .is_some_and(|line| line.end == LineEnd::PageBreak && pl.lines.last().is_some_and(|mark| only_markers(p, mark.start..mark.stop)));
+    let height = pl.height + top_room + if break_mark { 0.0 } else { bottom_room };
     if pl.rp.keep_lines || (pl.rp.keep_next && pb.y + height <= pb.bottom + 0.01) {
         let need = height + if pl.rp.keep_next { next_first_line(ctx, block, width, 0, &mut ctx.counters.clone()) } else { 0.0 };
         // (Against the whole column: balanced columns grow to hold it.)
