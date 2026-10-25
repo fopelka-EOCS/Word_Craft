@@ -78,12 +78,15 @@ fn autoformat(s: &mut Session, text: &str) -> Option<String> {
     let lang = s.pending.as_ref().and_then(|p| p.lang.clone()).or_else(|| super::tools::text_lang(s, f, f.off.saturating_sub(1)));
     let (double, single) = quote_pairs(lang.as_deref());
     // A quote opens after a space, a bracket, a dash, a guillemet or low quote, or the other
-    // kind's opening quote in this language (nesting; German „…‚…‘…“ closes after ‘).
+    // kind's opening quote in this language (nesting; German „…‚…‘…“ closes after ‘). Right
+    // after its own kind's opening quote it closes, so empty quotes are „“ and «», not „„.
+    let own = if c == '"' { double.0 } else { single.0 };
     let opening = prev.is_none_or(|p| {
-        p.is_whitespace()
-            || "([{<\u{2014}\u{2013}\u{00AB}\u{2039}\u{201E}\u{201A}".contains(p)
-            || (c == '"' && single.0.starts_with(p))
-            || (c == '\'' && double.0.starts_with(p))
+        !own.starts_with(p)
+            && (p.is_whitespace()
+                || "([{<\u{2014}\u{2013}\u{00AB}\u{2039}\u{201E}\u{201A}".contains(p)
+                || (c == '"' && single.0.starts_with(p))
+                || (c == '\'' && double.0.starts_with(p)))
     });
     // After a letter or digit a single quote is an apostrophe (geht’s, Andreas’), which German
     // writes as ’ like English, not as its closing quote ‘; unless it closes a ‚ still open in

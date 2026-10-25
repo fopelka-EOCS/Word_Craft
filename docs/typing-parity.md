@@ -165,7 +165,7 @@ ideographic space (`autocorrect_finds_the_word_after_a_wide_space`):
   set at the caret applies to the next quote, and `de-Latn-CH` counts as Swiss. A German sentence
   that starts with a quote is capitalised at its first letter (`„hallo“` → `„Hallo“`; English keeps
   `“hello”` as typed, not yet compared with Word), and
-  TWo INitial CApitals is corrected inside „…“ and «…». Word itself was not observed for
+  TWo INitial CApitals is corrected inside „…“ and «…»; empty quotes are „“ and «». Word itself was not observed for
   this; the quotes are the Duden's and the Swiss conventions
   (`smart_quotes_follow_the_texts_language`, `german_abbreviations_and_ordinals_dont_end_sentences`,
   `german_quotes_capitalise_and_fix_two_initial_capitals`).
@@ -433,7 +433,7 @@ again.
 | 2026-10-25 | trivial | Highlight toggle checks the full target beyond 10,000 runs without collecting resolved formatting; mixed and inherited tails and Undo/Redo covered (#4085). |
 | 2026-10-24 | trivial | Highlight shortcut toggles the last chosen colour off when the whole selection has it; explicit colour commands remain setters (#4085). |
 | 2026-10-24 | trivial | AutoFormat As You Type: `*Bold* and _italic_ as real formatting` turns `*word*` bold and `_word_` italic without the marks; off by default |
-| 2026-10-25 | trivial | German text (#735 review): a sentence ends inside “ ‘ » ›; a language set at the caret picks the next quote; deleted German exceptions are honoured; `de-Latn-CH` is Swiss; a German sentence starting with a quote is capitalised inside it; TWo INitial CApitals works inside „…“ and «…» |
+| 2026-10-25 | trivial | German text (#735 review): a sentence ends inside “ ‘ » ›; a language set at the caret picks the next quote; deleted German exceptions are honoured; `de-Latn-CH` is Swiss; a German sentence starting with a quote is capitalised inside it; TWo INitial CApitals works inside „…“ and «…»; empty quotes close („“, «») |
 | 2026-10-25 | minor | German text: smart quotes „…“ and ‚…‘ (Swiss «…» and ‹…›), apostrophe ’ after a letter; German abbreviations and ordinal numbers don't end a sentence (#735) |
 | 2026-10-22 | trivial | Input methods: while composing, the caret and the candidate window follow the input method's cursor inside the marked text |
 | 2026-10-21 | trivial | Bullets and Numbering toggle off style-inherited lists at their effective level, including basedOn chains and numbered ListParagraph styles; other paragraphs and list definitions stay unchanged (related to #3459) |

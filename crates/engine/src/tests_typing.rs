@@ -574,8 +574,8 @@ fn german_abbreviations_and_ordinals_dont_end_sentences() {
     assert_eq!(s.doc.plain_text(StoryRef::Body), "We won 3. Then it ended ");
 }
 
-/// #735: a German sentence that starts with a quote is capitalised at its first letter, and TWo INitial
-/// CApitals is corrected inside German and Swiss quotes.
+/// #735: a German sentence that starts with a quote is capitalised at its first letter, TWo INitial
+/// CApitals is corrected inside German and Swiss quotes, and empty quotes close.
 #[test]
 fn german_quotes_capitalise_and_fix_two_initial_capitals() {
     let mut s = in_lang("de-DE");
@@ -598,6 +598,13 @@ fn german_quotes_capitalise_and_fix_two_initial_capitals() {
     let mut s = in_lang("de-CH");
     typ(&mut s, "Ein \"TEst\" und ");
     assert_eq!(s.doc.plain_text(StoryRef::Body), "Ein «Test» und ");
+    // Empty quotes open then close, as in English.
+    let mut s = in_lang("de-DE");
+    typ(&mut s, "\"\" '' ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "„“ ‚‘ ");
+    let mut s = in_lang("de-CH");
+    typ(&mut s, "\"\" '' ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "«» ‹› ");
 }
 
 #[test]
