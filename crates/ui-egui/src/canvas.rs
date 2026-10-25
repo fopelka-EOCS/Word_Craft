@@ -3695,6 +3695,12 @@ pub(crate) fn caret_color_on(app: &WordApp, layout: &DocLayout, page: usize, x: 
     caret_contrast(wordcraft_render::background_at(&app.session.doc, p, &page_render_options(app, dims_body(app, layout)), x, y))
 }
 
+/// The caret colour over the bare paper, as in the margins: cheap enough for every frame.
+pub(crate) fn paper_caret_color(app: &WordApp) -> Color32 {
+    let opts = page_render_options(app, false);
+    caret_contrast(opts.ink(app.session.doc.settings.page_color.unwrap_or(opts.paper)))
+}
+
 /// Render options for page rasters shown on screen: on macOS, text is darkened the way the system
 /// draws it, so a page looks as it does in other Mac apps (exports never are).
 pub(crate) fn screen_render_options() -> wordcraft_render::RenderOptions {

@@ -61,6 +61,9 @@ pub struct ObjectDrag {
     /// Moving an In Line with Text object: the text position under the pointer, where it lands,
     /// and the colour of the dashed insertion cursor drawn there.
     drop_at: Option<(Pos, Color32)>,
+    /// Moving or resizing a floating object: the paragraph the drop will anchor it to, and its
+    /// page, where the anchor mark goes ([`anchor_mark`]).
+    anchor_at: Option<(Pos, usize)>,
 }
 
 /// How near (screen points) a press must be to a connector's end to grab it.
@@ -225,6 +228,7 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
                 } else if d.drag.grab == Grab::Move && d.drag.moved && app.ui.alignment_guides && !ui.input(|i| i.modifiers.alt) {
                     snap_move(layout, &mut d, scale);
                 }
+                d.anchor_at = drop_anchor(app, layout, &d);
             }
             if d.drag.moved && d.preview.is_none() && shows_pixels(&d) {
                 d.preview = preview(app, ui.ctx(), layout, &d.object, scale);
@@ -258,6 +262,7 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
             preview: None,
             copy: false,
             drop_at: None,
+            anchor_at: None,
         });
         return true;
     }
@@ -292,6 +297,7 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
             preview: None,
             copy: false,
             drop_at: None,
+            anchor_at: None,
         });
         return false;
     }
@@ -318,6 +324,7 @@ pub fn pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, pages: &[Rect]
                 preview: None,
                 copy,
                 drop_at: None,
+                anchor_at: None,
             });
         }
     }
@@ -575,6 +582,7 @@ pub fn paint(app: &WordApp, painter: &Painter, t: &Tokens, layout: &DocLayout, p
     if crate::crop::paint(app, painter, t, layout, pages, scale) {
         return;
     }
+    paint_anchor(app, painter, layout, pages, scale);
     if let Some(d) = app.canvas.obj_drag.as_ref().filter(|d| d.end.is_some()) {
         paint_end_drag(app, d, painter, t, layout, pages, scale);
         return;
@@ -650,6 +658,56 @@ fn paint_drop_caret(d: &ObjectDrag, painter: &Painter, layout: &DocLayout, pages
     let Some(c) = layout.caret_on(pos, d.drag.to_page) else { return };
     let Some(r) = screen(pages, scale, c.page, wordcraft_geom::Rect::new(c.x, c.top, 0.0, c.height)) else { return };
     painter.extend(egui::Shape::dashed_line(&[r.left_top(), r.left_bottom()], egui::Stroke::new(1.5, *color), 2.0, 2.0));
+}
+
+/// The anchor mark's size on the page, points.
+const ANCHOR_MARK: f32 = 9.0;
+
+/// A floating object moved or resized (which places it again): the paragraph the drop will
+/// anchor it to, and the page.
+fn drop_anchor(app: &WordApp, layout: &DocLayout, d: &ObjectDrag) -> Option<(Pos, usize)> {
+    let page = match d.drag.grab {
+        Grab::Move => d.drag.to_page,
+        Grab::Resize(_) if movable(app, &d.object) => d.drag.page,
+        _ => return None,
+    };
+    if !d.object.floating() || !d.drag.moved || d.end.is_some() {
+        return None;
+    }
+    let r = d.drag.rect;
+    let (_, at, _) = wordcraft_engine::cmd::objects::drop_anchor(&app.session.doc, layout, page, (r.x, r.y), (r.w, r.h), d.object.story)?;
+    Some((at, page))
+}
+
+/// Where the anchor mark sits, and its page: beside the first line of a selected floating
+/// object's paragraph, or while it's moved or resized, of the one the drop will anchor it to, as
+/// Word moves its anchor along (#4195). On a page the paragraph continues onto, beside its top
+/// line there, as Word does. None in Read Mode and for objects in table cells.
+fn anchor_mark(app: &WordApp, layout: &DocLayout) -> Option<(Pos, usize)> {
+    let (pos, obj) = selected(app)?;
+    if !obj.is_floating() || pos.path.depth() > 0 || app.session.view.read_mode {
+        return None;
+    }
+    let (pos, page) = match app.canvas.obj_drag.as_ref().and_then(|d| d.anchor_at.clone()) {
+        Some(at) => at,
+        None => {
+            let page = layout.object(&pos, app.session.page_hint)?.page;
+            (pos, page)
+        }
+    };
+    let off = layout.para_start_on(&pos, page).unwrap_or(0);
+    Some((Pos { off, ..pos }, page))
+}
+
+/// Word's anchor mark, left of the text beside [`anchor_mark`]'s line.
+fn paint_anchor(app: &WordApp, painter: &Painter, layout: &DocLayout, pages: &[Rect], scale: f32) {
+    let Some((pos, page)) = anchor_mark(app, layout) else { return };
+    let Some(c) = layout.caret_on(&pos, page) else { return };
+    let Some(left) = layout.line_box_left(&pos, c.page) else { return };
+    let mark = wordcraft_geom::Rect::new(left - ANCHOR_MARK - 2.0, c.top, ANCHOR_MARK, ANCHOR_MARK);
+    let Some(r) = screen(pages, scale, c.page, mark) else { return };
+    let color = crate::canvas::paper_caret_color(app);
+    crate::icons::paint(painter, r, "anchor", color, color);
 }
 
 /// A connector's end being dragged: a line from its other end to the pointer, and the connection
@@ -1079,6 +1137,107 @@ mod tests {
         steps(&mut h, 3);
         assert_eq!(selected(h.state()).map(|(p, _)| p), Some(target));
         assert_eq!(h.state().session.undo_depth(), undo);
+    }
+
+    /// #4195: a selected floating picture shows its anchor beside its paragraph's first line, also
+    /// when its character is further down; dragged with its top edge into a later paragraph, the
+    /// anchor moves there, and the drop anchors it there. An In Line with Text picture has none.
+    #[test]
+    fn the_anchor_mark_follows_a_dragged_floating_picture_to_its_new_paragraph() {
+        use crate::table_resize::tests::{H, button, steps};
+        let text = ["One", "Two", "Three", "Four"].map(|w| format!("{w}. ").repeat(30)).join("\n");
+        let mut a = WordApp::new(wordcraft_engine::Session::new(Document::from_text(&text)), Default::default());
+        a.run("view.commentsPane", json!({"value": false})).unwrap();
+        let picture =
+            InlineObject::Image { media: String::new(), w: 80.0, h: 40.0, alt: String::new(), float: Default::default(), crop: [0.0; 4], ole: None };
+        a.session.doc.insert_object(&Pos::body(0, 120), picture, &Default::default()).unwrap();
+        a.session.touch();
+        a.run("select.range", json!({"anchor": Pos::body(0, 120), "focus": Pos::body(0, 120 + OBJ.len_utf8())})).unwrap();
+        let layout = a.session.layout();
+        assert_eq!(anchor_mark(&a, &layout), None, "an inline picture has no anchor");
+        a.run("arrange.wrap", json!({"wrap": "square"})).unwrap();
+        a.run("arrange.bounds", json!({"page": 0, "x": 300.0, "y": 80.0})).unwrap();
+        let mut h: H = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(0.25).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        steps(&mut h, 6);
+        let pos = selected(h.state()).map(|(p, _)| p).expect("selected");
+        assert_eq!(pos, Pos::body(0, 120));
+        let layout = h.state_mut().session.layout();
+        assert!(layout.caret(&pos).unwrap().top > layout.caret(&Pos::body(0, 0)).unwrap().top, "its character is on a later line");
+        assert_eq!(anchor_mark(h.state(), &layout), Some((Pos::body(0, 0), 0)), "beside its paragraph's first line");
+        assert!(layout.line_box_left(&Pos::body(0, 0), 0).is_some());
+        // Drag it down until its top edge is inside the third paragraph's first line.
+        let o = layout.object(&pos, 0).expect("laid out");
+        let line = layout.caret(&Pos::body(2, 0)).expect("caret");
+        let at = |h: &mut H, x: f32, y: f32| crate::canvas::page_to_screen(h.state_mut(), 0, x, y).unwrap();
+        let start = at(&mut h, o.rect.x + o.rect.w / 2.0, o.rect.y + o.rect.h / 2.0);
+        let end = at(&mut h, o.rect.x + o.rect.w / 2.0, line.top + 2.0 + o.rect.h / 2.0);
+        h.event(egui::Event::PointerMoved(start));
+        h.step();
+        button(&h, start, true);
+        h.step();
+        for k in 1..=5 {
+            h.event(egui::Event::PointerMoved(start + (end - start) * (k as f32 / 5.0)));
+            h.step();
+        }
+        assert_eq!(anchor_mark(h.state(), &layout), Some((Pos::body(2, 0), 0)), "the anchor moves to the paragraph under its top edge");
+        button(&h, end, false);
+        steps(&mut h, 3);
+        let (pos, obj) = selected(h.state()).expect("still selected");
+        assert!(obj.is_floating());
+        assert_eq!(pos.path, wordcraft_doc::Path::top(2), "dropped where the anchor showed");
+        let layout = h.state_mut().session.layout();
+        assert_eq!(anchor_mark(h.state(), &layout), Some((Pos::body(2, 0), 0)));
+    }
+
+    /// #4195: a floating shape dragged into the middle of a page that only continues a paragraph
+    /// begun earlier: while it's dragged, its anchor mark is beside that paragraph's top line on
+    /// the page, as in Word; not beside the line next to the shape, where the drop anchors it.
+    #[test]
+    fn the_anchor_mark_on_a_page_a_paragraph_continues_onto_is_beside_its_top_line() {
+        use crate::table_resize::tests::{H, button, steps};
+        let mut a = WordApp::new(wordcraft_engine::Session::new(Document::new()), crate::Services::default());
+        a.run("view.commentsPane", json!({"value": false})).unwrap();
+        a.run("text.insert", json!({"text": "The quick brown fox jumps over the lazy dog. ".repeat(400)})).unwrap();
+        a.run("caret.docStart", json!({})).unwrap();
+        a.run("insert.shape", json!({"kind": "rectangle"})).unwrap();
+        a.run("arrange.wrap", json!({"wrap": "square"})).unwrap();
+        a.run("arrange.bounds", json!({"page": 0, "x": 100, "y": 250, "width": 100, "height": 50})).unwrap();
+        assert!(a.session.layout().pages.len() > 2, "a page the paragraph only continues onto");
+        let mut h: H = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 1800.0)).with_step_dt(0.25).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        steps(&mut h, 6);
+        let (pos, _) = selected(h.state()).expect("the shape is selected");
+        let layout = h.state_mut().session.layout();
+        assert_eq!(anchor_mark(h.state(), &layout), Some((Pos::body(0, 0), 0)));
+        let r = layout.object(&pos, 0).expect("laid out").rect;
+        let start = crate::canvas::page_to_screen(h.state_mut(), 0, r.x + r.w / 2.0, r.y + r.h / 2.0).expect("on screen");
+        let end = crate::canvas::page_to_screen(h.state_mut(), 1, 150.0, 300.0).expect("the next page is on screen");
+        h.event(egui::Event::PointerMoved(start));
+        h.step();
+        button(&h, start, true);
+        h.step();
+        for k in 1..=5 {
+            h.event(egui::Event::PointerMoved(start + (end - start) * (k as f32 / 5.0)));
+            h.step();
+        }
+        let top = layout.para_start_on(&Pos::body(0, 0), 1).expect("the paragraph continues onto page 1");
+        assert!(top > 0);
+        assert_eq!(anchor_mark(h.state(), &layout), Some((Pos::body(0, top), 1)));
+        let (at, _) = h.state().canvas.obj_drag.as_ref().and_then(|d| d.anchor_at.clone()).expect("dragging");
+        assert!(at.off > top, "the drop anchors it at the line by the shape, further down");
     }
 
     /// #1010: dragging a shape off text, the preview is the shape alone, not the text that was
