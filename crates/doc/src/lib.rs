@@ -14,6 +14,7 @@ pub mod bidi;
 mod byte_store;
 pub mod chart;
 mod cjk_numbers;
+mod thai_numbers;
 pub mod cluster;
 pub mod collate;
 pub mod connector;

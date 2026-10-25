@@ -1031,6 +1031,17 @@ pub fn update_fields_in(s: &mut Session, all: bool) -> Result<(), CmdError> {
                         Err(e) => format!("!{e}"),
                     };
                     updates.push((k, text));
+                } else if let Some(fmt) = wordcraft_layout::fields::format_switch(instr) {
+                    // `{ = 12345 \* BahtText }` outside a table: evaluate the literal.
+                    let after_eq = instr.trim_start().trim_start_matches('=');
+                    let val = after_eq.split_whitespace().next().and_then(|t| t.parse::<f64>().ok());
+                    if fmt == NumFormat::BahtText {
+                        if let Some(text) = val.and_then(wordcraft_doc::section::baht_text_f64) {
+                            updates.push((k, text));
+                        }
+                    } else if let Some(x) = val.filter(|x| *x >= 0.0 && *x <= f64::from(u32::MAX)) {
+                        updates.push((k, fmt.format(x as u32)));
+                    }
                 }
                 continue;
             }
@@ -1083,6 +1094,20 @@ pub fn update_fields_in(s: &mut Session, all: bool) -> Result<(), CmdError> {
                     let (fn_name, fn_path) = s.resolved_filenames();
                     let text = if has_switch(instr, 'p') { fn_path } else { fn_name };
                     updates.push((k, text_result(instr, text)));
+                }
+                "BAHTTEXT" => {
+                    // `{ BAHTTEXT 12345 }` — number is the second token.
+                    let val = instr.split_whitespace().nth(1).and_then(|t| t.parse::<f64>().ok());
+                    if let Some(text) = val.and_then(wordcraft_doc::section::baht_text_f64) {
+                        updates.push((k, text));
+                    }
+                }
+                // `{ 12345 \* BahtText }` — field name IS the number; apply the format switch.
+                _ if wordcraft_layout::fields::format_switch(instr) == Some(wordcraft_doc::section::NumFormat::BahtText) => {
+                    let val = name.parse::<f64>().ok();
+                    if let Some(text) = val.and_then(wordcraft_doc::section::baht_text_f64) {
+                        updates.push((k, text));
+                    }
                 }
                 _ => {}
             }
