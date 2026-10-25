@@ -152,6 +152,7 @@ Small follow-ups from the 2026-10-25 field, table and AutoFormat batch (#4232):
 | 2026-10-23 | trivial | cu20we: paragraph-relative box floats use the pre-spacing origin; header/footer/cell/text-box regressions; readiness estimates unchanged |
 | 2026-10-24 | trivial | Exact-spacing table contact uses the specified line height in row selection and word skipping; large/small mark regressions in modes 11/12/14/15 (#3977); shape estimates unchanged |
 | 2026-10-24 | trivial | Floating tables count exact line-bottom contact; shapes keep strict overlap (#3977); original boundary/skip regressions in modes 11/12/14/15, expected Word rule from cyril265; readiness estimates unchanged |
+| 2026-10-24 | trivial | Insert Caption can use a per-kind style, a name template and a number on the object's own line. Not a Word gap; readiness estimates unchanged |
 | 2026-10-22 | trivial | Gap 10: group connector rerouting preserves rotated/flipped free and unresolved endpoints under nonuniform scaling, with safe degenerate-dimension and display-size-cap handling; routing around shapes and readiness estimates unchanged |
 | 2026-10-21 | trivial | The ranked gap list held two rows each for #19, #20 and #21; the stale copies are gone, so each gap appears once, and the #20 row carries the measured figure (#3411) |
 | 2026-10-21 | trivial | #20 narrowed: a document with many relationships opens in the time its part takes (#3411) |
