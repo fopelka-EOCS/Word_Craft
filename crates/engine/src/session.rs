@@ -374,6 +374,14 @@ pub struct Session {
     /// Last highlighter choice for the shortcut; palette state, outside document undo.
     pub(crate) last_highlight: wordcraft_doc::props::Highlight,
     pub path: Option<std::path::PathBuf>,
+    /// Identity of this session's native file; never part of document JSON or undo history.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) file_version: Option<crate::io::FileVersion>,
+    /// Weak request records: native hosts own each deferred Open's lifetime.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) native_opens: std::collections::BTreeMap<u64, std::sync::Weak<crate::cmd::file::NativeRead>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) native_open_sequence: u64,
     /// Name given to a document not saved yet (File › Info › Rename): what Save suggests. A file
     /// name, not document metadata, so it is not part of the document or its undo history.
     pub file_name: Option<String>,
@@ -700,6 +708,12 @@ impl Session {
             pending: None,
             last_highlight: wordcraft_doc::props::Highlight::Yellow,
             path: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            file_version: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            native_opens: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            native_open_sequence: 0,
             file_name: None,
             user_dict_path: None,
             dirty: false,
@@ -1304,6 +1318,11 @@ impl Session {
         self.doc = doc;
         self.doc.ensure_nonempty();
         self.password = None;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.file_version = None;
+            self.native_opens.clear();
+        }
         self.file_name = None;
         self.sel = Selection::caret(self.doc.start_of(StoryRef::Body));
         self.pending = None;
@@ -1349,6 +1368,12 @@ impl Session {
             pending: _,
             last_highlight: _,
             path: _,
+            #[cfg(not(target_arch = "wasm32"))]
+                file_version: _,
+            #[cfg(not(target_arch = "wasm32"))]
+                native_opens: _,
+            #[cfg(not(target_arch = "wasm32"))]
+                native_open_sequence: _,
             file_name: _,
             // The custom dictionary file, like the file path: host wiring, not an edit.
             user_dict_path: _,
@@ -1607,6 +1632,8 @@ impl Session {
         let replaces_document = matches!(id, "review.compare" | "review.combine" | "mailings.envelopes" | "mailings.labels")
             || (id == "mailings.finish" && crate::p::str(params, "path").is_none());
         let versions_before = replaces_document.then(|| self.versions.clone());
+        #[cfg(not(target_arch = "wasm32"))]
+        let file_version_before = replaces_document.then(|| self.file_version.clone());
         let identity_before = replaces_document.then(|| {
             (
                 self.path.clone(),
@@ -1753,6 +1780,10 @@ impl Session {
                 self.prefs.default_language = default_language_before;
                 if let Some(versions) = versions_before {
                     self.versions = versions;
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                if let Some(version) = file_version_before {
+                    self.file_version = version;
                 }
                 if let Some((path, file_name, document_id, password, dirty, bib_style, merge_preview)) = identity_before {
                     self.path = path;
