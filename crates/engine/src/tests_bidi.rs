@@ -351,4 +351,9 @@ fn arabic_table_header_row_and_modified_styles_carry_complex_script_bold_and_ita
     run(&mut s, "styles.modify", json!({"style": "TOC Heading", "chr": {"font": "Georgia", "bold": true}}));
     let toc = s.doc.styles.get("TOCHeading").unwrap();
     assert_eq!(toc.chr.bold_cs, None, "child style keeps inheriting parent's distinct complex-script override");
+    s.doc.styles.default_chr.italic = Some(true);
+    s.doc.styles.default_chr.italic_cs = Some(false);
+    run(&mut s, "styles.modify", json!({"style": "Normal", "chr": {"italic": true}}));
+    let normal = s.doc.styles.get("Normal").unwrap();
+    assert_eq!(normal.chr.italic_cs, None, "style keeps inheriting document default's distinct complex-script override");
 }
