@@ -193,6 +193,8 @@ fn write_attempt(doc: &Document, lay: &DocLayout, opts: &PdfOptions, pages: &[us
         anchor: None,
         drawn_lines: HashSet::new(),
         links: Vec::new(),
+        link_owner: None,
+        open_link: None,
         bookmarks: std::cell::OnceCell::new(),
     };
     if let Some(o) = ex.outline(pages) {
@@ -217,8 +219,17 @@ fn write_attempt(doc: &Document, lay: &DocLayout, opts: &PdfOptions, pages: &[us
             s.pop();
         }
         s.finish();
-        for a in ex.annotations(fit) {
-            kp.add_annotation(a);
+        for (a, owner) in ex.annotations(fit) {
+            // A tagged link's annotation goes in its `Link` element, beside the link text.
+            match owner {
+                Some((i, c)) if opts.tagged => {
+                    let id = kp.add_tagged_annotation(a);
+                    if let Some(Node::Group(g)) = ex.tags.get_mut(i).and_then(|e| e.children.get_mut(c)) {
+                        g.push(Node::Leaf(id));
+                    }
+                }
+                _ => kp.add_annotation(a),
+            }
         }
         kp.finish();
     }
@@ -865,6 +876,14 @@ fn list_numbering(format: wordcraft_doc::section::NumFormat) -> ListNumbering {
     }
 }
 
+/// A link's clickable area on the current page: (x0, y0, x1, y1), its target, and the `Link`
+/// structure element its text is in, if tagged.
+struct LinkArea {
+    rect: (f32, f32, f32, f32),
+    target: String,
+    owner: Option<(usize, usize)>,
+}
+
 struct Exporter<'a> {
     doc: &'a Document,
     lay: &'a DocLayout,
@@ -892,7 +911,12 @@ struct Exporter<'a> {
     /// row repeated at the top of a later page.
     drawn_lines: HashSet<(StoryRef, DocPath, usize)>,
     /// Link rectangles on the current page: (x0, y0, x1, y1, target).
-    links: Vec<(f32, f32, f32, f32, String)>,
+    links: Vec<LinkArea>,
+    /// The `Link` structure element the link text being drawn goes in: (entry, child index).
+    link_owner: Option<(usize, usize)>,
+    /// The `Link` element last opened, with its target: the next run of the same link in the
+    /// same paragraph continues it (a link across formatting changes or lines is one link).
+    open_link: Option<(usize, usize, String)>,
     /// Bookmark positions by name (the first of a name wins), gathered once: looking each internal
     /// link up by walking the whole document made a long document with a linked table of contents
     /// take seconds to export.
@@ -906,6 +930,8 @@ enum Role {
     Para(usize),
     /// The number or bullet of the list item at this index.
     Label(usize),
+    /// Link text in the structure entry at this index, in the `Link` element at this child index.
+    Link(usize, usize),
     /// Header/footer, decorations: not part of the structure.
     Artifact(ArtifactType),
     /// A floating picture (its own Figure).
@@ -1001,6 +1027,17 @@ impl Exporter<'_> {
                 s.end_tagged();
                 if let Some(e) = self.tags.get_mut(i) {
                     e.children.push(Node::Leaf(id));
+                }
+            }
+            Role::Link(i, c) => {
+                let id = s.start_tagged(ContentTag::Span(SpanTag::empty()));
+                f(self, s);
+                s.end_tagged();
+                if let Some(e) = self.tags.get_mut(i) {
+                    match e.children.get_mut(c) {
+                        Some(Node::Group(g)) => g.push(Node::Leaf(id)),
+                        _ => e.children.push(Node::Group(TagGroup::with_children(Tag::Link, vec![Node::Leaf(id)]))),
+                    }
                 }
             }
             Role::Label(i) => {
@@ -1147,6 +1184,13 @@ impl Exporter<'_> {
                         match d {
                             // A list item's number or bullet: its label, apart from its text.
                             Draw::Glyphs { list_label: true, .. } => self.tagged(s, Role::Label(idx), None, |me, s| me.draw(s, d)),
+                            // Link text: in a `Link` element with its annotation (see `link_slot`).
+                            Draw::Glyphs { link: Some(target), .. } if self.opts.tagged && self.link_target(target).is_some() => {
+                                let c = self.link_slot(idx, target);
+                                self.link_owner = Some((idx, c));
+                                self.tagged(s, Role::Link(idx, c), None, |me, s| me.draw(s, d));
+                                self.link_owner = None;
+                            }
                             Draw::Glyphs { .. } => self.tagged(s, Role::Para(idx), None, |me, s| me.draw(s, d)),
                             // Turned text (a table cell's text direction): turned as a whole, its
                             // label, text and pictures tagged as in straight lines (see `turned_lines`).
@@ -1888,17 +1932,42 @@ impl Exporter<'_> {
         if ![x0, x1, y0, y1].iter().all(|v| ok(*v)) {
             return;
         }
+        let owner = self.link_owner;
         if let Some(prev) = self.links.last_mut()
-            && prev.4 == link
-            && (prev.1 - y0).abs() < 0.5
-            && x0 - prev.2 < size
+            && prev.target == link
+            && prev.owner == owner
+            && (prev.rect.1 - y0).abs() < 0.5
+            && x0 - prev.rect.2 < size
         {
-            prev.0 = prev.0.min(x0);
-            prev.2 = prev.2.max(x1);
+            prev.rect.0 = prev.rect.0.min(x0);
+            prev.rect.2 = prev.rect.2.max(x1);
             return;
         }
         if self.links.len() < 10_000 {
-            self.links.push((x0, y0, x1, y1, link.to_string()));
+            self.links.push(LinkArea { rect: (x0, y0, x1, y1), target: link.to_string(), owner });
+        }
+    }
+
+    /// The child index of the `Link` element for a run of link text to `target` in structure
+    /// entry `i`: the one the previous run opened when nothing came between them in the entry,
+    /// otherwise a new one at the end.
+    fn link_slot(&mut self, i: usize, target: &str) -> usize {
+        let len = self.tags.get(i).map_or(0, |e| e.children.len());
+        match &self.open_link {
+            Some((e, c, t)) if *e == i && c.checked_add(1) == Some(len) && t == target => *c,
+            _ => {
+                self.open_link = Some((i, len, target.to_string()));
+                len
+            }
+        }
+    }
+
+    /// Where a link goes, or `None` when it gets no link: an unknown bookmark, or an unsafe
+    /// target (javascript:, file:, shares, other schemes), whose text stays plain text.
+    fn link_target(&self, target: &str) -> Option<Target> {
+        match target.strip_prefix('#') {
+            Some(name) => self.bookmark(name).map(|(page, x, y)| Target::Destination(XyzDestination::new(page, Point::from_xy(x, y)).into())),
+            None => write::uri_target(target),
         }
     }
 
@@ -1950,24 +2019,14 @@ impl Exporter<'_> {
         None
     }
 
-    fn annotations(&self, fit: Fit) -> Vec<Annotation> {
+    /// The page's link annotations, each with the `Link` element its text is in (if tagged).
+    fn annotations(&self, fit: Fit) -> Vec<(Annotation, Option<(usize, usize)>)> {
         let mut v = Vec::new();
-        for (x0, y0, x1, y1, target) in &self.links {
+        for LinkArea { rect: (x0, y0, x1, y1), target, owner } in &self.links {
             let ((x0, y0), (x1, y1)) = (fit.point(*x0, *y0), fit.point(*x1, *y1));
             let Some(rect) = krilla::geom::Rect::from_ltrb(x0, y0, x1, y1) else { continue };
-            let t = if let Some(name) = target.strip_prefix('#') {
-                match self.bookmark(name) {
-                    Some((page, x, y)) => Target::Destination(XyzDestination::new(page, Point::from_xy(x, y)).into()),
-                    None => continue,
-                }
-            } else {
-                // Unsafe targets (javascript:, file:, shares, other schemes) get no link; the text stays.
-                match write::uri_target(target) {
-                    Some(t) => t,
-                    None => continue,
-                }
-            };
-            v.push(Annotation::new_link(LinkAnnotation::new(rect, t), Some(target.clone())));
+            let Some(t) = self.link_target(target) else { continue };
+            v.push((Annotation::new_link(LinkAnnotation::new(rect, t), Some(target.clone())), *owner));
         }
         v
     }

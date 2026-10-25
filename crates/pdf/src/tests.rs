@@ -1345,6 +1345,8 @@ fn bookmark_destination_is_the_page_of_its_start() {
         inline_owner: None,
         anchor: None,
         drawn_lines: HashSet::new(),
+        link_owner: None,
+        open_link: None,
         links: Vec::new(),
         bookmarks: std::cell::OnceCell::new(),
     };
@@ -2430,10 +2432,18 @@ fn structure(bytes: &[u8]) -> String {
                 }
             }
             Object::Dict(d) => {
-                let Some(s) = d.get::<Name<'_>>(b"S") else { return };
-                if !out.is_empty() && !out.ends_with('(') {
+                if !out.is_empty()
+                    && !out.ends_with('(')
+                    && (d.contains_key(b"S") || d.get::<Name<'_>>(b"Type").is_some_and(|t| t.as_str() == "OBJR"))
+                {
                     out.push(' ');
                 }
+                // An annotation in the tree (a link's), shown as `OBJR`.
+                if d.get::<Name<'_>>(b"Type").is_some_and(|t| t.as_str() == "OBJR") {
+                    out.push_str("OBJR");
+                    return;
+                }
+                let Some(s) = d.get::<Name<'_>>(b"S") else { return };
                 out.push_str(s.as_str());
                 let mut inner = String::new();
                 if let Some(k) = d.get::<Object<'_>>(b"K") {
@@ -2735,4 +2745,44 @@ fn a_row_merged_away_is_left_out_of_row_spans() {
     assert!(tree.contains("Table(TBody(TR(TD(P) TD(P)) TR(TD(P) TD(P))))"), "{tree}");
     let raw = String::from_utf8_lossy(&bytes);
     assert!(!raw.contains("/RowSpan"), "no cell spans more rows than there are");
+}
+
+/// A link is a `Link` element holding its text and its annotation (an `OBJR`), as Word writes
+/// it: a link across formatting changes is one link, a link wrapped over two lines is one link
+/// with an annotation per line, and a link to an unsafe target stays plain text.
+#[test]
+fn links_are_link_elements_with_their_annotations() {
+    let mut d = Document::new();
+    let site = CharProps { link: Some("https://example.com/".into()), ..Default::default() };
+    let mut p = Paragraph::with_text("Visit ", CharProps::default());
+    let n = p.len();
+    p.insert_text(n, "the ", &site).unwrap();
+    let n = p.len();
+    p.insert_text(n, "site", &CharProps { bold: Some(true), ..site.clone() }).unwrap();
+    let n = p.len();
+    p.insert_text(n, " now", &CharProps::default()).unwrap();
+    let mut top = Paragraph::with_text("Start", CharProps::default()).styled("Heading1");
+    let n = top.len();
+    top.insert_object(n, InlineObject::BookmarkStart { name: "top".into() }, &CharProps::default()).unwrap();
+    let mut back = Paragraph::with_text("Go ", CharProps::default());
+    let n = back.len();
+    back.insert_text(n, "back to the start", &CharProps { link: Some("#top".into()), ..Default::default() }).unwrap();
+    let long = "a link long enough to wrap onto a second line of the page, with plenty of words in it to be sure that it does, and then some more words after that to be really sure of it";
+    let unsafe_link = Paragraph::with_text("Do not click", CharProps { link: Some("javascript:alert(1)".into()), ..Default::default() });
+    d.body = vec![
+        para_block(top),
+        para_block(p),
+        para_block(back),
+        para_block(Paragraph::with_text(long, CharProps { link: Some("https://example.org/long".into()), ..Default::default() })),
+        para_block(unsafe_link),
+    ];
+    let bytes = export(&d, &PdfOptions { compress: false, tagged: true, ..Default::default() }).unwrap();
+    let tree = structure(&bytes);
+    assert!(tree.contains("H1 P(Link(OBJR)) P(Link(OBJR)) P(Link(OBJR OBJR)) P"), "{tree}");
+    let raw = String::from_utf8_lossy(&bytes);
+    assert_eq!(raw.matches("/StructParent ").count() + raw.matches("/StructParent/").count(), 4, "each annotation points back to its Link");
+    let text = squash(&extract_text(&bytes).concat());
+    for w in ["Visit the site now", "back to the start", "Do not click"] {
+        assert!(text.contains(&squash(w)), "{w} missing from {text}");
+    }
 }
