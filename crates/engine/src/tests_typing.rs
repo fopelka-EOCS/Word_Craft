@@ -541,6 +541,12 @@ fn smart_quotes_follow_the_texts_language() {
     run(&mut s, "review.language", json!({"lang": "de-DE"}));
     typ(&mut s, "\"ja\" ");
     assert_eq!(s.doc.plain_text(StoryRef::Body), "Hello „ja“ ");
+    // English ‘bye’ earlier in the paragraph doesn't close a German ‚ typed after it.
+    let mut s = in_lang("en-US");
+    typ(&mut s, "Say 'bye' ");
+    run(&mut s, "review.language", json!({"lang": "de-DE"}));
+    typ(&mut s, "'hallo' ");
+    assert_eq!(s.doc.plain_text(StoryRef::Body), "Say ‘bye’ ‚hallo‘ ");
     // A German interface writes German: untagged text follows the editing language.
     let mut s = self::s();
     s.editing_lang = Some("de-DE".into());

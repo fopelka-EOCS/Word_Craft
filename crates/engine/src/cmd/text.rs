@@ -91,7 +91,9 @@ fn autoformat(s: &mut Session, text: &str) -> Option<String> {
     // After a letter or digit a single quote is an apostrophe (geht’s, Andreas’), which German
     // writes as ’ like English, not as its closing quote ‘; unless it closes a ‚ still open in
     // the paragraph (‚tschüss‘).
-    let open_single = before.matches(single.0).count() > before.matches(single.1).count();
+    // Only marks after the last opening quote count, so English ‘…’ earlier in the paragraph
+    // (its ‘ is German's closing quote) doesn't close a German ‚.
+    let open_single = before.rfind(single.0).is_some_and(|i| !before[i..].contains(single.1));
     let apostrophe = prev.is_some_and(char::is_alphanumeric) && !open_single;
     match c {
         '"' => Some(if opening { double.0 } else { double.1 }.into()),
