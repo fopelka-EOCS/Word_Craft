@@ -2593,18 +2593,26 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
         if shrink {
             shrink_line_spaces(pl, &mut xs, c0, c1, content_end, slack);
         } else if justify && slack > 0.0 {
-            // Spaces inside the content (after the last tab).
-            let spaces: Vec<usize> = (align_from..c1)
+            // Spaces before the line's first character (after the last tab) keep their width, as
+            // in Word: text indented with spaces stays where the spaces put it. Zero-width markers
+            // (a bookmark, hidden text) before or among them don't count as a character.
+            let blank = |k: usize| pl.clusters.get(k).is_some_and(|c| matches!(c.kind, ClKind::Space | ClKind::Marker));
+            let text_from = (align_from..c1).find(|k| !blank(*k)).unwrap_or(c1);
+            // Spaces inside the content.
+            let spaces: Vec<usize> = (text_from..c1)
                 .filter(|k| {
                     pl.clusters.get(*k).is_some_and(|c| c.kind == ClKind::Space) && xs.get(k - c0).copied().unwrap_or(f32::MAX) < content_end - 0.01
                 })
                 .collect();
             if rp.align == Align::Distribute || spaces.is_empty() {
-                let cnt = (c1 - align_from).saturating_sub(1).max(1) as f32;
+                // Distributed across the gaps between the first and last characters: spaces
+                // hanging at the line's end take none, so the last character reaches the margin.
+                let text_to = (text_from..c1).rev().find(|k| !blank(*k)).map_or(text_from, |k| k + 1);
+                let cnt = (text_to - text_from).saturating_sub(1).max(1) as f32;
                 if rp.align == Align::Distribute {
                     let per = slack / cnt;
-                    for (q, v) in xs.iter_mut().enumerate().skip(align_from - c0) {
-                        let k = (q + c0 - align_from) as f32;
+                    for (q, v) in xs.iter_mut().enumerate().skip(text_from - c0) {
+                        let k = (q + c0 - text_from) as f32;
                         *v += per * k.min(cnt);
                     }
                 }
@@ -2612,7 +2620,7 @@ fn break_lines(pl: &mut ParaLayout, env: &ParaEnv, mark_style: u32, level: Optio
                 let per = slack / spaces.len() as f32;
                 let mut add = 0.0;
                 let mut si = 0;
-                for k in align_from..c1 {
+                for k in text_from..c1 {
                     if let Some(v) = xs.get_mut(k - c0) {
                         *v += add;
                     }
