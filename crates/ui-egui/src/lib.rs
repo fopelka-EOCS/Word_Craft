@@ -2401,10 +2401,18 @@ impl WordApp {
     /// `file.autosave` (the AutoSave switch, and scripts): `value` turns AutoSave on or off;
     /// without it, it toggles what the switch shows. Turning it on for a document AutoSave can't
     /// cover is an error that says why, instead of a switch that is on but saves nothing (#196).
+    /// Turning it on for a file only opened here is the go-ahead a save gives (#3307).
     fn set_autosave(&mut self, params: &Value) -> Result<Value, String> {
-        let on = params.get("value").and_then(Value::as_bool).unwrap_or(!self.autosaves());
+        let on = match params.get("value") {
+            None => !self.autosaves(),
+            Some(Value::Bool(on)) => *on,
+            Some(_) => return Err("`value` must be true or false".into()),
+        };
         if on && let Some(block) = self.autosave_block() {
-            return Err(block.reason());
+            if block != AutoSaveBlock::NotSavedHere {
+                return Err(block.reason());
+            }
+            self.autosave_path = self.session.path.clone();
         }
         self.autosave = on;
         self.session.autosave = on;
@@ -2738,7 +2746,7 @@ pub enum AutoSaveBlock {
     Unsaved,
     /// A file in a format that can't keep everything (Markdown, plain text, HTML…), by file name.
     Format { name: String },
-    /// A file that was opened but not yet saved in this session.
+    /// A file that was opened but not yet saved in this session; the switch shows off and lifts it.
     NotSavedHere,
 }
 
@@ -7660,6 +7668,31 @@ mod tests {
         assert!(!a.autosaves());
         let err = a.run("file.autosave", json!({"value": true})).unwrap_err();
         assert!(err.contains("browser"), "{err}");
+    }
+
+    /// #3307: an opened file isn't rewritten until the user says so, but the switch says so
+    /// without Save As: turning it on lets AutoSave write the file.
+    #[test]
+    fn turning_autosave_on_covers_a_file_only_opened_here() {
+        let dir = scratch("autosave-opened");
+        let path = dir.join("report.docx");
+        let mut a = typed();
+        a.run("file.save", json!({"path": path.to_string_lossy()})).unwrap();
+        let mut b = app();
+        b.run("file.open", json!({"path": path.to_string_lossy()})).unwrap();
+        assert_eq!(b.autosave_block(), Some(AutoSaveBlock::NotSavedHere));
+        b.run("text.insert", json!({"text": "Opened "})).unwrap();
+        b.autosave_tick(now_ms() + 10_000.0);
+        assert!(b.session.dirty, "opening alone never rewrites the file");
+        assert!(b.run("file.autosave", json!({"value": "false"})).is_err());
+        assert!(!b.autosaves(), "a value that isn't a bool grants nothing");
+        assert_eq!(b.run("file.autosave", json!({})).unwrap(), json!({"value": true}));
+        assert!(b.autosaves());
+        b.autosave_tick(now_ms() + 20_000.0);
+        assert!(!b.session.dirty, "AutoSave wrote the opened file");
+        assert!(b.run("file.autosave", json!({"value": false})).is_ok());
+        assert!(!b.autosaves());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Cancelling the Open picker (Mod+O) left the document as it was but turned AutoSave off.

@@ -303,7 +303,8 @@ pub fn title_bar(app: &mut WordApp, ui: &mut Ui) {
                 ui.spacing_mut().item_spacing = vec2(2.0, 0.0);
                 // AutoSave switch: greyed out, with the reason as its tooltip, when AutoSave can't
                 // cover the document (#196, #176); clicking it then offers Save As where that helps.
-                let block = app.autosave_block();
+                // A file only opened here is off, not blocked: the switch turns it on (#3307).
+                let block = app.autosave_block().filter(|b| *b != crate::AutoSaveBlock::NotSavedHere);
                 let on = app.autosaves();
                 let color = if block.is_some() { t.text_dim.gamma_multiply(0.6) } else { t.text_dim };
                 // The text is part of the switch (#3370): clicking it toggles AutoSave, and chrome
@@ -1028,9 +1029,10 @@ mod tests {
         assert!(a.session.undo_history().is_empty(), "the step was undone");
     }
 
-    /// A saved .docx (so AutoSave can cover it) with the title bar drawn over it.
-    fn autosave_harness() -> (egui_kittest::Harness<'static, WordApp>, std::path::PathBuf) {
-        let dir = std::env::temp_dir().join(format!("wordcraft-ui-autosave-label-{}", std::process::id()));
+    /// A saved .docx (so AutoSave can cover it), or with `reopened` the same file opened in a
+    /// fresh window, with the title bar drawn over it.
+    fn autosave_harness(reopened: bool) -> (egui_kittest::Harness<'static, WordApp>, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("wordcraft-ui-autosave-label-{}-{reopened}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("draft.docx");
@@ -1038,6 +1040,11 @@ mod tests {
         a.run("text.insert", json!({"text": "Hello"})).unwrap();
         a.run("file.save", json!({"path": path.to_string_lossy()})).unwrap();
         assert!(a.autosaves(), "a saved .docx is covered by AutoSave");
+        if reopened {
+            a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+            a.run("file.open", json!({"path": path.to_string_lossy()})).unwrap();
+            assert!(!a.autosaves(), "an opened file waits for the user's go-ahead");
+        }
         let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
             |ui, app: &mut WordApp| {
                 let ctx = ui.ctx().clone();
@@ -1060,7 +1067,7 @@ mod tests {
     #[test]
     fn clicking_the_autosave_label_toggles_autosave() {
         use egui_kittest::kittest::Queryable;
-        let (mut h, dir) = autosave_harness();
+        let (mut h, dir) = autosave_harness(false);
         assert!(h.state().autosaves());
         h.get_by_label("AutoSave").click();
         h.run_steps(2);
@@ -1068,6 +1075,19 @@ mod tests {
         h.get_by_label("AutoSave").click();
         h.run_steps(2);
         assert!(h.state().autosaves(), "and clicking it again turns it back on");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// #3307: a file opened, not saved, in this window had the switch greyed out, and clicking it
+    /// asked for Save As. Clicking it now turns AutoSave on for that file.
+    #[test]
+    fn clicking_autosave_on_an_opened_file_turns_it_on() {
+        use egui_kittest::kittest::Queryable;
+        let (mut h, dir) = autosave_harness(true);
+        h.get_by_label("AutoSave").click();
+        h.run_steps(2);
+        assert!(h.state().autosaves(), "the switch turned AutoSave on");
+        assert!(h.state().dialog.is_none() && h.state().file_dialog.is_none(), "without Save As");
         let _ = std::fs::remove_dir_all(dir);
     }
 }
