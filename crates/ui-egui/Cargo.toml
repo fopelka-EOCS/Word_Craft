@@ -9,7 +9,9 @@ description = "WordCraft egui front end (Word-style ribbon UI); swappable: nothi
 workspace = true
 
 [dependencies]
-craft-ui = { git = "https://github.com/storytold/craft-libs", rev = "d27646a5f7c8b4fc85d9dd3213b8c88b58e0088d" }
+# The File column and the places panel from storytold/craft-libs#50, pinned to its branch in a fork
+# until it merges (that branch carries craft-libs main too).
+craft-ui = { git = "https://github.com/brzuchal/craft-libs", rev = "08c4ae31be68cbbb4e13f188529b8e279f6cf389" }
 # Interface translations: lookup, fallback, plurals and system-locale matching over the craft-i18n
 # catalogs that `build.rs` embeds from `CRAFT_I18N_DIR` (storytold/craft-i18n, pinned in
 # `craft-i18n.rev`). Its own rev, ahead of craft-ui's: lazy per-locale parsing

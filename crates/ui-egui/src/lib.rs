@@ -6230,7 +6230,7 @@ mod tests {
         use printing::Printer;
         for ok in [true, false] {
             let mut a = app();
-            a.printing.printers = vec![Printer { name: "Test Printer".into(), default: true }];
+            a.printing.printers = vec![Printer { name: "Test Printer".into(), label: String::new(), default: true }];
             a.printing.settings.printer = "Test Printer".into();
             a.services.print_native = Some(Box::new(move |_, _, _, _| {
                 let (tx, rx) = std::sync::mpsc::channel();
