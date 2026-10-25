@@ -223,6 +223,8 @@ connectors. VML end caps, including shapetype inheritance, are kept when saved a
 Native Word screenshot comparison and theme-inherited caps remain unverified.
 When content exceeds a preferred column width, AutoFit donors lose equal widths until they reach their content minima. Original synthetic Word probes cover donor reductions; cached field refresh and wrapping remain separate gaps.
 
+Complete positive percentage rows rounded down by at most one fiftieth-percent unit keep their preferred widths. Shared boundaries retain horizontal spans and reject missing or conflicting preferences. Larger deficits and totals above 100% beyond floating-point roundoff retain the existing grid. Original native Word controls cover the rounding case; automatic widths and conflicting preferences remain separate parity gaps.
+
 Behind-text pictures in table cells participate in centre and bottom vertical alignment without increasing row flow height.
 
 TOC refresh reuses direct tab formatting from the first cached entry with a number-separator stop at each level for numbered entries, including imported range fields. Page-number tabs still use the TOC section width. No new default number-tab position is inferred.
@@ -253,6 +255,7 @@ Installed static fonts also resolve by their OpenType PostScript name (name ID 6
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-19 | minor | Reject complete percentage rows above 100% beyond float roundoff before solving cell boundaries. |
 | 2026-10-23 | trivial | cu20we: preserve and render outline caps across DOCX/VML, screen and PDF; synthetic regressions; readiness estimates unchanged |
 | 2026-10-23 | trivial | cu20we: paragraph-relative box floats use the pre-spacing origin; header/footer/cell/text-box regressions; readiness estimates unchanged |
 | 2026-10-24 | trivial | Exact-spacing table contact uses the specified line height in row selection and word skipping; large/small mark regressions in modes 11/12/14/15 (#3977); shape estimates unchanged |
@@ -292,6 +295,7 @@ Installed static fonts also resolve by their OpenType PostScript name (name ID 6
 | 2026-10-16 | trivial | Hint-reliant CJK fonts execute TrueType contour assembly; Windows DFKai-SB no longer loses strokes. Synthetic local-font regression; no font binaries bundled. |
 | 2026-10-16 | trivial | `w:autoSpaceDE` and `w:autoSpaceDN` are laid out: a quarter em between Asian text and Latin text or digits (#2358) |
 | 2026-10-16 | trivial | AutoFit donors lose equal widths, bounded by content minima |
+| 2026-10-17 | trivial | Complete rounded percentage rows replace stale table grids |
 | 2026-10-16 | trivial | Behind-text pictures in table cells participate in centre and bottom vertical alignment without increasing row flow height. |
 | 2026-10-15 | trivial | Absent or zero DrawingML effect extents remain zero on rotated pictures; contracted axes no longer reserve invented effects room. Synthetic quarter-turn import regression (`zero_effects_stay_zero_rotated`). |
 | 2026-10-15 | trivial | Additive paragraph spacing retains the full before-space after a section page break; ordinary overlapping spacing is unchanged. |
