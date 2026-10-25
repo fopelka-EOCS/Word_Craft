@@ -225,6 +225,14 @@ fn cmd_ci() -> Result<(), String> {
         ("test", Box::new(cmd_test)),
         ("i18n-report", Box::new(cmd_i18n_report)),
         ("doctest", Box::new(cmd_doctest)),
+        (
+            "spellbook tests",
+            Box::new(|| {
+                let mut c = cargo();
+                c.args(["test", "--manifest-path", "vendor/spellbook/Cargo.toml"]);
+                run(c, "cargo test --manifest-path vendor/spellbook/Cargo.toml")
+            }),
+        ),
         ("assets", Box::new(|| assets::run(&root()))),
         ("layers", Box::new(cmd_layers)),
         ("wasm", Box::new(cmd_wasm)),

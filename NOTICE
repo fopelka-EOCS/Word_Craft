@@ -106,3 +106,15 @@ The backend patch prevents finalization during an unwind and rejects a writer af
 cleanup. WordCraft enables only writing; PDF import and its image decoders are not enabled.
 
 No Microsoft, Adobe, Avid or Autodesk icons, images, templates or artwork are included.
+
+- Spellbook 0.4.2 — Michael Davis and contributors; MPL-2.0.
+  https://github.com/helix-editor/spellbook
+  Source and license: vendor/spellbook/ (LICENSE, WORDCRAFT-NOTICE.txt).
+  Five local runtime fixes and their regressions are listed in PATCHES.txt;
+  modified files remain MPL.
+
+Source availability for Spellbook:
+The corresponding modified source is included in vendor/spellbook/. Binary
+distributions must provide this notice and access to the exact corresponding
+MPL source revision or source archive. Separate WordCraft files retain their
+MIT OR Apache-2.0 license.
