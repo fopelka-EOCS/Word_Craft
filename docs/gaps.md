@@ -141,6 +141,7 @@ Small follow-ups from the 2026-10-25 field, table and AutoFormat batch (#4232):
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-19 | trivial | New floating drawings receive model ranks above existing drawings before layout/export (#2519). Paste preserves incoming rank order and ties. Exhaustion alone densely renumbers existing ranks without changing their order. Source regressions are prepared, not executed; no new Word comparison or behind-text ordering claim. |
 | 2026-10-25 | trivial | Small follow-ups from the field, table and AutoFormat batch (#4232) |
 | 2026-10-25 | trivial | Highlight decisions include fully selected paragraph marks in whole cells and ordinary ranges, including empty paragraphs; partial text columns exclude unselected marks (#4085). |
 | 2026-10-25 | trivial | Highlight toggle checks the full target beyond 10,000 runs without collecting resolved formatting; mixed and inherited tails and Undo/Redo covered (#4085). |

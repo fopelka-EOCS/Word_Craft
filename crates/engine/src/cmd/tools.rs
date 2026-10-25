@@ -1965,7 +1965,7 @@ fn quick_parts(s: &mut Session, v: &Value, gallery: &str) -> CmdResult {
         s.doc.glossary.remove(i);
     }
     if let Some(name) = p::str(v, "insert") {
-        let frag = match s.building_blocks.get(name) {
+        let mut frag = match s.building_blocks.get(name) {
             Some(f) => f.clone(),
             None => {
                 let e = document_entry(&s.doc, name, gallery).and_then(|i| s.doc.glossary.get(i));
@@ -1974,6 +1974,7 @@ fn quick_parts(s: &mut Session, v: &Value, gallery: &str) -> CmdResult {
             }
         };
         let at = delete_selection(s)?;
+        super::z_order::fragment(&mut s.doc, &mut frag, super::z_order::Intent::Fresh)?;
         let end = s.doc.insert_fragment(&at, &frag)?;
         s.sel = Selection::caret(end);
     }
