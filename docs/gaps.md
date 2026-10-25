@@ -106,11 +106,13 @@ The same gaps grouped the way the parity documents are, for agents working in on
   their formatting (system clipboard HTML/RTF), Merge Formatting keeps emphasis, Paste Special lists
   what the system clipboard holds, and Linux/Wayland clipboard pictures paste (#687, #833);
 - **UI/UX gaps:** #7, #18, #24; context menus for objects (the table's landed; it still lacks Border Styles); Linux title bar theming (#78); File ›
-  still missing: the Paste Options button after a paste, and RTF on macOS and X11. Copy puts
-  HTML beside the text on the clipboard, so other programs keep the formatting (#1523), with
-  equations as MathML (#816), and a lone equation also in the MathML clipboard formats on
-  Windows and macOS (#1297; pasting into Word/LibreOffice not yet verified); RTF on the
-  clipboard is not written yet.
+  still missing: the Paste Options button after a paste. Copy puts HTML and RTF beside the text
+  on the clipboard, so other programs keep the formatting (#1523), with equations as MathML
+  (#816), and a lone equation also in the MathML clipboard formats on Windows and macOS (#1297;
+  pasting into Word/LibreOffice not yet verified); RTF is written on Windows, macOS and Wayland,
+  while an X11 copy still carries text and HTML only (arboard owns the selection there); a
+  copy of only pictures or shapes carries neither, so WordCraft pastes its own copy. Paste
+  reads RTF on all four.
   Options › Animation effects › Use system setting reads macOS (Reduce motion) and the Linux/BSD
   desktops (`apps/wordcraft/src/animations.rs`) but hasn't been tried on a Mac or in a real
   GNOME or KDE session yet.
@@ -141,6 +143,7 @@ Small follow-ups from the 2026-10-25 field, table and AutoFormat batch (#4232):
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-17 | trivial | UI/UX gaps: copies put RTF on the clipboard (Windows, macOS, Wayland; not X11), and paste reads RTF on macOS and X11 too |
 | 2026-10-25 | trivial | Small follow-ups from the field, table and AutoFormat batch (#4232) |
 | 2026-10-25 | trivial | Highlight decisions include fully selected paragraph marks in whole cells and ordinary ranges, including empty paragraphs; partial text columns exclude unselected marks (#4085). |
 | 2026-10-25 | trivial | Highlight toggle checks the full target beyond 10,000 runs without collecting resolved formatting; mixed and inherited tails and Undo/Redo covered (#4085). |

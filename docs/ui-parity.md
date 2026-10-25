@@ -76,6 +76,7 @@ Footnote and endnote editing keeps body and note text at normal opacity, on ligh
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-17 | trivial | Copy and Cut put RTF beside the text and HTML on the system clipboard, for programs that read RTF rather than HTML (Windows "Rich Text Format", macOS `public.rtf`, Wayland `text/rtf`; an X11 copy stays text and HTML, since arboard owns the selection there; a copy of only pictures or shapes carries no HTML or RTF, so pasting it back keeps every detail); Paste reads another program's RTF on macOS and X11 too, as on Windows and Wayland |
 | 2026-10-25 | trivial | Text Highlight Color shows the remembered colour on the ribbon and mini-toolbar buttons; No Color leaves the pen without a misleading yellow bar (#4087) |
 | 2026-10-24 | trivial | Read Mode: a Page color menu (None, Sepia, Inverse) beside Line spacing; the columns are drawn on white, sepia or a dark page, in place of the document's page color (`view.readPageColor`) |
 | 2026-10-24 | trivial | Reading Mode: Read Mode's View menu in the parity catalog; Column Width and Page Color work, Layout is missing |
